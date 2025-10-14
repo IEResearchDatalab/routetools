@@ -36,7 +36,11 @@ main = "routetools.main:main"
 packages = ["routetools"]
 
 [tool.setuptools_scm]
-# Importante crear esta sección vacia para activar el plugin
+# Configure setuptools_scm to write a version file and provide a fallback when
+# git metadata is not available (this ensures editable installs and lockfile
+# generation can see a concrete version).
+write_to = "routetools/_version.py"
+fallback_version = "0+unknown"
 
 [tool.ruff]
 line-length = 88
