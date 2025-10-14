@@ -29,7 +29,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Validate uv.lock
         # Quick parse check to fail fast if uv.lock is malformed
-        run: python tools_parse_uv_lock.py
+        run: python tools/tools_parse_uv_lock.py
       - name: Set up uv
         run: curl -LsSf https://astral.sh/uv/0.4.3/install.sh | sh
       - name: Test with pytest
