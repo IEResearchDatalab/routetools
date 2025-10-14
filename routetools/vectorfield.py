@@ -48,7 +48,7 @@ def time_invariant(
     return func
 
 
-@jit
+@jit  # type: ignore[misc]
 @time_invariant
 def vectorfield_circular(
     x: jnp.ndarray,
@@ -69,7 +69,7 @@ def vectorfield_circular(
     return u, v
 
 
-@jit
+@jit  # type: ignore[misc]
 @time_variant
 def vectorfield_doublegyre(
     x: jnp.ndarray,
@@ -114,7 +114,7 @@ def _Rv(x: jnp.ndarray, y: jnp.ndarray, a: float, b: float) -> jnp.ndarray:
     return 1 / (3 * ((x - a) ** 2 + (y - b) ** 2) + 1) * (x - a)
 
 
-@jit
+@jit  # type: ignore[misc]
 @time_invariant
 def vectorfield_fourvortices(
     x: jnp.ndarray,
@@ -132,7 +132,7 @@ def vectorfield_fourvortices(
     return u, v
 
 
-@jit
+@jit  # type: ignore[misc]
 @time_invariant
 def vectorfield_swirlys(
     x: jnp.ndarray,
@@ -150,7 +150,7 @@ def vectorfield_swirlys(
     return u, v
 
 
-@jit
+@jit  # type: ignore[misc]
 @time_variant
 def vectorfield_techy(
     x: jnp.ndarray, y: jnp.ndarray, t: jnp.ndarray, sink: float = -0.3
@@ -173,7 +173,7 @@ def vectorfield_techy(
     return u, v
 
 
-@jit
+@jit  # type: ignore[misc]
 @time_invariant
 def vectorfield_zero(
     x: jnp.ndarray, y: jnp.ndarray, t: jnp.ndarray

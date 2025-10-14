@@ -250,7 +250,7 @@ def plot_land_avoidance(
 
     # Generate plots for the worst ten examples
     idx = 0
-    for complexity, df_sub in df_land.groupby("complexity"):
+    for _, df_sub in df_land.groupby("complexity"):
         # Sort by gain
         df_sub = df_sub.sort_values("gain_fms", ascending=True)
         # Take the worst three examples

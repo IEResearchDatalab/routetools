@@ -94,15 +94,14 @@ def plot_curve(
         if len(ls_name) == len(ls_curve):
             label = ls_name[idx]
         if len(ls_cost) == len(ls_curve):
-            c = ls_cost[idx]
-            label += f" ({cost} = {c:.3f})"
+            cost_val = ls_cost[idx]
+            label += f" ({cost} = {cost_val:.3f})"
         # Assign a color based on the label
-        for key, color in DICT_COLOR.items():
+        color: str | None = None
+        for key, col in DICT_COLOR.items():
             if label.startswith(key):
-                color = DICT_COLOR[key]
+                color = col
                 break
-        else:
-            color = None
         # Plot the curve
         ax.plot(
             curve[:, 0],
@@ -114,14 +113,13 @@ def plot_curve(
             color=color,
         )
         # Update limits according to the curve
-        xlim = (
-            min(xlim[0], min(curve[:, 0])),
-            max(xlim[1], max(curve[:, 0])),
-        )
-        ylim = (
-            min(ylim[0], min(curve[:, 1])),
-            max(ylim[1], max(curve[:, 1])),
-        )
+        # Ensure xlim/ylim keep float types (convert jnp types to float)
+        x0 = float(min(xlim[0], float(min(curve[:, 0]))))
+        x1 = float(max(xlim[1], float(max(curve[:, 0]))))
+        y0 = float(min(ylim[0], float(min(curve[:, 1]))))
+        y1 = float(max(ylim[1], float(max(curve[:, 1]))))
+        xlim = (x0, x1)
+        ylim = (y0, y1)
 
     # Plot the start and end points
     src = curve[0]
