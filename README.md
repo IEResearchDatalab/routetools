@@ -130,8 +130,7 @@ make mypy
 
 ## Developer practices (quick guide)
 
-Follow these steps locally before pushing or opening a PR to keep the
-repository stable and CI-green:
+Follow these steps locally before pushing or opening a PR to keep the repository stable and CI-green:
 
 1. Parse the lockfile quickly:
 
@@ -162,8 +161,6 @@ mypy --install-types --non-interactive
 uv run pytest
 ```
 
-5. If you need to validate reproducible environment creation, run
-   `uv sync --dev --frozen` on a Linux environment (CI will run this step).
+5. If you need to validate reproducible environment creation, run `uv sync --dev --frozen` on a Linux environment (CI will run this step).
 
-If you are on Windows and the project requires platform-specific packages
-(for example CUDA-enabled JAX), use WSL2 or a Linux runner for the uv sync step.
+If you are on Windows and the project requires platform-specific packages (for example CUDA-enabled JAX), use WSL2 or a Linux runner for the uv sync step.
