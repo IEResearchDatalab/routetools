@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable
+from math import ceil
 from typing import Any
 
 import jax.numpy as jnp
@@ -12,15 +13,39 @@ from routetools.land import Land
 def get_currents_to_vectorfield(
     ocean: Ocean,
 ) -> Callable[[jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]:
+    """Convert an Ocean instance to a vector field function.
+
+    The returned function takes latitude, longitude, and time arrays as input,
+    and returns the corresponding current vectors (v, u).
+
+    Parameters
+    ----------
+    ocean : Ocean
+        An instance of the Ocean class to retrieve current data from.
+
+    Returns
+    -------
+    Callable[[jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray
+    , jnp.ndarray]]
+        A function that takes latitude, longitude, and time arrays as input,
+        and returns the corresponding current vectors (v, u).
+    """
+
     # Get currents requires len(ts) == len(lat) == len(lon)
     # But our code handles len(ts) < len(lat)
     # So we create a wrapper function
-    def vectorfield(lat: jnp.ndarray, lon: jnp.ndarray, ts: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def vectorfield(
+        lat: jnp.ndarray, lon: jnp.ndarray, ts: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        # If `ts` is a single value, make it an array
+        if isinstance(ts, int | float):
+            ts = jnp.array([ts])
         # Repeat the last time value until it matches the length of lat and lon
         diff = len(lat) - len(ts)
         ts_full = jnp.concatenate([ts, jnp.full(diff, ts[-1])]) if diff > 0 else ts
 
-        # Make ts_full match the shape of lat and lon if they are 2D, by repeating columns
+        # Make ts_full match the shape of lat and lon if they are 2D,
+        # by repeating columns
         if lat.ndim > 1:
             ts_full = jnp.repeat(ts_full[:, None], lat.shape[1], axis=1)
             # Next, flatten them
@@ -32,14 +57,14 @@ def get_currents_to_vectorfield(
             shape = None  # No need to reshape later
 
         # Get currents
-        v,u = ocean.get_currents(lat, lon, ts_full)
+        v, u = ocean.get_currents(lat, lon, ts_full)
 
         # Reshape to the original shape if needed
         if shape is not None:
             v = v.reshape(shape)
             u = u.reshape(shape)
-            
-        return v,u
+
+        return v, u
 
     return vectorfield
 
@@ -47,39 +72,42 @@ def get_currents_to_vectorfield(
 class LandBenchmark(Land):
     """Land penalization for benchmark instances."""
 
-    def __init__(self, ocean: Ocean) -> None:
+    def __init__(
+        self,
+        ocean: Ocean,
+        resolution: int | tuple[int, int] | None = None,
+    ) -> None:
         """Land penalization for benchmark instances."""
+        # Ensure resolution is 2D
+        if resolution is None:
+            resolution = (1, 1)
+        elif isinstance(resolution, int):
+            resolution = (resolution, resolution)
+        elif len(resolution) != 2:
+            raise ValueError(
+                f"""
+                Resolution must be a tuple of length 2, not {len(resolution)}
+                """
+            )
         self.ocean = ocean
-
-    def penalization(self, curve: jnp.ndarray, penalty: float = 10) -> jnp.ndarray:
-        """Compute the land penalization for a given curve.
-
-        Parameters
-        ----------
-        curve : jnp.ndarray
-            The curve to evaluate, shape (L, 2)
-        penalty : float, optional
-            The penalty factor, by default 10
-
-        Returns
-        -------
-        jnp.ndarray
-            The penalization value, shape ()
-        """
-        # Extract latitude and longitude from the curve
-        lat = curve[..., 0]
-        lon = curve[..., 1]
-        # If they have more than 1 dimension, flatten them
-        shape = lat.shape  # Save the original shape
-        lat = lat.flatten()
-        lon = lon.flatten()
-        # Check which points are on land
-        on_land = self.ocean.get_land(lat, lon)
-        # Reshape to match the input shape
-        on_land = on_land.reshape(shape)
-        # Compute the penalization as the number of points on land times the penalty
-        penalization = jnp.sum(on_land, axis=-1) * penalty
-        return penalization
+        bottom, left, up, right = ocean.bounding_box
+        lenx = ceil(up - bottom) * resolution[0]
+        leny = ceil(right - left) * resolution[1]
+        self.x = jnp.linspace(bottom, up, lenx)
+        self.y = jnp.linspace(left, right, leny)
+        xx, yy = jnp.meshgrid(self.x, self.y, indexing="ij")
+        xx = xx.flatten()
+        yy = yy.flatten()
+        array = ocean.get_land(xx, yy)
+        array = array.reshape((lenx, leny))  # Transpose to match x,y
+        super().__init__(
+            xlim=(bottom, up),
+            ylim=(left, right),
+            water_level=0.5,
+            resolution=resolution,
+            land_array=array,
+            outbounds_is_land=True,
+        )
 
 
 def optimize_benchmark_instance(
@@ -189,5 +217,7 @@ def optimize_benchmark_instance(
         "cost": es.best.f,
         "niter": es.countiter,
         "comp_time": int(round(time.time() - start)),
+        "vectorfield": vectorfield,
+        "land": land,
     }
     return curve_best, dict_cmaes

@@ -21,6 +21,7 @@ class Land:
         interpolate: int = 100,
         outbounds_is_land: bool = False,
         random_seed: int | None = None,
+        land_array: jnp.ndarray | None = None,
     ):
         """Class to check if points on a curve are on land.
 
@@ -61,7 +62,18 @@ class Land:
         # Generate land
         lenx = ceil(xlim[1] - xlim[0]) * resolution[0]
         leny = ceil(ylim[1] - ylim[0]) * resolution[1]
-        land = pn2d((lenx, leny), res=resolution, rng=rng)
+        if land_array is None:
+            land = pn2d((lenx, leny), res=resolution, rng=rng)
+        else:
+            land = jnp.array(land_array)
+            if land.shape != (lenx, leny):
+                raise ValueError(
+                    f"""
+                    The provided land array has shape {land.shape}, but the expected
+                    shape is {(lenx, leny)}. Please provide an array with the correct
+                    shape or set resolution to None.
+                    """
+                )
         # Normalize land between 0 and 1
         land = (land - jnp.min(land)) / (jnp.max(land) - jnp.min(land))
         # No land should be absolutely 0
