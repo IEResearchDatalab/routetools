@@ -90,7 +90,7 @@ class LandBenchmark(Land):
         """Land penalization for benchmark instances."""
         # Ensure resolution is 2D
         if resolution is None:
-            resolution = (4, 4)
+            resolution = (10, 10)
         elif isinstance(resolution, int):
             resolution = (resolution, resolution)
         elif len(resolution) != 2:
@@ -108,7 +108,7 @@ class LandBenchmark(Land):
         xx, yy = jnp.meshgrid(self.x, self.y, indexing="ij")
         xx = xx.flatten()
         yy = yy.flatten()
-        array = ocean.get_land(yy, xx).T  # Takes lat, lon
+        array = ocean.get_land(yy, xx)  # Takes lat, lon
         # Transpose to match x,y
         array = array.reshape((lenx, leny)).astype(jnp.float32)
         super().__init__(
@@ -184,7 +184,7 @@ def optimize_benchmark_instance(
     # Load ocean and land data
     ocean: Ocean = dict_instance["data"]
     vectorfield = get_currents_to_vectorfield(ocean)
-    land = LandBenchmark(ocean)
+    land = LandBenchmark(ocean, outbounds_is_land=True)
 
     # Extract other parameters
     travel_stw = dict_instance.get("vel_ship")
