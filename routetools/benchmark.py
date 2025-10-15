@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from typing import Any
 
 import jax.numpy as jnp
@@ -6,6 +7,41 @@ from wrr_bench.ocean import Ocean
 
 from routetools.cmaes import _cma_evolution_strategy, control_to_curve
 from routetools.land import Land
+
+
+def get_currents_to_vectorfield(
+    ocean: Ocean,
+) -> Callable[[jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]:
+    # Get currents requires len(ts) == len(lat) == len(lon)
+    # But our code handles len(ts) < len(lat)
+    # So we create a wrapper function
+    def vectorfield(lat: jnp.ndarray, lon: jnp.ndarray, ts: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        # Repeat the last time value until it matches the length of lat and lon
+        diff = len(lat) - len(ts)
+        ts_full = jnp.concatenate([ts, jnp.full(diff, ts[-1])]) if diff > 0 else ts
+
+        # Make ts_full match the shape of lat and lon if they are 2D, by repeating columns
+        if lat.ndim > 1:
+            ts_full = jnp.repeat(ts_full[:, None], lat.shape[1], axis=1)
+            # Next, flatten them
+            shape = lat.shape  # Save the original shape
+            ts_full = ts_full.flatten()
+            lat = lat.flatten()
+            lon = lon.flatten()
+        else:
+            shape = None  # No need to reshape later
+
+        # Get currents
+        v,u = ocean.get_currents(lat, lon, ts_full)
+
+        # Reshape to the original shape if needed
+        if shape is not None:
+            v = v.reshape(shape)
+            u = u.reshape(shape)
+            
+        return v,u
+
+    return vectorfield
 
 
 class LandBenchmark(Land):
@@ -31,20 +67,24 @@ class LandBenchmark(Land):
             The penalization value, shape ()
         """
         # Extract latitude and longitude from the curve
-        lat = curve[:, 0]
-        lon = curve[:, 1]
+        lat = curve[..., 0]
+        lon = curve[..., 1]
+        # If they have more than 1 dimension, flatten them
+        shape = lat.shape  # Save the original shape
+        lat = lat.flatten()
+        lon = lon.flatten()
         # Check which points are on land
         on_land = self.ocean.get_land(lat, lon)
+        # Reshape to match the input shape
+        on_land = on_land.reshape(shape)
         # Compute the penalization as the number of points on land times the penalty
-        penalization = jnp.sum(on_land) * penalty
+        penalization = jnp.sum(on_land, axis=-1) * penalty
         return penalization
 
 
 def optimize_benchmark_instance(
     dict_instance: dict[str, Any],
     penalty: float = 10,
-    travel_stw: float | None = None,
-    travel_time: float | None = None,
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,
@@ -75,12 +115,6 @@ def optimize_benchmark_instance(
         lat_start, lon_start, lat_end, lon_end, date_start, vel_ship, bounding_box, data
     penalty : float, optional
         Penalty for land points, by default 10
-    travel_stw : float, optional
-        The boat will have this fixed speed through water (STW).
-        If set, then `travel_time` must be None. By default None
-    travel_time : float, optional
-        The boat can regulate its STW but must complete the path in exactly this time.
-        If set, then `travel_stw` must be None
     K : int, optional
         Number of free Bézier control points. By default 6
     L : int, optional
@@ -109,9 +143,14 @@ def optimize_benchmark_instance(
     src = jnp.array([dict_instance["lat_start"], dict_instance["lon_start"]])
     dst = jnp.array([dict_instance["lat_end"], dict_instance["lon_end"]])
 
+    # Load ocean and land data
     ocean: Ocean = dict_instance["data"]
-    vectorfield = ocean.get_currents
+    vectorfield = get_currents_to_vectorfield(ocean)
     land = LandBenchmark(ocean)
+
+    # Extract other parameters
+    travel_stw = dict_instance.get("vel_ship")
+    travel_time = dict_instance.get("travel_time")
 
     # Initial solution as a straight line
     x0 = jnp.linspace(src, dst, K - 2).flatten()
