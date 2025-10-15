@@ -64,6 +64,10 @@ class Land:
         leny = ceil(ylim[1] - ylim[0]) * resolution[1]
         if land_array is None:
             land = pn2d((lenx, leny), res=resolution, rng=rng)
+            # Normalize land between 0 and 1
+            land = (land - jnp.min(land)) / (jnp.max(land) - jnp.min(land))
+            # No land should be absolutely 0
+            land = jnp.clip(land, 1e-6, 1)
         else:
             land = jnp.array(land_array)
             if land.shape != (lenx, leny):
@@ -74,10 +78,6 @@ class Land:
                     shape or set resolution to None.
                     """
                 )
-        # Normalize land between 0 and 1
-        land = (land - jnp.min(land)) / (jnp.max(land) - jnp.min(land))
-        # No land should be absolutely 0
-        land = jnp.clip(land, 1e-6, 1)
 
         # Store the class properties
         self._array = jnp.array(land)
