@@ -70,8 +70,8 @@ def get_currents_to_vectorfield(
 
         # Reshape to the original shape if needed
         if shape is not None:
-            v = v.reshape(shape)
             u = u.reshape(shape)
+            v = v.reshape(shape)
 
         return u, v
 
@@ -85,6 +85,7 @@ class LandBenchmark(Land):
         self,
         ocean: Ocean,
         resolution: int | tuple[int, int] | None = None,
+        **kwargs: Any,
     ) -> None:
         """Land penalization for benchmark instances."""
         # Ensure resolution is 2D
@@ -108,14 +109,14 @@ class LandBenchmark(Land):
         xx = xx.flatten()
         yy = yy.flatten()
         array = ocean.get_land(yy, xx).T  # Takes lat, lon
-        array = array.reshape((lenx, leny))  # Transpose to match x,y
+        # Transpose to match x,y
+        array = array.reshape((lenx, leny)).astype(jnp.float32)
         super().__init__(
             xlim=(left, right),
             ylim=(bottom, up),
-            water_level=0.5,
             resolution=resolution,
             land_array=array,
-            outbounds_is_land=True,
+            **kwargs,
         )
 
 
