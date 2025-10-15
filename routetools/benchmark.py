@@ -35,7 +35,7 @@ def get_currents_to_vectorfield(
     # But our code handles len(ts) < len(lat)
     # So we create a wrapper function
     def vectorfield(
-        lat: jnp.ndarray, lon: jnp.ndarray, ts: jnp.ndarray
+        lon: jnp.ndarray, lat: jnp.ndarray, ts: jnp.ndarray
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # If `ts` is a single value, make it an array
         if isinstance(ts, int | float):
@@ -64,7 +64,7 @@ def get_currents_to_vectorfield(
             v = v.reshape(shape)
             u = u.reshape(shape)
 
-        return v, u
+        return u, v
 
     return vectorfield
 
@@ -80,7 +80,7 @@ class LandBenchmark(Land):
         """Land penalization for benchmark instances."""
         # Ensure resolution is 2D
         if resolution is None:
-            resolution = (1, 1)
+            resolution = (4, 4)
         elif isinstance(resolution, int):
             resolution = (resolution, resolution)
         elif len(resolution) != 2:
@@ -91,18 +91,18 @@ class LandBenchmark(Land):
             )
         self.ocean = ocean
         bottom, left, up, right = ocean.bounding_box
-        lenx = ceil(up - bottom) * resolution[0]
-        leny = ceil(right - left) * resolution[1]
-        self.x = jnp.linspace(bottom, up, lenx)
-        self.y = jnp.linspace(left, right, leny)
+        lenx = ceil(right - left) * resolution[0]
+        leny = ceil(up - bottom) * resolution[1]
+        self.x = jnp.linspace(left, right, lenx)
+        self.y = jnp.linspace(bottom, up, leny)
         xx, yy = jnp.meshgrid(self.x, self.y, indexing="ij")
         xx = xx.flatten()
         yy = yy.flatten()
-        array = ocean.get_land(xx, yy)
+        array = ocean.get_land(yy, xx).T  # Takes lat, lon
         array = array.reshape((lenx, leny))  # Transpose to match x,y
         super().__init__(
-            xlim=(bottom, up),
-            ylim=(left, right),
+            xlim=(left, right),
+            ylim=(bottom, up),
             water_level=0.5,
             resolution=resolution,
             land_array=array,
@@ -168,8 +168,8 @@ def optimize_benchmark_instance(
         The optimized curve (shape L x 2), and the fuel cost
     """
     # Extract relevant information from the problem instance
-    src = jnp.array([dict_instance["lat_start"], dict_instance["lon_start"]])
-    dst = jnp.array([dict_instance["lat_end"], dict_instance["lon_end"]])
+    src = jnp.array([dict_instance["lon_start"], dict_instance["lat_start"]])
+    dst = jnp.array([dict_instance["lon_end"], dict_instance["lat_end"]])
 
     # Load ocean and land data
     ocean: Ocean = dict_instance["data"]
