@@ -28,6 +28,7 @@ def plot_curve(
     land: Land | None = None,
     xlim: tuple[float, float] = (jnp.inf, -jnp.inf),
     ylim: tuple[float, float] = (jnp.inf, -jnp.inf),
+    gridstep: float = 0.25,
     figsize: tuple[float, float] = (4, 4),
     cost: str = "cost",
     legend_outside: bool = False,
@@ -54,6 +55,8 @@ def plot_curve(
         x limits, by default None
     ylim : tuple | None, optional
         y limits, by default None
+    gridstep : float, optional
+        Grid step for the vectorfield, by default 0.25
     figsize : tuple, optional
         Figure size, by default (4, 4)
     cost : str, optional
@@ -128,11 +131,14 @@ def plot_curve(
     ax.plot(dst[0], dst[1], "o", color="green", zorder=3)
 
     # Plot the vectorfield
-    xvf = jnp.arange(xlim[0] - 0.5, xlim[1] + 0.5, 0.25)
-    yvf = jnp.arange(ylim[0] - 0.5, ylim[1] + 0.5, 0.25)
+    xvf = jnp.arange(xlim[0] - gridstep * 2, xlim[1] + gridstep * 2, gridstep)
+    yvf = jnp.arange(ylim[0] - gridstep * 2, ylim[1] + gridstep * 2, gridstep)
     t = 0
     X, Y = jnp.meshgrid(xvf, yvf)
     U, V = vectorfield(X, Y, t)
+    # Scale U and V for better visualization
+    mag = jnp.sqrt(U**2 + V**2)
+    U, V = U / mag, V / mag
     # Skip if all is 0
     if not jnp.all(U == 0) or not jnp.all(V == 0):
         ax.quiver(X, Y, U, V, zorder=1)
