@@ -1,3 +1,12 @@
+# Disable JAX before anything else
+# This must be at the very top, before any JAX import
+# Required to ensure compatibility with wrr_bench
+import os
+
+os.environ["JAX_DISABLE_JIT"] = "1"
+
+# Now import the rest of the modules
+
 import time
 from collections.abc import Callable
 from math import ceil
