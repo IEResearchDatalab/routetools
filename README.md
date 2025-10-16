@@ -94,6 +94,20 @@ And to install `weather-routing-benchmarks` as a package in editable mode, run t
 uv run pip install -e ../weather-routing-benchmarks
 ```
 
+## Run examples
+
+There are several examples in the `scripts/` folder. You can run them with `uv run`, for instance:
+
+```bash
+uv run scripts/single_run.py
+```
+
+If your computer does not have a GPU, you can force JAX to use the CPU with `JAX_PLATFORMS=cpu` before the command. For instance:
+
+```bash
+JAX_PLATFORMS=cpu uv run scripts/single_run.py
+```
+
 ## Setup development environment (Unix)
 
 Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and pre-commit hooks:
