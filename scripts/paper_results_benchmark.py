@@ -2,7 +2,11 @@ import matplotlib.pyplot as plt
 import typer
 from wrr_bench.benchmark import load
 
-from routetools.benchmark import optimize_benchmark_instance
+from routetools.benchmark import (
+    extract_benchmark_instance,
+    optimize_benchmark_instance,
+    optimize_fms_benchmark_instance,
+)
 from routetools.plot import plot_curve
 
 
@@ -26,10 +30,13 @@ def single_run(
         data_path="../weather-routing-benchmarks/data",
     )
 
+    # Extract relevant information from the problem instance
+    dict_extracted = extract_benchmark_instance(dict_instance)
+
     print("The problem instance contains the following information:")
     print(", ".join(list(dict_instance.keys())))
 
-    curve_opt, info = optimize_benchmark_instance(
+    curve_cmaes, _ = optimize_benchmark_instance(
         dict_instance,
         penalty=penalty,
         K=K,
@@ -41,14 +48,24 @@ def single_run(
         damping=damping,
         maxfevals=maxfevals,
     )
-    vectorfield = info["vectorfield"]
-    land = info["land"]
+    vectorfield = dict_extracted["vectorfield"]
+    land = dict_extracted["land"]
+
+    # FMS
+    curve_fms, _ = optimize_fms_benchmark_instance(
+        dict_instance,
+        curve=curve_cmaes,
+        tolfun=tolfun,
+        damping=damping,
+        maxfevals=maxfevals,
+        verbose=True,
+    )
 
     # Plot the curve
     plot_curve(
         vectorfield=vectorfield,
-        ls_curve=[curve_opt],
-        ls_name=["Optimized"],
+        ls_curve=[curve_cmaes, curve_fms],
+        ls_name=["CMA-ES", "FMS"],
         land=land,
         gridstep=0.5,
         figsize=(6, 6),

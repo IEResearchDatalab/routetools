@@ -7,7 +7,6 @@ os.environ["JAX_DISABLE_JIT"] = "1"
 
 # Now import the rest of the modules
 
-import time
 from collections.abc import Callable
 from math import ceil
 from typing import Any
@@ -15,7 +14,8 @@ from typing import Any
 import jax.numpy as jnp
 from wrr_bench.ocean import Ocean
 
-from routetools.cmaes import _cma_evolution_strategy, control_to_curve
+from routetools.cmaes import optimize
+from routetools.fms import optimize_fms
 from routetools.land import Land
 
 
@@ -120,6 +120,54 @@ class LandBenchmark(Land):
         )
 
 
+def extract_benchmark_instance(
+    dict_instance: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Extract relevant information from a benchmark instance dictionary.
+
+    Parameters
+    ----------
+    dict_instance : dict
+        Dictionary containing the problem instance, as loaded with
+        `wrr_bench.benchmark.load`
+        The problem instance contains the following information:
+        lat_start, lon_start, lat_end, lon_end, date_start, vel_ship, bounding_box, data
+
+    Returns
+    -------
+    dict[str, Any]
+        A dictionary containing the extracted information:
+        - src: jnp.ndarray of shape (2,) with the starting point (lon, lat)
+        - dst: jnp.ndarray of shape (2,) with the ending point (lon, lat)
+        - travel_stw: float or None with the speed through water
+        - travel_time: float or None with the total travel time
+        - vectorfield: Callable function to get the current vectors
+        - land: Land instance for land penalization
+    """
+    # Extract relevant information from the problem instance
+    src = jnp.array([dict_instance["lon_start"], dict_instance["lat_start"]])
+    dst = jnp.array([dict_instance["lon_end"], dict_instance["lat_end"]])
+
+    # Load ocean and land data
+    ocean: Ocean = dict_instance["data"]
+    vectorfield = get_currents_to_vectorfield(ocean)
+    land = LandBenchmark(ocean, outbounds_is_land=True)
+
+    # Extract other parameters
+    travel_stw = dict_instance.get("vel_ship")
+    travel_time = dict_instance.get("travel_time")
+
+    return {
+        "src": src,
+        "dst": dst,
+        "travel_stw": travel_stw,
+        "travel_time": travel_time,
+        "vectorfield": vectorfield,
+        "land": land,
+    }
+
+
 def optimize_benchmark_instance(
     dict_instance: dict[str, Any],
     penalty: float = 10,
@@ -177,35 +225,17 @@ def optimize_benchmark_instance(
     tuple[jnp.ndarray, float]
         The optimized curve (shape L x 2), and the fuel cost
     """
-    # Extract relevant information from the problem instance
-    src = jnp.array([dict_instance["lon_start"], dict_instance["lat_start"]])
-    dst = jnp.array([dict_instance["lon_end"], dict_instance["lat_end"]])
+    dict_extracted = extract_benchmark_instance(dict_instance)
 
-    # Load ocean and land data
-    ocean: Ocean = dict_instance["data"]
-    vectorfield = get_currents_to_vectorfield(ocean)
-    land = LandBenchmark(ocean, outbounds_is_land=True)
-
-    # Extract other parameters
-    travel_stw = dict_instance.get("vel_ship")
-    travel_time = dict_instance.get("travel_time")
-
-    # Initial solution as a straight line
-    x0 = jnp.linspace(src, dst, K - 2).flatten()
-    # Initial standard deviation to sample new solutions
-    # One sigma is half the distance between src and dst
-    sigma0 = float(jnp.linalg.norm(dst - src) * sigma0 / 2)
-
-    start = time.time()
-    es = _cma_evolution_strategy(
-        vectorfield=vectorfield,
-        src=src,
-        dst=dst,
-        x0=x0,
-        land=land,
+    curve_best, dict_cmaes = optimize(
+        src=dict_extracted["src"],
+        dst=dict_extracted["dst"],
+        vectorfield=dict_extracted["vectorfield"],
+        land=dict_extracted["land"],
+        travel_stw=dict_extracted["travel_stw"],
+        travel_time=dict_extracted["travel_time"],
         penalty=penalty,
-        travel_stw=travel_stw,
-        travel_time=travel_time,
+        K=K,
         L=L,
         num_pieces=num_pieces,
         popsize=popsize,
@@ -216,18 +246,57 @@ def optimize_benchmark_instance(
         seed=seed,
         verbose=verbose,
     )
-    if verbose:
-        print("Optimization time:", time.time() - start)
-        print("Fuel cost:", es.best.f)
 
-    Xbest = es.best.x[None, :]
-    curve_best = control_to_curve(Xbest, src, dst, L=L, num_pieces=num_pieces)[0, ...]
-
-    dict_cmaes = {
-        "cost": es.best.f,
-        "niter": es.countiter,
-        "comp_time": int(round(time.time() - start)),
-        "vectorfield": vectorfield,
-        "land": land,
-    }
     return curve_best, dict_cmaes
+
+
+def optimize_fms_benchmark_instance(
+    dict_instance: dict[str, Any],
+    curve: jnp.ndarray,
+    tolfun: float = 1e-5,
+    damping: float = 1,
+    maxfevals: int = 10000,
+    verbose: bool = True,
+) -> tuple[jnp.ndarray, dict[str, Any]]:
+    """
+    Refine a given path using the FMS variational optimization algorithm.
+
+    Parameters
+    ----------
+    dict_instance : dict
+        Dictionary containing the problem instance, as loaded with
+        `wrr_bench.benchmark.load`
+        The problem instance contains the following information:
+        lat_start, lon_start, lat_end, lon_end, date_start, vel_ship, bounding_box, data
+    curve : jnp.ndarray
+        Initial path to refine (shape L x 2)
+    tolfun : float, optional
+        Tolerance for the optimizer. By default 1e-5
+    damping : float, optional
+        Damping factor for the optimizer. By default 1
+    maxfevals : int, optional
+        Maximum number of function evaluations. By default 10000
+    verbose : bool, optional
+        By default True
+
+    Returns
+    -------
+    tuple[jnp.ndarray, dict[str, Any]]
+        The optimized curve (shape L x 2), and a dictionary with information about
+        the optimization process
+    """
+    dict_extracted = extract_benchmark_instance(dict_instance)
+
+    curve_opt, dict_fms = optimize_fms(
+        vectorfield=dict_extracted["vectorfield"],
+        curve=curve,
+        land=dict_extracted["land"],
+        travel_stw=dict_extracted["travel_stw"],
+        travel_time=dict_extracted["travel_time"],
+        tolfun=tolfun,
+        damping=damping,
+        maxfevals=maxfevals,
+        verbose=verbose,
+    )
+
+    return curve_opt, dict_fms
