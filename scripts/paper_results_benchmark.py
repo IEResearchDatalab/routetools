@@ -8,7 +8,7 @@ from routetools.plot import plot_curve
 
 def single_run(
     instance_name: str,
-    penalty: int = 10,
+    penalty: float = 10.0,
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,
@@ -60,7 +60,7 @@ def single_run(
 
 
 def main(
-    penalty: int = 10,
+    penalty: float = 10.0,
     K: int = 6,
     L: int = 128,
     num_pieces: int = 1,
