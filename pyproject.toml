@@ -23,6 +23,7 @@ dependencies = [
     "xarray>=2024.11.0",
     "perlin-numpy>=0.0.1",
     "seaborn>=0.13.2",
+    "typer>=0.19.2",
 ]
 
 [project.urls]
