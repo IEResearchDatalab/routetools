@@ -58,6 +58,56 @@ Install a specific version of the package with `pip` or `uv pip`:
 pip install git+ssh://git@github.com:Weather-Routing-Research/cmaes_bezier_demo.git
 ```
 
+### Benchmark data
+
+The benchmark data used in the examples and tests is not included in the repository. You can download it from the [weather-routing-benchmarks](https://github.com/Weather-Routing-Research/weather-routing-benchmarks).
+
+Clone the repository outside of this one and point to the data folder when loading a benchmark instance, for example:
+
+```python
+from wrr_bench.benchmark import load
+
+dict_instance = load(
+    "DEHAM-USNYC",
+    date_start="2023-01-08",
+    vel_ship=6,
+    data_path="../weather-routing-benchmarks/data",
+)
+
+print("The problem instance contains the following information:")
+print(", ".join(list(dict_instance.keys())))
+```
+
+Our advice is to follow the following folder structure:
+
+```
+some_folder/
+   routetools/  <- this repository
+   weather-routing-benchmarks/  <- benchmark data
+```
+
+From `routetools` you can then point to the data folder with `../weather-routing-benchmarks/data`.
+
+And to install `weather-routing-benchmarks` as a package in editable mode, run the following from `routetools`:
+
+```bash
+uv run pip install -e ../weather-routing-benchmarks
+```
+
+## Run examples
+
+There are several examples in the `scripts/` folder. You can run them with `uv run`, for instance:
+
+```bash
+uv run scripts/single_run.py
+```
+
+If your computer does not have a GPU, you can force JAX to use the CPU with `JAX_PLATFORMS=cpu` before the command. For instance:
+
+```bash
+JAX_PLATFORMS=cpu uv run scripts/single_run.py
+```
+
 ## Setup development environment (Unix)
 
 Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and pre-commit hooks:

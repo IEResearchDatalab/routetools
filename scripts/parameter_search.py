@@ -116,6 +116,8 @@ def run_param_configuration(
             tolfun=params["tolfun"],
             damping=params["damping"],
             maxfevals=params["maxfevals"],
+            weight_l1=params.get("weight_l1", 1.0),
+            weight_l2=params.get("weight_l2", 0.0),
             verbose=False,
         )
         if land(curve).any():
@@ -132,6 +134,8 @@ def run_param_configuration(
             tolfun=params["refiner_tolfun"],
             damping=params["refiner_damping"],
             maxfevals=params["refiner_maxfevals"],
+            weight_l1=params.get("weight_l1", 1.0),
+            weight_l2=params.get("weight_l2", 0.0),
             verbose=False,
         )
         # FMS returns an extra dimension, we ignore that
