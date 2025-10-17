@@ -190,7 +190,7 @@ def cost_function_constant_speed_time_variant(
     t_init = jnp.zeros(curve.shape[0])
 
     # Use lax to implement the for loop
-    t_final, dt_array = lax.scan(step, t_init, inputs)
+    _, dt_array = lax.scan(step, t_init, inputs)
     return dt_array
 
 
