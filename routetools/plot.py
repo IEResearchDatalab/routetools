@@ -17,6 +17,14 @@ DICT_COLOR = {
     "FMS": "green",
 }
 
+DICT_VF_NAMES = {
+    "circular": "Circular",
+    "fourvortices": "Four Vortices",
+    "doublegyre": "Double Gyre",
+    "techy": "Techy",
+    "swirlys": "Swirlys",
+}
+
 
 def plot_curve(
     vectorfield: Callable[
@@ -110,7 +118,7 @@ def plot_curve(
             curve[:, 0],
             curve[:, 1],
             marker="o",
-            markersize=2,
+            markersize=1,
             label=label,
             zorder=2,
             color=color,
@@ -190,6 +198,8 @@ def plot_route_from_json(path_json: str) -> tuple[Figure, Axes]:
     water_level = data["water_level"]
     resolution = data.get("resolution", 0)
     random_seed = data.get("random_seed", 0)
+    k = data.get("K")
+    sigma0 = data.get("sigma0")
 
     # Generate the land
     if resolution != 0:
@@ -223,12 +233,10 @@ def plot_route_from_json(path_json: str) -> tuple[Figure, Axes]:
     )
     # Set the title and tight layout
     if water_level == 1:
-        title = vfname
+        vf = DICT_VF_NAMES.get(vfname, vfname)
+        title = f"{vf} | K = {int(k)} | " + r"$\sigma_0$ = " + f"{sigma0:.1f}"
     else:
-        title = (
-            f"Water level: {water_level} | Resolution: {resolution} | "
-            + f"Seed: {random_seed}"
-        )
+        title = f"Water level: {water_level:.1f} | Resolution: {int(resolution)}"
     ax.set_title(title)
     fig.tight_layout()
     return fig, ax

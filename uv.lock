@@ -328,7 +328,7 @@ wheels = [
 ]
 
 [package.optional-dependencies]
-cuda12 = [
+cuda = [
     { name = "jax-cuda12-plugin", extra = ["with-cuda"] },
     { name = "jaxlib" },
 ]
@@ -1050,7 +1050,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cma" },
     { name = "fastapi" },
-    { name = "jax", extra = ["cuda12"] },
+    { name = "jax" },
     { name = "matplotlib" },
     { name = "pandas" },
     { name = "perlin-numpy" },
@@ -1061,6 +1061,11 @@ dependencies = [
     { name = "typer-slim" },
     { name = "uvicorn" },
     { name = "xarray" },
+]
+
+[package.optional-dependencies]
+cuda = [
+    { name = "jax", extra = ["cuda"] },
 ]
 
 [package.dev-dependencies]
@@ -1076,7 +1081,8 @@ dev = [
 requires-dist = [
     { name = "cma", specifier = ">=4.0.0" },
     { name = "fastapi" },
-    { name = "jax", extras = ["cuda12"], specifier = ">=0.4.33" },
+    { name = "jax", specifier = ">=0.4.33" },
+    { name = "jax", extras = ["cuda"], marker = "extra == 'cuda'", specifier = ">=0.4.33" },
     { name = "matplotlib", specifier = ">=3.9.2" },
     { name = "pandas" },
     { name = "perlin-numpy", specifier = ">=0.0.1" },
@@ -1088,6 +1094,7 @@ requires-dist = [
     { name = "uvicorn" },
     { name = "xarray", specifier = ">=2024.11.0" },
 ]
+provides-extras = ["cuda"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -1,6 +1,7 @@
 import tomllib
 
 import jax.numpy as jnp
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -8,15 +9,88 @@ import typer
 
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
-from routetools.plot import plot_curve, plot_route_from_json
+from routetools.plot import DICT_VF_NAMES, plot_curve, plot_route_from_json
 
-COST_LITERATURE = {
+DICT_COST_LITERATURE = {
     "circular": 1.98,
     "fourvortices": 8.95,
     "doublegyre": 1.01,
     "techy": 1.03,
     "swirlys": 5.73,
 }
+
+
+def plot_viable_area(vectorfield: str, config: str = "config.toml", t: float = 0):
+    """Plot the viable area for the given vector field.
+
+    Parameters
+    ----------
+    vectorfield : str
+        The name of the vector field function to use.
+    """
+    # Load the vectorfield function
+    vectorfield_module = __import__(
+        "routetools.vectorfield", fromlist=["vectorfield_" + vectorfield]
+    )
+    vectorfield_fun = getattr(vectorfield_module, "vectorfield_" + vectorfield)
+
+    # Load the config file as a dictionary
+    with open(config, "rb") as f:
+        config = tomllib.load(f)
+    # Extract the vectorfield parameters
+    vfparams = config["vectorfield"][vectorfield]
+
+    xlim = vfparams.get("xlim", (-1, 1))
+    ylim = vfparams.get("ylim", (-1, 1))
+
+    # Create a meshgrid for the vector field
+    x = jnp.linspace(xlim[0], xlim[1], 1000)
+    y = jnp.linspace(ylim[0], ylim[1], 1000)
+    X, Y = jnp.meshgrid(x, y)
+    T = jnp.zeros_like(X) + t
+    # Compute the vector field
+    U, V = vectorfield_fun(X, Y, T)
+    # Compute the module of the vector field
+    module = jnp.sqrt(U**2 + V**2)
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(8, 8))
+    # Plot the mask as a colormap
+    # We use a colormap that goes from blue (low values) to red (high values)
+    ax.imshow(
+        module,
+        extent=(xlim[0], xlim[1], ylim[0], ylim[1]),
+        origin="lower",
+        cmap="coolwarm",
+        vmin=0,
+        vmax=2,
+    )
+    # Plot the vector field
+    # We will see an arrow every 0.25 units in both directions
+    step = 0.25
+    x = jnp.arange(xlim[0] - step, xlim[1] + step, step)
+    y = jnp.arange(ylim[0] - step, ylim[1] + step, step)
+    X, Y = jnp.meshgrid(x, y)
+    T = jnp.zeros_like(X) + t
+    U, V = vectorfield_fun(X, Y, T)
+    ax.quiver(X, Y, U, V)
+    # Plot source and destination
+    src = jnp.array(vfparams["src"])
+    dst = jnp.array(vfparams["dst"])
+    ax.plot(src[0], src[1], "ro", markersize=10, label="Source")
+    ax.plot(dst[0], dst[1], "go", markersize=10, label="Destination")
+    # Set the axis limits
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    # Set the axis labels
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    # Set the title
+    ax.set_title(f"Viable Area for {vectorfield} Vector Field")
+    # Show the plot
+    plt.tight_layout()
+    t = str(round(t, 2)).replace(".", "_")  # Replace dot with underscore for filename
+    plt.savefig(f"./output/area_{vectorfield}_{t}.png", dpi=300)
+    plt.close()
 
 
 def run_single_simulation(
@@ -165,71 +239,51 @@ def run_single_simulation(
     plt.close(fig)
 
 
-def plot_best_no_land(
-    path_csv: str = "./output/results_noland.csv", folder: str = "./output/"
+def plot_best_values(
+    path_csv: str = "./output/results_noland.csv",
+    folder: str = "./output/",
+    col: str = "gain_fms",
+    ascending: bool = False,
+    size: int = 2,
 ):
-    """Generate plots for the best examples without land avoidance.
+    """Generate plots for the examples with the highest values.
 
     Parameters
     ----------
+    path_csv : str, optional
+        Path to the CSV file containing the results of the experiments,
+        by default "./output/results_noland.csv"
     folder : str, optional
         The directory containing the results CSV file and JSON files,
         by default "output".
+    col : str, optional
+        The column to sort by, by default "gain_fms".
+    ascending : bool, optional
+        Whether to sort the values in ascending order, by default False.
+    size : int, optional
+        The number of top examples to plot per vectorfield, by default 2.
     """
     df = pd.read_csv(path_csv)
 
-    # Filter the rows with highest "gain_fms", grouped by vectorfield
-    df_filtered = (
-        df.groupby("vectorfield")[["vectorfield", "json", "gain_fms"]]
-        .apply(lambda x: x.nlargest(1, "gain_fms"))
-        .reset_index(drop=True)
-        .sort_values("gain_fms", ascending=False)
+    # Filter the rows with highest col, grouped by vectorfield
+    df_filtered = df.groupby("vectorfield")[["vectorfield", "json", col]].apply(
+        lambda x: x.nsmallest(size, col) if ascending else x.nlargest(size, col)
     )
 
     # Plot the top examples
-    for idx in df_filtered.index:
-        row = df_filtered.iloc[idx]
-        vf = row["vectorfield"]
+    for multiidx, row in df_filtered.iterrows():
+        vf, idx = multiidx
         json_id = int(row["json"])
-        print(f"Best without land avoidance: processing {json_id}...")
+        print(f"Best {col}: processing {json_id}...")
         fig, ax = plot_route_from_json(f"{folder}/noland/{json_id:06d}.json")
-        fig.savefig(f"{folder}/best_{vf}.png")
-        plt.close(fig)
-
-
-def plot_biggest_difference(
-    path_csv: str = "./output/results_noland.csv", folder: str = "./output/"
-):
-    """Generate plots for the examples with the biggest FMS savings.
-
-    Parameters
-    ----------
-    folder : str, optional
-        The directory containing the results CSV file and JSON files,
-        by default "output".
-    """
-    df = pd.read_csv(path_csv)
-
-    # Filter the rows with highest "gain_fms", grouped by vectorfield
-    df_filtered = (
-        df.groupby("vectorfield")[["json", "vectorfield", "gain_fms"]]
-        .apply(lambda x: x.nlargest(2, "gain_fms"))
-        .reset_index(drop=True)
-        .sort_values("gain_fms", ascending=False)
-    )
-
-    # Plot the top examples
-    for idx in df_filtered.index:
-        row = df_filtered.iloc[idx]
-        json_id = int(row["json"])
-        print(f"Biggest FMS savings: processing {json_id}...")
-        fig, ax = plot_route_from_json(f"{folder}/noland/{json_id:06d}.json")
-        fig.savefig(f"{folder}/biggest_fms_{idx}.png")
+        fig.savefig(f"{folder}/{vf}_{json_id}.png")
         plt.close(fig)
 
 
 def plot_land_avoidance(
-    path_csv: str = "./output/results_land.csv", folder: str = "./output/"
+    path_csv: str = "./output/results_land.csv",
+    folder: str = "./output/",
+    size: int = 3,
 ):
     """
     Generate and save plots for land avoidance analysis based on simulation results.
@@ -261,7 +315,6 @@ def plot_land_avoidance(
     df_land = df_land.dropna(subset=["complexity"])
 
     # Generate plots for the worst ten examples
-    idx = 0
     for _, df_sub in df_land.groupby("complexity"):
         # Sort by gain
         df_sub = df_sub.sort_values("gain_fms", ascending=True)
@@ -276,9 +329,8 @@ def plot_land_avoidance(
 
             # Print what was the CMA-ES configuration
             fig, ax = plot_route_from_json(f"{folder}/land/{json_id:06d}.json")
-            fig.savefig(f"{folder}/land_avoidance_{idx}.png")
+            fig.savefig(f"{folder}/land_{json_id}.png")
             plt.close(fig)
-            idx += 1
 
 
 def experiment_parameter_sensitivity(
@@ -298,145 +350,113 @@ def experiment_parameter_sensitivity(
     df_noland = pd.read_csv(path_csv)
 
     # Assign literature cost using "vectorfield"
-    df_noland["cost_reference"] = df_noland["vectorfield"].map(COST_LITERATURE)
+    df_noland["cost_reference"] = df_noland["vectorfield"].map(DICT_COST_LITERATURE)
 
     # Choose only the following vectorfields
-    ls_vf = ["fourvortices", "swirlys"]
+    ls_vf = ["circular", "doublegyre", "fourvortices", "swirlys", "techy"]
     df_noland = df_noland[df_noland["vectorfield"].isin(ls_vf)]
 
-    # Compute percentage errors, clip at 0%
-    df_noland["percterr_cmaes"] = (
-        df_noland["cost_cmaes"] / df_noland["cost_reference"] * 100 - 100
-    ).clip(lower=0)
-    df_noland["percterr_fms"] = (
-        df_noland["cost_fms"] / df_noland["cost_reference"] * 100 - 100
-    ).clip(lower=0)
+    # Compute the difference with the literature cost
+    df_noland["diff_cmaes"] = 1 - df_noland["cost_cmaes"] / df_noland["cost_reference"]
+    df_noland["diff_fms"] = 1 - df_noland["cost_fms"] / df_noland["cost_reference"]
+    df_noland["niter"] = df_noland["niter_cmaes"] + df_noland["niter_fms"]
 
-    df_noland["gain_fms"] = 100 - df_noland["cost_fms"] / df_noland["cost_cmaes"] * 100
-
-    # If any "percterr_cmaes" is equal or higher than 1e10, we warn the user and drop it
-    if (df_noland["percterr_cmaes"] >= 1e10).any():
-        print(
-            "Warning: Some percentage errors for CMA-ES are equal or higher than 1e10. "
-            "These will be dropped from the analysis."
-        )
-        df_noland = df_noland[df_noland["cost_cmaes"] < 1e10]
-        # Same with "percterr_fms"
-        df_noland = df_noland[df_noland["cost_fms"] < 1e10]
-
-    # We will group results by "K", "sigma0" and compute their average "percterr_cmaes"
-    df_noland = (
-        df_noland.groupby(["K", "sigma0"])
-        .agg(
-            avg_percterr_cmaes=("percterr_cmaes", "mean"),
-            avg_comp_time_cmaes=("comp_time_cmaes", "mean"),
-            avg_gain_fms=("gain_fms", "mean"),
-            avg_comp_time_fms=("comp_time_fms", "mean"),
-            avg_percterr_fms=("percterr_fms", "mean"),
-            avg_comp_time=("comp_time", "mean"),
-        )
-        .reset_index()
-    )
+    # Compute the mean of all these values, grouped by vectorfield, K, and sigma0
+    df_noland = df_noland.groupby(
+        ["vectorfield", "K", "sigma0"],
+        as_index=False,
+    ).mean(numeric_only=True)
 
     def _helper_experiment_parameter_sensitivity(
         col1: str,
         col2: str,
-        cmap: str,
-        vmin: float = 0,
-        vmax: float = 100,
         title: str = "",
+        limits2: tuple = (0, 500),  # Limits for col2 heatmap
     ):
-        # Plot a heatmap where:
+        # Plot multiple heatmaps in a single figure:
+        # First row: col1 for each vectorfield
+        # Second row: col2 for each vectorfield
+        # In each heatmap:
         # x-axis: "K" (number of control points for Bézier curve)
         # y-axis: "sigma0" (standard deviation of the CMA-ES distribution)
-        # color: col1
-        # We place the number on each cell of the heatmap, using white letters
-        # Below each number, we add the computation time too (col2)
-        plt.figure(figsize=(8, 6))
-        ax = plt.gca()  # Get current axes
-        heatmap = ax.pcolor(
-            df_noland.pivot(index="sigma0", columns="K", values=col1),
-            cmap=cmap,
-            edgecolors="k",
-            linewidths=0.5,
-            vmin=vmin,
-            vmax=vmax,  # Set limits for the color scale
+        # color: col1 or col2 (depending on the heatmap)
+        num_cols = len(ls_vf)
+        fig, axs = plt.subplots(
+            nrows=2, ncols=num_cols, figsize=(num_cols * 2, 4), sharex=True, sharey=True
         )
-        vmean = (vmax + vmin) / 2
-        # Add the numbers in each cell
-        for (i, j), val in np.ndenumerate(
-            df_noland.pivot(index="sigma0", columns="K", values=col1)
-        ):
-            ax.text(
-                j + 0.5,
-                i + 0.5,
-                f"{val:.2f}%",
-                ha="center",
-                va="center",
-                color="black" if val < vmean else "white",
-                fontsize=10,
+        fig.suptitle(title, fontsize=16)
+        for i, vf in enumerate(ls_vf):
+            vfname = DICT_VF_NAMES.get(vf, vf)
+            # Filter the DataFrame for the current vectorfield
+            df_vf = df_noland[df_noland["vectorfield"] == vf]
+
+            # Pivot the DataFrame to create a heatmap
+            heatmap_data = df_vf.pivot(index="sigma0", columns="K", values=col1)
+            # Plot the heatmap for col1
+            cmap = matplotlib.cm.bwr_r
+            cmap.set_bad("black", 1.0)
+            im1 = axs[0, i].imshow(
+                heatmap_data,
+                cmap=cmap,
+                aspect="equal",
+                # Center the map around zero
+                vmin=-0.5,
+                vmax=0.5,
             )
-            # Add computation time below the percentage
-            ct = df_noland.loc[
-                (df_noland["K"] == df_noland["K"].unique()[j])
-                & (df_noland["sigma0"] == df_noland["sigma0"].unique()[i]),
-                col2,
-            ].values[0]
-            ax.text(
-                j + 0.5,
-                i + 0.3,
-                f"CT: {ct:.2f}s",
-                ha="center",
-                va="center",
-                color="black" if val < vmean else "white",
-                fontsize=8,
+            axs[0, i].set_title(vfname)
+            if i == 0:
+                axs[0, i].set_ylabel(r"$\sigma_0$")
+            axs[0, i].set_xticks(np.arange(len(heatmap_data.columns)))
+            axs[0, i].set_xticklabels(heatmap_data.columns)
+            axs[0, i].set_yticks(np.arange(len(heatmap_data.index)))
+            axs[0, i].set_yticklabels(heatmap_data.index)
+
+            # Plot the heatmap for col2
+            heatmap_data = df_vf.pivot(index="sigma0", columns="K", values=col2)
+            cmap = matplotlib.cm.Reds
+            cmap.set_bad("black", 1.0)
+            im2 = axs[1, i].imshow(
+                heatmap_data,
+                cmap=cmap,
+                aspect="equal",
+                vmin=limits2[0],
+                vmax=limits2[1],  # Set limits for col2 heatmap
             )
-        # Set the ticks and labels for the axes
-        ax.set_xticks(np.arange(len(df_noland["K"].unique())) + 0.5)
-        ax.set_xticklabels(df_noland["K"].unique())
-        ax.set_yticks(np.arange(len(df_noland["sigma0"].unique())) + 0.5)
-        ax.set_yticklabels(df_noland["sigma0"].unique())
-        ax.set_xlabel("Number of Control Points (K)")
-        ax.set_ylabel(r"Standard Deviation of CMA-ES ($\sigma_0$)")
-        ax.set_title(title)
-        plt.colorbar(heatmap, label="Loss w.r.t. Literature (%)")
-        plt.tight_layout()
+            axs[1, i].set_xlabel("K")
+            if i == 0:
+                axs[1, i].set_ylabel(r"$\sigma_0$")
+            axs[1, i].set_xticks(np.arange(len(heatmap_data.columns)))
+            axs[1, i].set_xticklabels(heatmap_data.columns)
+            axs[1, i].set_yticks(np.arange(len(heatmap_data.index)))
+            axs[1, i].set_yticklabels(heatmap_data.index)
+        # Add colorbars to im1 and im2
+        cbar1 = fig.colorbar(
+            im1,
+            ax=axs[0, :],
+            orientation="vertical",
+            fraction=0.02,
+            location="right",
+        )
+        cbar1.set_label("Cost reduction factor")
+        cbar2 = fig.colorbar(
+            im2,
+            ax=axs[1, :],
+            orientation="vertical",
+            fraction=0.02,
+            location="right",
+        )
+        cbar2.set_label("Number of iterations")
 
     # GRAPH 1
-    # color: "avg_percterr_cmaes" (average percentage of error)
     _helper_experiment_parameter_sensitivity(
-        col1="avg_percterr_cmaes",
-        col2="avg_comp_time_cmaes",
-        cmap="Reds",
-        vmin=0,
-        vmax=50,
-        title="Parameter Sensitivity of CMA-ES",
+        col1="diff_cmaes", col2="niter_cmaes", limits2=[0, 200]
     )
     plt.savefig(folder + "parameter_sensitivity_cmaes.png", dpi=300)
     plt.close()
 
     # GRAPH 2
-    # color: "gain_fms" (percentage of gain by FMS compared to CMA-ES)
     _helper_experiment_parameter_sensitivity(
-        col1="avg_gain_fms",
-        col2="avg_comp_time_fms",
-        cmap="Reds",
-        vmin=0,
-        vmax=20,
-        title="Average Percentage of Gain by FMS Compared to CMA-ES",
-    )
-    plt.savefig(folder + "parameter_sensitivity_fms.png", dpi=300)
-    plt.close()
-
-    # GRAPH 3
-    # color: "avg_percterr_fms" (average percentage of error for BERS)
-    _helper_experiment_parameter_sensitivity(
-        col1="avg_percterr_fms",
-        col2="avg_comp_time",
-        cmap="Reds",
-        vmin=0,
-        vmax=50,
-        title="Average Percentage of Error for BERS",
+        col1="diff_fms", col2="niter", limits2=[0, 5000]
     )
     plt.savefig(folder + "parameter_sensitivity_bers.png", dpi=300)
     plt.close()
@@ -487,13 +507,13 @@ def experiment_land_complexity(
     # Vertical axis: "cost_fms"
     # We also overlay a line showing the average "comp_time" for each complexity level
     # Use a second y-axis for the average "comp_time" line
-    plt.figure(figsize=(8, 4))
+    plt.figure(figsize=(6, 3))
 
     ax = plt.gca()  # Get current axes
     ax = df_land.boxplot(
         column="cost_fms", by="complexity", grid=False, showfliers=False, ax=ax
     )
-    ax.set_ylim(8.5, 11.5)
+    ax.set_ylim(8.5, 12)
     ax.set_xlabel("Land Complexity Level (affects resolution and water level)")
     ax.set_ylabel("Travel time")
     ax.set_title("Results of BERS by Land Complexity Level")
@@ -519,7 +539,7 @@ def experiment_land_complexity(
     ax2.set_ylim(0, 30)
 
     # Add a grid
-    ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+    # ax.grid(True, which="both", linestyle="--", linewidth=0.5)
 
     plt.suptitle("")
     plt.xticks([1, 2, 3], ["Easy", "Medium", "Hard"])
@@ -531,17 +551,24 @@ def experiment_land_complexity(
 def main(folder: str = "./output/"):
     """Run the experiments and plot the results."""
     print("---\nSINGLE SIMULATION\n---")
-    # run_single_simulation(path_img=folder)
-    print("\n---\nBEST EXAMPLES WITHOUT LAND AVOIDANCE\n---")
-    # plot_best_no_land(folder=folder)
-    print("\n---\nBIGGEST FMS SAVINGS\n---")
-    plot_biggest_difference(folder=folder)
-    print("\n---\nLAND AVOIDANCE ANALYSIS\n---")
-    plot_land_avoidance(folder=folder)
+    run_single_simulation("fourvortices", path_img=folder)
+    run_single_simulation("swirlys", path_img=folder)
     print("\n---\nPARAMETER SENSITIVITY EXPERIMENTS\n---")
     experiment_parameter_sensitivity(folder=folder)
     print("\n---\nLAND COMPLEXITY EXPERIMENTS\n---")
     experiment_land_complexity(folder=folder)
+    print("\n---\nBIGGEST FMS GAINS\n---")
+    plot_best_values(folder=folder, col="gain_fms", ascending=False, size=4)
+    print("\n---\nBIGGEST BERS SAVINGS\n---")
+    plot_best_values(folder=folder, col="cost_fms", ascending=True, size=4)
+    print("\n---\nLAND AVOIDANCE ANALYSIS\n---")
+    plot_land_avoidance(folder=folder, size=10)
+    for t in [0, 0.2, 0.5, 0.7, 1.0]:
+        print(f"\n---\nVIABLE AREA FOR TECHY VECTOR FIELD AT t={t}\n---")
+        plot_viable_area("techy", t=t)
+    plot_viable_area("fourvortices")
+    plot_viable_area("circular")
+    plot_viable_area("doublegyre")
 
 
 if __name__ == "__main__":

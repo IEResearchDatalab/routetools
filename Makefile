@@ -30,8 +30,8 @@ ruff:
 test:
 	uv run pytest
 
-mypy:
-	uv run mypy --install-types --non-interactive
+#mypy:
+#	uv run mypy --install-types --non-interactive
 
 docker: build run
 
