@@ -44,7 +44,7 @@ def get_currents_to_vectorfield(
     # But our code handles len(ts) < len(lat)
     # So we create a wrapper function
     def vectorfield(
-        lon: jnp.ndarray, lat: jnp.ndarray, ts: jnp.ndarray
+        lon: jnp.ndarray, lat: jnp.ndarray, ts: jnp.ndarray | int | float
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # If `ts` is a single value, make it an array
         if isinstance(ts, int | float):

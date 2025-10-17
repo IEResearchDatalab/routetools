@@ -203,7 +203,13 @@ def optimize_fms(
         def lagrangian(q0: jnp.ndarray, q1: jnp.ndarray) -> jnp.ndarray:
             # Stack q0 and q1 to form array of shape (1, 2, 2)
             q = jnp.vstack([q0, q1])[None, ...]
-            lag = cost_function(vectorfield=vectorfield, curve=q, travel_stw=travel_stw, weight_l1=weight_l1, weight_l2=weight_l2)
+            lag = cost_function(
+                vectorfield=vectorfield,
+                curve=q,
+                travel_stw=travel_stw,
+                weight_l1=weight_l1,
+                weight_l2=weight_l2,
+            )
             ld = jnp.sum(h * lag**2)
             # Do note: The original formula used q0, q1 to compute l1, l2 and then
             # took the average of (l1**2 + l2**2) / 2
@@ -217,7 +223,13 @@ def optimize_fms(
         def lagrangian(q0: jnp.ndarray, q1: jnp.ndarray) -> jnp.ndarray:
             # Stack q0 and q1 to form array of shape (1, 2, 2)
             q = jnp.vstack([q0, q1])[None, ...]
-            lag = cost_function(vectorfield=vectorfield, curve=q, travel_time=h, weight_l1=weight_l1, weight_l2=weight_l2)
+            lag = cost_function(
+                vectorfield=vectorfield,
+                curve=q,
+                travel_time=h,
+                weight_l1=weight_l1,
+                weight_l2=weight_l2,
+            )
             ld = jnp.sum(h * lag)
             # Do note: The original formula used q0, q1 to compute l1, l2 and then
             # took the average of (l1 + l2) / 2
