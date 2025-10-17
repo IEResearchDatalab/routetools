@@ -23,7 +23,7 @@ def cost_function(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     weight_l1: float = 1.0,
-    weight_l2: float = 1.0,
+    weight_l2: float = 0.0,
 ) -> jnp.ndarray:
     """
     Compute the cost of a batch of paths navigating over a vector field.
@@ -46,7 +46,7 @@ def cost_function(
     weight_l1 : float, optional
         Weight for the L1 norm in the combined cost. Default is 1.0.
     weight_l2 : float, optional
-        Weight for the L2 norm in the combined cost. Default is 1.0.
+        Weight for the L2 norm in the combined cost. Default is 0.0.
 
     Returns
     -------
