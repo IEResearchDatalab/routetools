@@ -265,6 +265,7 @@ def optimize(
     ],
     src: jnp.ndarray,
     dst: jnp.ndarray,
+    curve0: jnp.ndarray | None = None,
     land: Land | None = None,
     penalty: float = 10,
     travel_stw: float | None = None,
@@ -300,6 +301,9 @@ def optimize(
         Source point (2D)
     dst : jnp.ndarray
         Destination point (2D)
+    curve0 : jnp.ndarray | None, optional
+        Initial curve to start the optimization from, with shape (L,2).
+        If None, a straight line is used, by default None
     land_function : callable, optional
         A function that checks if points on a curve are on land, by default None
     penalty : float, optional
@@ -338,8 +342,24 @@ def optimize(
     tuple[jnp.ndarray, float]
         The optimized curve (shape L x 2), and the fuel cost
     """
-    # Initial solution as a straight line
-    x0 = jnp.linspace(src, dst, K - 2).flatten()
+    if curve0 is None:
+        # Initial solution as a straight line
+        x0 = jnp.linspace(src, dst, K - 2).flatten()
+    else:
+        # Validate src and dst match endpoints of curve0
+        if not jnp.allclose(curve0[0, :], src):
+            raise ValueError(
+                "The starting point of curve0 does not match src. "
+                f"curve0[0,:]={curve0[0, :]}, src={src}"
+            )
+        if not jnp.allclose(curve0[-1, :], dst):
+            raise ValueError(
+                "The ending point of curve0 does not match dst. "
+                f"curve0[-1,:]={curve0[-1, :]}, dst={dst}"
+            )
+        # Initial solution from provided curve
+        x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
+
     # Initial standard deviation to sample new solutions
     # One sigma is half the distance between src and dst
     sigma0 = float(jnp.linalg.norm(dst - src) * sigma0 / 2)

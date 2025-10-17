@@ -14,6 +14,7 @@ from typing import Any
 import jax.numpy as jnp
 from wrr_bench.ocean import Ocean
 
+from routetools.circumnavigate import circumnavigate
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
@@ -182,6 +183,7 @@ def optimize_benchmark_instance(
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
     seed: float = jnp.nan,
+    init_circumnavigate: bool = True,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
@@ -233,10 +235,21 @@ def optimize_benchmark_instance(
     """
     dict_extracted = extract_benchmark_instance(dict_instance)
 
+    if init_circumnavigate:
+        # Initialize the circumnavigate route
+        curve0, _ = circumnavigate(
+            src=dict_extracted["src"],
+            dst=dict_extracted["dst"],
+            land=dict_extracted["land"],
+        )
+    else:
+        curve0 = None
+
     curve_best, dict_cmaes = optimize(
+        vectorfield=dict_extracted["vectorfield"],
         src=dict_extracted["src"],
         dst=dict_extracted["dst"],
-        vectorfield=dict_extracted["vectorfield"],
+        curve0=curve0,
         land=dict_extracted["land"],
         travel_stw=dict_extracted["travel_stw"],
         travel_time=dict_extracted["travel_time"],
