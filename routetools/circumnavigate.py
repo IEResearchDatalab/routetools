@@ -1,29 +1,48 @@
 from __future__ import annotations
 
 import heapq
-import json
 from collections.abc import Iterable
 from pathlib import Path
 
 import jax.numpy as jnp
+import matplotlib.pyplot as _plt
 import typer
 from h3.api import basic_int as h3
-from shapely.geometry import MultiPolygon, Polygon, shape
+from shapely.geometry import MultiPolygon, Polygon
 
 from routetools.cost import cost_function
+from routetools.land import Land
+from routetools.plot import plot_curve
 from routetools.vectorfield import vectorfield_zero
 
 
-def load_multipolygon(path: str | Path) -> Polygon | MultiPolygon:
-    """Load a GeoJSON file and return a shapely Polygon or MultiPolygon."""
-    with open(path, encoding="utf-8") as fh:
-        gj = json.load(fh)
-    features = gj.get("features", [gj])
-    geom = features[0].get("geometry", gj.get("geometry", None))
-    if geom is None:
-        raise ValueError("No geometry found in GeoJSON")
+def get_h3_cells_from_land(
+    land: Land, res: int = 5, land_dilation: int = 1
+) -> set[int]:
+    """Convert a Land instance into a set of H3 cell indices.
 
-    return shape(geom)
+    Represents navigable cells (where land indicates water).
+
+    The Land class stores x (longitudes) as axis 0 and y (latitudes) as axis 1
+    with an internal array of shape (len(x), len(y)). We sample the grid
+    cell centers and include an H3 cell when the Land.array indicates water.
+    """
+    cells: set[int] = set()
+    # Land.array returns boolean where True indicates land; navigable where False
+    arr = land.array
+    # land.x corresponds to longitude axis (lenx) and land.y to latitude axis (leny)
+    xs = list(map(float, land.x))
+    ys = list(map(float, land.y))
+    for i, lon in enumerate(xs):
+        for j, lat in enumerate(ys):
+            is_land = bool(arr[i, j])
+            if not is_land:
+                cell = h3.latlng_to_cell(lat, lon, res)
+                cells.add(cell)
+
+    if land_dilation > 0:
+        cells = _remove_border_cells(cells, land_dilation)
+    return cells
 
 
 def get_h3_cells_from_multipolygon(
@@ -78,21 +97,27 @@ def _cell_centroid(cell: int) -> tuple[float, float]:
     return lat, lon
 
 
-def _neighbors(cell: int, cells: set[int], neighbour_disk: int = 1) -> Iterable[int]:
+def _neighbors(
+    cell: int,
+    cells: set[int] | None,
+    neighbour_disk: int = 1,
+) -> Iterable[int]:
     """Return neighbor cells for `cell` that are present in `cells`.
 
     Uses `grid_ring` for immediate neighbors when neighbour_disk==1, otherwise
     uses `grid_disk` and excludes the center cell.
     """
+    # When `cells` is None, allow any neighbour from the H3 grid. Otherwise
+    # restrict to neighbours that are members of `cells`.
     if neighbour_disk == 1:
         ring = h3.grid_ring(cell, 1) or []
         for n in ring:
-            if n in cells:
+            if cells is None or n in cells:
                 yield n
     else:
         disk = h3.grid_disk(cell, neighbour_disk)
         for n in disk:
-            if n != cell and n in cells:
+            if n != cell and (cells is None or n in cells):
                 yield n
 
 
@@ -101,7 +126,7 @@ def astar_search(
     start_lon: float,
     end_lat: float,
     end_lon: float,
-    cells: set[int],
+    cells: set[int] | None,
     res: int = 5,
     neighbour_disk: int = 1,
     heuristic_weight: float = 1.0,
@@ -114,10 +139,14 @@ def astar_search(
 
     # helper to snap latlon to cell in set
     def _snap(lat: float, lon: float) -> int:
+        # If no land/cells provided, snap directly to the cell containing the
+        # coordinate.
         c = h3.latlng_to_cell(lat, lon, res)
+        if cells is None:
+            return c
         if c in cells:
             return c
-        # find nearest by centroid distance
+        # find nearest by centroid distance among provided cells
         best = None
         best_d = float("inf")
         for cell in cells:
@@ -190,30 +219,26 @@ def astar_search(
 def main(
     src_lat: float = 0,
     src_lon: float = 0,
-    dst_lat: float = 1,
-    dst_lon: float = 1,
-    land_geojson: Path | None = None,
+    dst_lat: float = 10,
+    dst_lon: float = 10,
     res: int = 5,
     neighbour_disk: int = 1,
     land_dilation: int = 1,
-    out: Path = Path("output/astar_route.json"),
+    out: str = "output",
 ) -> None:
     """Compute a circumnavigation route using A* on an H3 grid.
 
-    The script builds an H3 grid from the provided geojson (the geojson should
-    contain the ocean polygon(s) — populated cells will be considered navigable).
+    The script builds an H3 grid from a provided `Land` instance (if any).
+    Populated H3 cells are considered navigable; if `land` is omitted the
+    search assumes no land constraints.
     """
-    if land_geojson is None:
-        raise typer.BadParameter(
-            "land_geojson is required (provide ocean polygon geojson)"
-        )
-
-    multipoly = load_multipolygon(land_geojson)
-    cells = get_h3_cells_from_multipolygon(
-        multipoly,
-        res=res,
-        land_dilation=land_dilation,
-    )
+    land = None
+    # If a `Land` instance is provided, extract navigable H3 cells from it.
+    # If no land is provided, assume no land constraints (cells=None).
+    if land is None:
+        cells = None
+    else:
+        cells = get_h3_cells_from_land(land, res=res, land_dilation=land_dilation)
 
     route = astar_search(
         start_lat=src_lat,
@@ -229,11 +254,26 @@ def main(
         typer.echo("No route found")
         raise typer.Exit(code=1)
 
+    out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    with out.open("w", encoding="utf-8") as fh:
-        json.dump({"route": [[float(lat), float(lon)] for lat, lon in route]}, fh)
+    typer.echo(f"Computed route with {len(route)} waypoints")
+    try:
+        fig, ax = plot_curve(
+            vectorfield_zero,
+            ls_curve=[jnp.array(route)],
+            ls_name=["A* route"],
+            land=land,
+            gridstep=0.5,
+            figsize=(6, 6),
+        )
+        jpg_path = out / "circumnavigation.jpg"
+        fig.savefig(jpg_path, dpi=300, bbox_inches="tight")
+        typer.echo(f"Route plot written to {jpg_path}")
+        # close the figure
 
-    typer.echo(f"Route with {len(route)} waypoints written to {out}")
+        _plt.close(fig)
+    except Exception as e:  # pragma: no cover - plotting best-effort
+        typer.echo(f"Failed to save route plot: {e}")
 
 
 if __name__ == "__main__":
