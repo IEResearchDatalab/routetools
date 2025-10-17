@@ -75,8 +75,7 @@ def cost_function(
         raise ValueError("Either travel_stw or travel_time must be provided.")
 
     # Turn any possible inf values into large finite numbers
-    cost = jnp.where(jnp.isinf(cost), jnp.nan, cost)
-    cost = jnp.nan_to_num(cost, nan=jnp.nanmax(cost, initial=1e10) * 10)
+    cost = jnp.where(jnp.isinf(cost), jnp.nanmax(cost, initial=1e10) * 10, cost)
 
     # Compute L1 and L2 norms
     l1 = jnp.sum(jnp.abs(cost), axis=1)
