@@ -126,7 +126,8 @@ def curve_to_control(
     curve : jnp.ndarray
         The sampled curve, with shape (L, 2)
     K : int, optional
-        Number of free Bézier control points, by default 6
+        Number of free Bézier control points, accounting for source and destination
+        that will not be included in the output. By default 6
     num_pieces : int, optional
         Number of Bézier curves, by default 1
     match_endpoints : bool, optional
@@ -151,34 +152,45 @@ def curve_to_control(
     t = jnp.linspace(0.0, 1.0, L)
 
     # Convert timestamps to [0, 1] if needed
-    if t.dtype == jnp.datetime64:
-        t = (t - t[0]) / jnp.timedelta64(1, "s")
     if (t[0] != 0) or (t[-1] != 1):
         t = (t - t[0]) / (t[-1] - t[0])
 
     rhs = jnp.column_stack([x, y])
+
+    # Subtract the contribution of the endpoints if needed
+    degree = K - 1
+
     if match_endpoints:
-        assert K >= 1
-        A = jnp.zeros([len(x), K - 1])
-        for d in range(1, K):
-            A[:, d - 1] = scipy.special.comb(K, d) * (1 - t) ** (K - d) * t**d
-        rhs[:, 0] -= (1 - t) ** K * x[0] + t**K * x[-1]
-        rhs[:, 1] -= (1 - t) ** K * y[0] + t**K * y[-1]
+        assert (
+            degree >= 1
+        ), "The number of control points K must be at least 2 to match endpoints."
+        A = jnp.zeros([len(x), degree - 1])
+        for d in range(1, degree):
+            A = A.at[:, d - 1].set(
+                scipy.special.comb(degree, d) * (1 - t) ** (degree - d) * t**d
+            )
+        rhs = rhs.at[:, 0].set(
+            rhs[:, 0] - ((1 - t) ** degree * x[0] + t**degree * x[-1])
+        )
+        rhs = rhs.at[:, 1].set(
+            rhs[:, 1] - ((1 - t) ** degree * y[0] + t**degree * y[-1])
+        )
         control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
         control = jnp.vstack(
             [jnp.column_stack([x[0], y[0]]), control, jnp.column_stack([x[-1], y[-1]])]
         )
     else:
-        assert K >= 0
-        A = jnp.zeros([len(x), K + 1])
-        for d in range(K + 1):
-            A[:, d] = scipy.special.comb(K, d) * (1 - t) ** (K - d) * t**d
+        assert degree >= 0, "The number of control points must be non-negative."
+        A = jnp.zeros([len(x), degree + 1])
+        for d in range(degree + 1):
+            A = A.at[:, d].set(
+                scipy.special.comb(degree, d) * (1 - t) ** (degree - d) * t**d
+            )
         control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
 
     # Take the interior control points only
-    interior = jnp.asarray(control[1:-1])
     # Return as a flattened array for compatibility with CMA-ES (x0)
-    return jnp.asarray(interior).flatten()
+    return control[1:-1].flatten()
 
 
 def _cma_evolution_strategy(
