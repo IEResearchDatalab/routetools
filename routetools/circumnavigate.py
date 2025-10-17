@@ -11,6 +11,7 @@ from h3.api import basic_int as h3
 from shapely.geometry import MultiPolygon, Polygon
 
 from routetools.cost import cost_function
+from routetools.fms import optimize_fms
 from routetools.land import Land
 from routetools.plot import plot_curve
 from routetools.vectorfield import vectorfield_zero
@@ -130,7 +131,7 @@ def astar_search(
     res: int = 5,
     neighbour_disk: int = 1,
     heuristic_weight: float = 1.0,
-) -> list[tuple[float, float]]:
+) -> jnp.ndarray:
     """Run A* on the h3 cell graph and return a list of (lat, lon) points.
 
     If start or end are not inside any cell in `cells`, we snap them to the
@@ -158,7 +159,7 @@ def astar_search(
             if d < best_d:
                 best_d = d
                 best = cell
-        return best
+        return jnp.array(best)
 
     start_cell = _snap(start_lat, start_lon)
     end_cell = _snap(end_lat, end_lon)
@@ -193,7 +194,7 @@ def astar_search(
                 node = came_from.get(node)
             path_cells.reverse()
             # convert to lat/lon centroids
-            return [_cell_centroid(c) for c in path_cells]
+            return jnp.array([_cell_centroid(c) for c in path_cells])
 
         visited.add(current)
 
@@ -213,7 +214,7 @@ def astar_search(
                 heapq.heappush(open_heap, (f, nb))
 
     # no path found
-    return []
+    return jnp.array([])
 
 
 def main(
@@ -250,9 +251,23 @@ def main(
         neighbour_disk=neighbour_disk,
     )
 
-    if not route:
+    if len(route) == 0:
         typer.echo("No route found")
         raise typer.Exit(code=1)
+
+    # Refine the route using FMS optimization
+    curve_refined, _ = optimize_fms(
+        vectorfield_zero,
+        curve=route,
+        land=land,
+        travel_stw=1.0,
+        tolfun=1e-8,
+        maxfevals=50000,
+        damping=0.9,
+    )
+
+    ls_curve = [route, curve_refined[0]]
+    ls_name = ["A* route", "FMS refined route"]
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -260,8 +275,8 @@ def main(
     try:
         fig, ax = plot_curve(
             vectorfield_zero,
-            ls_curve=[jnp.array(route)],
-            ls_name=["A* route"],
+            ls_curve=ls_curve,
+            ls_name=ls_name,
             land=land,
             gridstep=0.5,
             figsize=(6, 6),
