@@ -126,7 +126,7 @@ def cost_function_constant_speed_time_invariant(
     # Cost is the time to travel the segment
     dt = jnp.sqrt(d2 / (v2 - w2) + dw**2 / (v2 - w2) ** 2) - dw / (v2 - w2)
     # Current > speed -> infeasible path
-    dt = lax.stop_gradient(jnp.where(v2 <= w2, 1e10, 0.0))
+    # dt = lax.stop_gradient(jnp.where(v2 <= w2, 1e10, 0.0))
     return dt
 
 
@@ -190,7 +190,8 @@ def cost_function_constant_speed_time_variant(
 
     # Use lax to implement the for loop
     _, dt_array = lax.scan(step, t_init, inputs)
-    return dt_array
+    # dt_array has shape (L-1, B), we transpose it to (B, L-1)
+    return dt_array.T
 
 
 @partial(jit, static_argnames=("vectorfield", "travel_time"))
