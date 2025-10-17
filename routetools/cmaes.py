@@ -8,6 +8,7 @@ import cma
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import scipy
 import typer
 from jax import jit
 
@@ -111,6 +112,73 @@ def control_to_curve(
     else:
         result = batch_bezier(t=jnp.linspace(0, 1, L), control=control)
     return result
+
+
+def curve_to_control(
+    curve: jnp.ndarray, K: int = 6, num_pieces: int = 1, match_endpoints: bool = True
+) -> jnp.ndarray:
+    """Fit Bézier control points from a sampled curve.
+
+    Returns an array of control points with shape (2K), compatible with CMA-ES.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        The sampled curve, with shape (L, 2)
+    K : int, optional
+        Number of free Bézier control points, by default 6
+    num_pieces : int, optional
+        Number of Bézier curves, by default 1
+    match_endpoints : bool, optional
+        Whether to enforce the endpoints of the curve to match the endpoints of the
+        Bézier curve, by default True
+
+    Returns
+    -------
+    jnp.ndarray
+        The fitted control points, with shape (2K)
+    """
+    if num_pieces != 1:
+        raise NotImplementedError("curve_to_control supports only num_pieces==1")
+
+    if curve.ndim != 2 or curve.shape[1] != 2:
+        raise ValueError("curve must be shape (L,2)")
+
+    x = curve[:, 0]
+    y = curve[:, 1]
+    # parameterization: uniform t in [0,1]
+    L = curve.shape[0]
+    t = jnp.linspace(0.0, 1.0, L)
+
+    # Convert timestamps to [0, 1] if needed
+    if t.dtype == jnp.datetime64:
+        t = (t - t[0]) / jnp.timedelta64(1, "s")
+    if (t[0] != 0) or (t[-1] != 1):
+        t = (t - t[0]) / (t[-1] - t[0])
+
+    rhs = jnp.column_stack([x, y])
+    if match_endpoints:
+        assert K >= 1
+        A = jnp.zeros([len(x), K - 1])
+        for d in range(1, K):
+            A[:, d - 1] = scipy.special.comb(K, d) * (1 - t) ** (K - d) * t**d
+        rhs[:, 0] -= (1 - t) ** K * x[0] + t**K * x[-1]
+        rhs[:, 1] -= (1 - t) ** K * y[0] + t**K * y[-1]
+        control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
+        control = jnp.vstack(
+            [jnp.column_stack([x[0], y[0]]), control, jnp.column_stack([x[-1], y[-1]])]
+        )
+    else:
+        assert K >= 0
+        A = jnp.zeros([len(x), K + 1])
+        for d in range(K + 1):
+            A[:, d] = scipy.special.comb(K, d) * (1 - t) ** (K - d) * t**d
+        control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
+
+    # Take the interior control points only
+    interior = jnp.asarray(control[1:-1])
+    # Return as a flattened array for compatibility with CMA-ES (x0)
+    return jnp.asarray(interior).flatten()
 
 
 def _cma_evolution_strategy(
