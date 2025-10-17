@@ -158,23 +158,65 @@ def _snap(lat: float, lon: float, cells: set[int] | None = None, res: int = 5) -
     return best
 
 
-def astar_search(
+def circumnavigate(
     start_lat: float,
     start_lon: float,
     end_lat: float,
     end_lon: float,
-    cells: set[int] | None,
+    land: Land | None = None,
+    land_dilation: int = 1,
     res: int = 5,
     neighbour_disk: int = 1,
     heuristic_weight: float = 1.0,
-) -> jnp.ndarray:
+) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Run A* on the h3 cell graph and return a list of (lat, lon) points.
 
     If start or end are not inside any cell in `cells`, we snap them to the
     nearest available cell centroid.
+    It then refines the resulting route using FMS optimization.
+
+    Parameters
+    ----------
+    start_lat : float
+        Latitude of the start point.
+    start_lon : float
+        Longitude of the start point.
+    end_lat : float
+        Latitude of the end point.
+    end_lon : float
+        Longitude of the end point.
+    land : Land | None, optional
+        Land instance to derive navigable cells from. If None, assumes no land
+        constraints, by default None.
+    land_dilation : int, optional
+        Number of dilation steps to apply to land cells when deriving the
+        navigable H3 cells, by default 1.
+    res : int, optional
+        H3 resolution to use for the grid, by default 5.
+    neighbour_disk : int, optional
+        Neighbourhood disk size to consider when expanding nodes in A*,
+        by default 1.
+    heuristic_weight : float, optional
+        Weighting factor for the heuristic function, by default 1.0.
+
+    Returns
+    -------
+    tuple[jnp.ndarray, jnp.ndarray]
+        Tuple containing:
+        - The refined route as an array of (lon, lat) points.
+        - The initial A* route as an array of (lon, lat) points.
     """
+    if land is None:
+        cells = None
+    else:
+        cells = get_h3_cells_from_land(land, res=res, land_dilation=land_dilation)
+
+    # Snap start and end to nearest available cells
     start_cell = _snap(start_lat, start_lon, cells=cells, res=res)
     end_cell = _snap(end_lat, end_lon, cells=cells, res=res)
+
+    # Initialize an empty route
+    curve = jnp.array([])
 
     # A* structures
     open_heap: list[tuple[float, int]] = []  # (f, cell)
@@ -213,7 +255,8 @@ def astar_search(
             for c in path_cells:
                 clat, clon = _cell_centroid(c)
                 coords.append((clon, clat))
-            return jnp.array(coords)
+            curve = jnp.array(coords)
+            break
 
         visited.add(current)
 
@@ -233,8 +276,22 @@ def astar_search(
                 f = tentative_g + heuristic(nb)
                 heapq.heappush(open_heap, (f, nb))
 
+    if len(curve) == 0:
+        return curve, curve  # no path found
+
+    # Refine the route using FMS optimization
+    curve_refined, _ = optimize_fms(
+        vectorfield_zero,
+        curve=curve,
+        land=land,
+        travel_stw=1.0,
+        tolfun=1e-8,
+        maxfevals=50000,
+        damping=0.9,
+    )
+
     # no path found
-    return jnp.array([])
+    return (curve_refined[0], curve)
 
 
 def main(
@@ -261,39 +318,27 @@ def main(
         random_seed=1,
         outbounds_is_land=True,
     )
-    # Use land
-    cells = get_h3_cells_from_land(land, res=res, land_dilation=land_dilation)
 
-    route = astar_search(
+    curve_refined, curve = circumnavigate(
         start_lat=src_lat,
         start_lon=src_lon,
         end_lat=dst_lat,
         end_lon=dst_lon,
-        cells=cells,
+        land=land,
+        land_dilation=land_dilation,
         res=res,
         neighbour_disk=neighbour_disk,
     )
 
-    if len(route) == 0:
+    if len(curve) == 0:
         typer.echo("No route found")
 
-    # Refine the route using FMS optimization
-    curve_refined, _ = optimize_fms(
-        vectorfield_zero,
-        curve=route,
-        land=land,
-        travel_stw=1.0,
-        tolfun=1e-8,
-        maxfevals=50000,
-        damping=0.9,
-    )
-
-    ls_curve = [route, curve_refined[0]]
+    ls_curve = [curve, curve_refined]
     ls_name = ["A* route", "FMS refined route"]
 
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    typer.echo(f"Computed route with {len(route)} waypoints")
+    typer.echo(f"Computed route with {len(curve)} waypoints")
     try:
         fig, ax = plot_curve(
             vectorfield_zero,
