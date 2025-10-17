@@ -17,40 +17,75 @@ from routetools.vectorfield import vectorfield_zero
 
 
 def get_h3_cells_from_land(
-    land: Land, res: int = 5, land_dilation: int = 1, expand_neighbors: bool = True
+    land: Land, res: int = 5, land_dilation: int = 1
 ) -> set[int]:
-    """Convert a Land instance into a set of H3 cell indices.
+    """Return navigable H3 cells inside the Land bounding limits.
 
-    Represents navigable cells (where land indicates water).
+    Algorithm:
+    - Build the set of H3 cells that cover the rectangular bounds defined by
+      `land.x` and `land.y` by mapping the grid centers to H3 cells.
+    - Remove cells whose centroid falls on land according to the provided
+      `Land` instance.
 
-    The Land class stores x (longitudes) as axis 0 and y (latitudes) as axis 1
-    with an internal array of shape (len(x), len(y)). We sample the grid
-    cell centers and include an H3 cell when the Land.array indicates water.
+    This approach inverts the previous sampling strategy (sample water cells
+    only) and ensures we start from the full coverage of the domain then
+    subtract land cells.
     """
-    cells: set[int] = set()
-    # Land.array returns boolean where True indicates land; navigable where False
-    arr = land.array
-    # land.x corresponds to longitude axis (lenx) and land.y to latitude axis (leny)
-    xs = list(map(float, land.x))
-    ys = list(map(float, land.y))
-    for i, lon in enumerate(xs):
-        for j, lat in enumerate(ys):
-            is_land = bool(arr[i, j])
-            if not is_land:
-                cell = h3.latlng_to_cell(lat, lon, res)
-                cells.add(cell)
-    # Optionally expand each water cell to include its immediate neighbors
-    # This helps avoid isolated single-cell connectivity issues due to
-    # sampling resolution mismatches between the Land grid and H3.
-    if expand_neighbors and len(cells) > 0:
-        expanded: set[int] = set()
-        for c in list(cells):
-            expanded.update(h3.grid_disk(c, 1))
-        cells = cells.union(expanded)
+    # Derive coverage entirely through H3 operations.
+    # Start from the domain center and expand a disk until the set of cell
+    # centroids covers the bounding box of the Land instance.
+    xmin, xmax = land.xmin, land.xmax
+    ymin, ymax = land.ymin, land.ymax
+
+    center_lat = 0.5 * (ymin + ymax)
+    center_lon = 0.5 * (xmin + xmax)
+    center_cell = h3.latlng_to_cell(center_lat, center_lon, res)
+
+    all_cells: set[int] = set()
+    radius = 0
+    max_radius = 200  # safety limit to avoid infinite loops
+    while radius <= max_radius:
+        disk = set(h3.grid_disk(center_cell, radius))
+        all_cells.update(disk)
+
+        # compute centroid bounds
+        lons = []
+        lats = []
+        for c in all_cells:
+            clat, clon = _cell_centroid(c)
+            lats.append(clat)
+            lons.append(clon)
+        if not lats or not lons:
+            radius += 1
+            continue
+        min_lon, max_lon = min(lons), max(lons)
+        min_lat, max_lat = min(lats), max(lats)
+
+        # Check whether centroid coverage spans the land bbox
+        if (
+            (min_lon <= xmin)
+            and (max_lon >= xmax)
+            and (min_lat <= ymin)
+            and (max_lat >= ymax)
+        ):
+            break
+        radius += 1
+
+    # determine which of these cells are land (by testing the centroid)
+    land_cells: set[int] = set()
+    for c in all_cells:
+        clat, clon = _cell_centroid(c)
+        # Land expects coordinates as (x, y) -> (lon, lat)
+        is_land = bool(land(jnp.array([clon, clat])))
+        if is_land:
+            land_cells.add(c)
+
+    navigable = all_cells - land_cells
 
     if land_dilation > 0:
-        cells = _remove_border_cells(cells, land_dilation)
-    return cells
+        navigable = _remove_border_cells(navigable, land_dilation)
+
+    return navigable
 
 
 def _remove_border_cells(cells: set[int], num_cells: int = 1) -> set[int]:
@@ -223,7 +258,7 @@ def main(
         (-1, 11),
         water_level=0.7,
         resolution=6,
-        random_seed=0,
+        random_seed=1,
         outbounds_is_land=True,
     )
     # Use land
