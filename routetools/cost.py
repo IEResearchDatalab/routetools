@@ -1,8 +1,13 @@
+from __future__ import annotations
+
+import math
 from collections.abc import Callable
 from functools import partial
 
 import jax.numpy as jnp
 from jax import jit, lax
+
+EARTH_RADIUS = 6378137.0
 
 
 @partial(
@@ -81,6 +86,18 @@ def cost_function(
     l1 = jnp.sum(jnp.abs(cost), axis=1)
     l2 = jnp.sqrt(jnp.sum(cost**2, axis=1))
     return weight_l1 * l1 + weight_l2 * l2
+
+
+def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in meters between two points given in degrees."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    )
+    return 2 * EARTH_RADIUS * math.asin(math.sqrt(a))
 
 
 @partial(jit, static_argnames=("vectorfield", "travel_stw"))
