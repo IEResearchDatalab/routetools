@@ -16,7 +16,7 @@ from routetools.land import Land
 from routetools.vectorfield import vectorfield_fourvortices
 
 
-@jit
+@jit  # type: ignore[misc]
 def batch_bezier(t: jnp.ndarray, control: jnp.ndarray) -> jnp.ndarray:
     """
     Evaluate a batch of Bézier curves (using de Casteljau's algorithm).
@@ -431,7 +431,7 @@ def main(gpu: bool = True, optimize_time: bool = False) -> None:
     The vector field is a superposition of four vortices.
     """
     if not gpu:
-        jax.config.update("jax_platforms", "cpu")  # type: ignore[no-untyped-call]
+        jax.config.update("jax_platforms", "cpu")
 
     # Check if JAX is using the GPU
     print("JAX devices:", jax.devices())

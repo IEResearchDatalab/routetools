@@ -127,3 +127,56 @@ make test
 ```{bash}
 make mypy
 ```
+
+## Developer practices (quick guide)
+
+Follow these steps locally before pushing or opening a PR to keep the repository stable and CI-green:
+
+1. Parse the lockfile quickly:
+
+```powershell
+python tools/tools_parse_uv_lock.py
+```
+
+2. Run pre-commit hooks locally (fast feedback):
+
+```powershell
+pre-commit run --all-files
+```
+
+3. Run linter and type checks (if you have uv environment):
+
+```powershell
+# with uv
+uv run ruff check --show-source .
+uv run mypy --install-types --non-interactive
+# or system-installed tools
+ruff check --show-source .
+mypy --install-types --non-interactive
+```
+
+4. Run the test suite:
+
+```powershell
+uv run pytest
+```
+
+5. If you need to validate reproducible environment creation, run `uv sync --dev --frozen` on a Linux environment (CI will run this step).
+
+If you are on Windows and the project requires platform-specific packages (for example CUDA-enabled JAX), use WSL2 or a Linux runner for the uv sync step.
+
+### Bypassing pre-commit for small, safe commits
+
+Occasionally you may make a tiny, clearly-safe change (for example: updating a small helper script, fixing a documentation typo, or adding a fallback version file) and want to commit immediately without running the full pre-commit chain locally. In these rare cases you can bypass hooks with:
+
+```powershell
+git commit --no-verify -m "chore: small doc or safe fix"
+```
+
+Use this sparingly. Always prefer running `pre-commit run --all-files` locally or in your CI workflow. Bypassing hooks should be limited to situations where:
+
+- The change is small and low-risk (docs, generated fallback file).
+- You have validated the change manually.
+- You plan to run the full checks in CI (or immediately afterwards).
+
+If you are unsure whether a change is safe to commit with `--no-verify`, run the hooks locally first.

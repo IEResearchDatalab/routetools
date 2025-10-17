@@ -35,9 +35,9 @@ def cost_function(
     is_time_variant: bool = getattr(vectorfield, "is_time_variant", False)
     # Choose which cost function to use
     if (travel_stw is not None) and is_time_variant:
-        return cost_function_constant_speed_time_variant(vectorfield, curve, travel_stw)  # type: ignore[no-any-return]
+        return cost_function_constant_speed_time_variant(vectorfield, curve, travel_stw)
     elif (travel_stw is not None) and (not is_time_variant):
-        return cost_function_constant_speed_time_invariant(  # type: ignore[no-any-return]
+        return cost_function_constant_speed_time_invariant(
             vectorfield, curve, travel_stw
         )
     elif (travel_time is not None) and is_time_variant:
@@ -46,7 +46,7 @@ def cost_function(
             "Time-variant cost function with fixed travel time is not implemented."
         )
     elif (travel_time is not None) and (not is_time_variant):
-        return cost_function_constant_cost_time_invariant(  # type: ignore[no-any-return]
+        return cost_function_constant_cost_time_invariant(
             vectorfield, curve, travel_time
         )
     else:

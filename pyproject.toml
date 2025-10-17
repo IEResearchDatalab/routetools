@@ -5,12 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 requires-python = ">=3.12,<3.13"
 name = "routetools"
-# La versión se obtiene automáticamente de git con `setuptools_scm`
-#version = "0.1.0"
 description = "Routing Tools for Continuous Vector Fields"
 readme = "README.md"
 authors = [{ name = "Weather Routing Research", email = "daniel.precioso@ie.edu" }]
-dynamic = ["version"]
+# For reproducible lockfiles and environments we keep a static version here.
+version = "0.1.0"
 dependencies = [
     "pandas",
     "fastapi",
@@ -36,7 +35,11 @@ main = "routetools.main:main"
 packages = ["routetools"]
 
 [tool.setuptools_scm]
-# Importante crear esta sección vacia para activar el plugin
+# Configure setuptools_scm to write a version file and provide a fallback when
+# git metadata is not available (this ensures editable installs and lockfile
+# generation can see a concrete version).
+write_to = "routetools/_version.py"
+fallback_version = "0+unknown"
 
 [tool.ruff]
 line-length = 88

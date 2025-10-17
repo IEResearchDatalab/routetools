@@ -91,7 +91,7 @@ def random_piecewise_curve(
 
 def hessian(
     f: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray], argnums: int = 0
-) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+) -> Any:
     """
     Compute the Hessian of a function.
 
@@ -224,7 +224,7 @@ def optimize_fms(
     d11ld = hessian(lagrangian, argnums=0)
     d22ld = hessian(lagrangian, argnums=1)
 
-    @jit
+    @jit  # type: ignore[misc]
     def jacobian(qkm1: jnp.ndarray, qk: jnp.ndarray, qkp1: jnp.ndarray) -> jnp.ndarray:
         b = -d2ld(qkm1, qk) - d1ld(qk, qkp1)
         a = d22ld(qkm1, qk) + d11ld(qk, qkp1)
@@ -233,7 +233,7 @@ def optimize_fms(
 
     jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0), out_axes=(0))
 
-    @jit
+    @jit  # type: ignore[misc]
     def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
         curve_new = jnp.copy(curve)
         q = jac_vectorized(curve[:-2], curve[1:-1], curve[2:])
@@ -293,7 +293,7 @@ def main(gpu: bool = True, optimize_time: bool = False) -> None:
     The vector field is a superposition of four vortices.
     """
     if not gpu:
-        jax.config.update("jax_platforms", "cpu")  # type: ignore[no-untyped-call]
+        jax.config.update("jax_platforms", "cpu")
 
     # Check if JAX is using the GPU
     print("JAX devices:", jax.devices())

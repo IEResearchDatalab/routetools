@@ -304,9 +304,13 @@ def plot_land_avoidance(
 
     # Generate plots for the worst ten examples
     for _, df_sub in df_land.groupby("complexity"):
-        # Take three random values (fixed random seed for reproducibility)
-        df_random = df_sub.sample(n=size, random_state=1)
-        for _, row in df_random.iterrows():
+        # Sort by gain
+        df_sub = df_sub.sort_values("gain_fms", ascending=True)
+        # Take the worst three examples
+        df_worst = df_sub.tail(3)
+        for _, row in df_worst.iterrows():
+            # Extract the configuration parameters
+
             # Load the JSON file for the identified example
             json_id = int(row["json"])
             print(f"Land avoidance: processing {json_id}...")
