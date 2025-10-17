@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.12.*"
 
 [[package]]
@@ -239,6 +239,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/f5/38/3af3d3633a34a3316
 wheels = [
     { url = "https://files.pythonhosted.org/packages/95/04/ff642e65ad6b90db43e668d70ffb6736436c7ce41fcc549f4e9472234127/h11-0.14.0-py3-none-any.whl", hash = "sha256:e3fe4ac4b851c468cc8363d500db52c2ead036020723024a109d37346efaa761", size = 58259, upload-time = "2022-09-25T15:39:59.68Z" },
 ]
+
+[[package]]
+name = "h3"
+version = "4.0.0b2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/18/9f/c3bf7ef02d59cb81db8ac2860292ddbfafe34d299d4f5b45ca58899f9ee3/h3-4.0.0b2.tar.gz", hash = "sha256:be147d4662db70c95742a7b283d2bcf9a46313f29253950a6072cce795908871", size = 125488, upload-time = "2022-11-24T01:16:06.779Z" }
 
 [[package]]
 name = "identify"
@@ -1050,6 +1056,7 @@ source = { editable = "." }
 dependencies = [
     { name = "cma" },
     { name = "fastapi" },
+    { name = "h3" },
     { name = "jax" },
     { name = "matplotlib" },
     { name = "pandas" },
@@ -1081,6 +1088,7 @@ dev = [
 requires-dist = [
     { name = "cma", specifier = ">=4.0.0" },
     { name = "fastapi" },
+    { name = "h3", specifier = "==4.0.0b2" },
     { name = "jax", specifier = ">=0.4.33" },
     { name = "jax", extras = ["cuda"], marker = "extra == 'cuda'", specifier = ">=0.4.33" },
     { name = "matplotlib", specifier = ">=3.9.2" },
