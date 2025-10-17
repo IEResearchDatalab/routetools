@@ -1,4 +1,3 @@
-import time
 import tomllib
 
 import jax.numpy as jnp
@@ -12,24 +11,24 @@ from routetools.plot import plot_curve
 
 
 def run_single_simulation(
-    vectorfield: str = "zero",
-    land_waterlevel: float = 0.7,
-    land_resolution: int = 20,
+    vectorfield: str = "techy",
+    land_waterlevel: float = 1.0,
+    land_resolution: int = 5,
     land_seed: int = 0,
     land_penalty: float = 100,
     outbounds_is_land: bool = False,
     cmaes_K: int = 6,
-    cmaes_L: int = 256,
+    cmaes_L: int = 200,
     cmaes_numpieces: int = 1,
-    cmaes_popsize: int = 5000,
-    cmaes_sigma: float = 1,
-    cmaes_tolfun: float = 0.1,
+    cmaes_popsize: int = 500,
+    cmaes_sigma: float = 2,
+    cmaes_tolfun: float = 1e-3,
     cmaes_damping: float = 1.0,
-    cmaes_maxfevals: int = 200000,
+    cmaes_maxfevals: int = 500000,
     cmaes_seed: int = 0,
-    fms_tolfun: float = 1e-10,
-    fms_damping: float = 0.9,
-    fms_maxfevals: int = 100000,
+    fms_tolfun: float = 1e-6,
+    fms_damping: float = 0.5,
+    fms_maxfevals: int = 500000,
     path_img: str = "./output",
     path_config: str = "config.toml",
 ):
@@ -109,8 +108,6 @@ def run_single_simulation(
         return
 
     # CMA-ES optimization algorithm
-    start = time.time()
-
     curve_cmaes, dict_cmaes = optimize(
         vectorfield_fun,
         src,
@@ -133,12 +130,10 @@ def run_single_simulation(
     if land(curve_cmaes).any():
         print("The curve is on land")
         cost_cmaes = jnp.inf
-
-    print(f"Computation time of CMA-ES: {time.time() - start}")
+    else:
+        cost_cmaes = dict_cmaes["cost"]
 
     # FMS variational algorithm (refinement)
-    start = time.time()
-
     curve_fms, dict_fms = optimize_fms(
         vectorfield_fun,
         curve=curve_cmaes,
@@ -152,19 +147,18 @@ def run_single_simulation(
     )
     # FMS returns an extra dimensions, we ignore that
     curve_fms = curve_fms[0]
-    cost_fms = dict_fms["cost"][0]  # FMS returns a list of costs
 
     if land(curve_fms).any():
         print("The curve is on land")
         cost_fms = jnp.inf
-
-    print(f"Computation time of FMS: {time.time() - start}")
+    else:
+        cost_fms = dict_fms["cost"][0]  # FMS returns a list of costs
 
     # Plot them
     fig, ax = plot_curve(
         vectorfield_fun,
         [curve_cmaes, curve_fms],
-        ls_name=["CMA-ES", "FMS"],
+        ls_name=["CMA-ES", "BERS"],
         ls_cost=[cost_cmaes, cost_fms],
         land=land,
         xlim=land_xlim,

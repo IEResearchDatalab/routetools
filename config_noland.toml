@@ -53,6 +53,7 @@ sigma0 = [0.5, 1, 1.5, 2, 2.5, 3]
 tolfun = [1e-3]
 damping = [1.0]
 maxfevals = [500000]
+cmaes_seed = [0, 1, 2, 3, 4]
 
 [refiner.fms]
 tolfun = [1e-6]

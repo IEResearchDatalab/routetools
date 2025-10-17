@@ -80,13 +80,15 @@ def run_param_configuration(
         tolfun=params["tolfun"],
         damping=params["damping"],
         maxfevals=params["maxfevals"],
+        seed=params.get("cmaes_seed", 0),
         verbose=verbose,
     )
+    cost_cmaes = dict_cmaes["cost"]
 
     # Update the results dictionary with the optimization results
     results.update(
         {
-            "cost_cmaes": dict_cmaes["cost"],
+            "cost_cmaes": cost_cmaes,
             "comp_time_cmaes": dict_cmaes["comp_time"],
             "niter_cmaes": dict_cmaes["niter"],
             "curve_cmaes": curve.tolist(),
@@ -94,7 +96,7 @@ def run_param_configuration(
     )
 
     # Check if the route crosses land
-    if land(curve).any():
+    if land(curve).any() or cost_cmaes < 0:
         print(f"{idx}: CMA-ES solution crosses land.")
         # Store NaN as cost
         results["cost_cmaes"] = float("nan")
@@ -118,11 +120,16 @@ def run_param_configuration(
     )
     # FMS returns an extra dimension, we ignore that
     curve_fms = curve_fms[0]
+    cost_fms = dict_fms["cost"][0]
+
+    if round(cost_fms, 3) > round(cost_cmaes, 3):
+        # The FMS went wrong
+        cost_fms = float("nan")
 
     # Update the results dictionary with the optimization results
     results.update(
         {
-            "cost_fms": dict_fms["cost"][0],  # FMS returns a list of costs
+            "cost_fms": cost_fms,  # FMS returns a list of costs
             "comp_time_fms": dict_fms["comp_time"],
             "niter_fms": dict_fms["niter"],
             "curve_fms": curve_fms.tolist(),
@@ -177,6 +184,17 @@ def build_dataframe(
 
     # Build the dataframe
     df = pd.DataFrame(ls_results)
+
+    # Any negative cost is turned into NaN
+    df["cost_cmaes"] = df["cost_cmaes"].where(df["cost_cmaes"] >= 0, float("nan"))
+    df["cost_fms"] = df["cost_fms"].where(df["cost_fms"] >= 0, float("nan"))
+
+    # Any cost higher than 1e4 is considered an error and turned into NaN
+    df["cost_cmaes"] = df["cost_cmaes"].where(df["cost_cmaes"] < 1e4, float("nan"))
+    df["cost_fms"] = df["cost_fms"].where(df["cost_fms"] < 1e4, float("nan"))
+
+    # Drop rows with NaN costs
+    df = df.dropna(subset=["cost_cmaes", "cost_fms"], how="any")
 
     # Land generation check: under the same conditions, the land should be the same
     # When the land makes source or destination not reachable, the cost is NaN
