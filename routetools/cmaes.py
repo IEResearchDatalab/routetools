@@ -132,6 +132,8 @@ def _cma_evolution_strategy(
     damping: float = 1,
     maxfevals: int = 25000,
     seed: float = jnp.nan,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     verbose: bool = True,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
@@ -163,6 +165,8 @@ def _cma_evolution_strategy(
             curve=curve,
             travel_stw=travel_stw,
             travel_time=travel_time,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
         )
 
         # Land penalization
@@ -193,6 +197,8 @@ def optimize(
     tolfun: float = 1e-4,
     damping: float = 1,
     maxfevals: int = 25000,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     seed: float = jnp.nan,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
@@ -238,6 +244,10 @@ def optimize(
         Damping factor for the optimizer. By default 1
     maxfevals : int, optional
         Maximum number of function evaluations. By default 25000
+    weight_l1 : float, optional
+        Weight for the L1 norm in the combined cost. Default is 1.0.
+    weight_l2 : float, optional
+        Weight for the L2 norm in the combined cost. Default is 0.0.
     seed : int, optional
         Random seed for reproducibility. By default jnp.nan
     verbose : bool, optional
@@ -271,6 +281,8 @@ def optimize(
         tolfun=tolfun,
         damping=damping,
         maxfevals=maxfevals,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
         seed=seed,
         verbose=verbose,
     )
@@ -309,6 +321,8 @@ def optimize_with_increasing_penalization(
     tolfun: float = 1e-4,
     damping: float = 1,
     maxfevals: int = 25000,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     seed: float = jnp.nan,
     verbose: bool = True,
 ) -> tuple[list[jnp.ndarray], list[float]]:
@@ -358,6 +372,10 @@ def optimize_with_increasing_penalization(
         Damping factor for the optimizer. By default 1
     maxfevals : int, optional
         Maximum number of function evaluations. By default 25000
+    weight_l1 : float, optional
+        Weight for the L1 norm in the combined cost. Default is 1.0.
+    weight_l2 : float, optional
+        Weight for the L2 norm in the combined cost. Default is 0.0.
     seed : int, optional
         Random seed for reproducibility. By default jnp.nan
     verbose : bool, optional
@@ -399,6 +417,8 @@ def optimize_with_increasing_penalization(
             tolfun=tolfun,
             damping=damping,
             maxfevals=maxfevals,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
             seed=seed,
             verbose=verbose,
         )

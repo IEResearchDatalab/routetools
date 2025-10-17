@@ -179,6 +179,8 @@ def optimize_benchmark_instance(
     tolfun: float = 1e-4,
     damping: float = 1,
     maxfevals: int = 25000,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     seed: float = jnp.nan,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
@@ -215,6 +217,10 @@ def optimize_benchmark_instance(
         Damping factor for the optimizer. By default 1
     maxfevals : int, optional
         Maximum number of function evaluations. By default 25000
+    weight_l1 : float, optional
+        Weight for the L1 norm in the combined cost. Default is 1.0.
+    weight_l2 : float, optional
+        Weight for the L2 norm in the combined cost. Default is 0.0.
     seed : int, optional
         Random seed for reproducibility. By default jnp.nan
     verbose : bool, optional
@@ -243,6 +249,8 @@ def optimize_benchmark_instance(
         tolfun=tolfun,
         damping=damping,
         maxfevals=maxfevals,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
         seed=seed,
         verbose=verbose,
     )
@@ -256,6 +264,8 @@ def optimize_fms_benchmark_instance(
     tolfun: float = 1e-5,
     damping: float = 1,
     maxfevals: int = 10000,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
@@ -276,6 +286,10 @@ def optimize_fms_benchmark_instance(
         Damping factor for the optimizer. By default 1
     maxfevals : int, optional
         Maximum number of function evaluations. By default 10000
+    weight_l1 : float, optional
+        Weight for the L1 norm in the combined cost. Default is 1.0.
+    weight_l2 : float, optional
+        Weight for the L2 norm in the combined cost. Default is 0.0.
     verbose : bool, optional
         By default True
 
@@ -296,6 +310,8 @@ def optimize_fms_benchmark_instance(
         tolfun=tolfun,
         damping=damping,
         maxfevals=maxfevals,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
         verbose=verbose,
     )
 

@@ -252,7 +252,7 @@ class Land:
         is_land = self(curve)
 
         # Consecutive points on land count as one
-        is_land = jnp.diff(is_land, axis=1) != 0
+        # is_land = jnp.diff(is_land, axis=1) != 0
 
         # Return the sum of the number of land intersections times the penalty
         return jnp.sum(is_land, axis=1) * penalty
