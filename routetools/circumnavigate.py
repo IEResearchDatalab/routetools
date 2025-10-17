@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import matplotlib.pyplot as _plt
 import typer
 from h3.api import basic_int as h3
-from shapely.geometry import MultiPolygon, Polygon
 
 from routetools.cost import cost_function
 from routetools.fms import optimize_fms
@@ -18,7 +17,7 @@ from routetools.vectorfield import vectorfield_zero
 
 
 def get_h3_cells_from_land(
-    land: Land, res: int = 5, land_dilation: int = 1
+    land: Land, res: int = 5, land_dilation: int = 1, expand_neighbors: bool = True
 ) -> set[int]:
     """Convert a Land instance into a set of H3 cell indices.
 
@@ -40,40 +39,14 @@ def get_h3_cells_from_land(
             if not is_land:
                 cell = h3.latlng_to_cell(lat, lon, res)
                 cells.add(cell)
-
-    if land_dilation > 0:
-        cells = _remove_border_cells(cells, land_dilation)
-    return cells
-
-
-def get_h3_cells_from_multipolygon(
-    multipolygon: Polygon | MultiPolygon, res: int = 5, land_dilation: int = 1
-) -> set[int]:
-    """Convert a shapely multipolygon into a set of h3 cell indices.
-
-    Cells that are adjacent to land (border cells) are removed using
-    `land_dilation`.
-    """
-    polygons = []
-    if isinstance(multipolygon, Polygon):
-        polygons.append(multipolygon)
-    else:
-        polygons.extend(
-            [geom for geom in multipolygon.geoms if isinstance(geom, Polygon)]
-        )
-
-    cells: set[int] = set()
-    for polygon in polygons:
-        # Use GeoJSON-style coordinates (lon, lat) for compatibility with
-        # different h3 versions. polygon.exterior.coords yields (lon, lat).
-        exterior_coords = [list(coord) for coord in polygon.exterior.coords]
-        interior_coords = [
-            [list(coord) for coord in interior.coords[:]]
-            for interior in polygon.interiors
-        ]
-        geo = {"type": "Polygon", "coordinates": [exterior_coords] + interior_coords}
-        cells_polygon = h3.polygon_to_cells(geo, res)
-        cells.update(cells_polygon)
+    # Optionally expand each water cell to include its immediate neighbors
+    # This helps avoid isolated single-cell connectivity issues due to
+    # sampling resolution mismatches between the Land grid and H3.
+    if expand_neighbors and len(cells) > 0:
+        expanded: set[int] = set()
+        for c in list(cells):
+            expanded.update(h3.grid_disk(c, 1))
+        cells = cells.union(expanded)
 
     if land_dilation > 0:
         cells = _remove_border_cells(cells, land_dilation)
@@ -111,15 +84,43 @@ def _neighbors(
     # When `cells` is None, allow any neighbour from the H3 grid. Otherwise
     # restrict to neighbours that are members of `cells`.
     if neighbour_disk == 1:
-        ring = h3.grid_ring(cell, 1) or []
-        for n in ring:
-            if cells is None or n in cells:
+        # Use grid_disk and exclude the center cell; grid_ring can return an
+        # empty list for some cells (e.g. pentagons) which would prevent the
+        # search from expanding. grid_disk is more robust.
+        disk = h3.grid_disk(cell, 1) or []
+        for n in disk:
+            if n != cell and (cells is None or n in cells):
                 yield n
     else:
         disk = h3.grid_disk(cell, neighbour_disk)
         for n in disk:
             if n != cell and (cells is None or n in cells):
                 yield n
+
+
+def _snap(lat: float, lon: float, cells: set[int] | None = None, res: int = 5) -> int:
+    # If no land/cells provided, snap directly to the cell containing the
+    # coordinate.
+    c = h3.latlng_to_cell(lat, lon, res)
+
+    if cells is None:
+        return c
+    if c in cells:
+        return c
+    # find nearest by centroid distance among provided cells
+    best = None
+    best_d = float("inf")
+    for cell in cells:
+        clat, clon = _cell_centroid(cell)
+        # Use cost_function with zero vectorfield and STW=1.0 as a proxy
+        # distance/cost between the point and the cell centroid.
+        # cost_function expects coordinates in [lon, lat] order.
+        curve = jnp.array([[[lon, lat], [clon, clat]]])
+        d = float(cost_function(vectorfield_zero, curve, travel_stw=1.0)[0])
+        if d < best_d:
+            best_d = d
+            best = cell
+    return best
 
 
 def astar_search(
@@ -137,36 +138,13 @@ def astar_search(
     If start or end are not inside any cell in `cells`, we snap them to the
     nearest available cell centroid.
     """
-
-    # helper to snap latlon to cell in set
-    def _snap(lat: float, lon: float) -> int:
-        # If no land/cells provided, snap directly to the cell containing the
-        # coordinate.
-        c = h3.latlng_to_cell(lat, lon, res)
-        if cells is None:
-            return c
-        if c in cells:
-            return c
-        # find nearest by centroid distance among provided cells
-        best = None
-        best_d = float("inf")
-        for cell in cells:
-            clat, clon = _cell_centroid(cell)
-            # Use cost_function with zero vectorfield and STW=1.0 as a proxy
-            # distance/cost between the point and the cell centroid.
-            curve = jnp.array([[[lat, lon], [clat, clon]]])
-            d = float(cost_function(vectorfield_zero, curve, travel_stw=1.0)[0])
-            if d < best_d:
-                best_d = d
-                best = cell
-        return jnp.array(best)
-
-    start_cell = _snap(start_lat, start_lon)
-    end_cell = _snap(end_lat, end_lon)
+    start_cell = _snap(start_lat, start_lon, cells=cells, res=res)
+    end_cell = _snap(end_lat, end_lon, cells=cells, res=res)
 
     # A* structures
     open_heap: list[tuple[float, int]] = []  # (f, cell)
-    heapq.heappush(open_heap, (0.0, start_cell))
+    # initialize with heuristic of start
+    heapq.heappush(open_heap, (0.0 + 0.0, start_cell))
     came_from: dict[int, int | None] = {start_cell: None}
     gscore: dict[int, float] = {start_cell: 0.0}
 
@@ -174,7 +152,8 @@ def astar_search(
         clat, clon = _cell_centroid(c)
         # Heuristic estimated using the cost function with zero currents and
         # constant speed-through-water of 1. This mirrors the CMA-ES style.
-        curve = jnp.array([[[clat, clon], [end_lat, end_lon]]])
+        # cost_function expects [lon, lat]
+        curve = jnp.array([[[clon, clat], [end_lon, end_lat]]])
         # cost_function returns a scalar per curve; take the first element
         est = float(cost_function(vectorfield_zero, curve, travel_stw=1.0)[0])
         return heuristic_weight * est
@@ -194,7 +173,12 @@ def astar_search(
                 node = came_from.get(node)
             path_cells.reverse()
             # convert to lat/lon centroids
-            return jnp.array([_cell_centroid(c) for c in path_cells])
+            # Return coordinates in [lon, lat] order (cost_function expects this)
+            coords: list[tuple[float, float]] = []
+            for c in path_cells:
+                clat, clon = _cell_centroid(c)
+                coords.append((clon, clat))
+            return jnp.array(coords)
 
         visited.add(current)
 
@@ -202,7 +186,8 @@ def astar_search(
             # compute cost/time for the single-segment curve between centroids
             clat, clon = _cell_centroid(current)
             nlat, nlon = _cell_centroid(nb)
-            seg_curve = jnp.array([[[clat, clon], [nlat, nlon]]])
+            # cost_function expects [lon, lat]
+            seg_curve = jnp.array([[[clon, clat], [nlon, nlat]]])
             seg_cost = float(
                 cost_function(vectorfield_zero, seg_curve, travel_stw=1.0)[0]
             )
@@ -218,10 +203,10 @@ def astar_search(
 
 
 def main(
-    src_lat: float = 0,
-    src_lon: float = 0,
-    dst_lat: float = 10,
-    dst_lon: float = 10,
+    src_lat: float = 0.0,
+    src_lon: float = 0.0,
+    dst_lat: float = 10.0,
+    dst_lon: float = 10.0,
     res: int = 5,
     neighbour_disk: int = 1,
     land_dilation: int = 1,
@@ -233,13 +218,16 @@ def main(
     Populated H3 cells are considered navigable; if `land` is omitted the
     search assumes no land constraints.
     """
-    land = None
-    # If a `Land` instance is provided, extract navigable H3 cells from it.
-    # If no land is provided, assume no land constraints (cells=None).
-    if land is None:
-        cells = None
-    else:
-        cells = get_h3_cells_from_land(land, res=res, land_dilation=land_dilation)
+    land = Land(
+        (-1, 11),
+        (-1, 11),
+        water_level=0.7,
+        resolution=6,
+        random_seed=0,
+        outbounds_is_land=True,
+    )
+    # Use land
+    cells = get_h3_cells_from_land(land, res=res, land_dilation=land_dilation)
 
     route = astar_search(
         start_lat=src_lat,
@@ -253,7 +241,6 @@ def main(
 
     if len(route) == 0:
         typer.echo("No route found")
-        raise typer.Exit(code=1)
 
     # Refine the route using FMS optimization
     curve_refined, _ = optimize_fms(
