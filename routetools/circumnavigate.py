@@ -159,10 +159,8 @@ def _snap(lat: float, lon: float, cells: set[int] | None = None, res: int = 5) -
 
 
 def circumnavigate(
-    start_lat: float,
-    start_lon: float,
-    end_lat: float,
-    end_lon: float,
+    src: tuple[float, float],
+    dst: tuple[float, float],
     land: Land | None = None,
     land_dilation: int = 1,
     res: int = 5,
@@ -212,6 +210,8 @@ def circumnavigate(
         cells = get_h3_cells_from_land(land, res=res, land_dilation=land_dilation)
 
     # Snap start and end to nearest available cells
+    start_lat, start_lon = src
+    end_lat, end_lon = dst
     start_cell = _snap(start_lat, start_lon, cells=cells, res=res)
     end_cell = _snap(end_lat, end_lon, cells=cells, res=res)
 
@@ -320,10 +320,8 @@ def main(
     )
 
     curve_refined, curve = circumnavigate(
-        start_lat=src_lat,
-        start_lon=src_lon,
-        end_lat=dst_lat,
-        end_lon=dst_lon,
+        src=(src_lat, src_lon),
+        dst=(dst_lat, dst_lon),
         land=land,
         land_dilation=land_dilation,
         res=res,
