@@ -277,6 +277,7 @@ def circumnavigate(
                 heapq.heappush(open_heap, (f, nb))
 
     if len(curve) == 0:
+        print("[ERROR] No path found by A*. Returning empty route.")
         return curve, curve  # no path found
 
     # Refine the route using FMS optimization
