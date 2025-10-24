@@ -107,6 +107,8 @@ def run_single_simulation(
     fms_tolfun: float = 1e-6,
     fms_damping: float = 0.5,
     fms_maxfevals: int = 500000,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     path_img: str = "./output",
     path_config: str = "config.toml",
     verbose: bool = True,
@@ -136,6 +138,10 @@ def run_single_simulation(
         The damping factor for FMS, by default 0.9.
     fms_maxfevals : int, optional
         The maximum number of iterations for FMS, by default 50000.
+    weight_l1 : float, optional
+        Weight for the L1 norm in the combined cost. Default is 1.0.
+    weight_l2 : float, optional
+        Weight for the L2 norm in the combined cost. Default is 0.0.
     path_img : str, optional
         The path to save output images, by default "./output".
     """
@@ -173,6 +179,8 @@ def run_single_simulation(
         tolfun=cmaes_tolfun,
         damping=cmaes_damping,
         maxfevals=cmaes_maxfevals,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
         seed=cmaes_seed,
         verbose=verbose,
     )
@@ -192,6 +200,8 @@ def run_single_simulation(
         tolfun=fms_tolfun,
         damping=fms_damping,
         maxfevals=fms_maxfevals,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
         verbose=verbose,
     )
     # FMS returns an extra dimensions, we ignore that
@@ -207,6 +217,8 @@ def run_single_simulation(
         tolfun=fms_tolfun,
         damping=fms_damping,
         maxfevals=fms_maxfevals,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
         verbose=verbose,
     )
     # FMS returns an extra dimensions, we ignore that

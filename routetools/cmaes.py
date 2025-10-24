@@ -8,6 +8,7 @@ import cma
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import scipy
 import typer
 from jax import jit
 
@@ -113,6 +114,85 @@ def control_to_curve(
     return result
 
 
+def curve_to_control(
+    curve: jnp.ndarray, K: int = 6, num_pieces: int = 1, match_endpoints: bool = True
+) -> jnp.ndarray:
+    """Fit Bézier control points from a sampled curve.
+
+    Returns an array of control points with shape (2K), compatible with CMA-ES.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        The sampled curve, with shape (L, 2)
+    K : int, optional
+        Number of free Bézier control points, accounting for source and destination
+        that will not be included in the output. By default 6
+    num_pieces : int, optional
+        Number of Bézier curves, by default 1
+    match_endpoints : bool, optional
+        Whether to enforce the endpoints of the curve to match the endpoints of the
+        Bézier curve, by default True
+
+    Returns
+    -------
+    jnp.ndarray
+        The fitted control points, with shape (2K)
+    """
+    if num_pieces != 1:
+        raise NotImplementedError("curve_to_control supports only num_pieces==1")
+
+    if curve.ndim != 2 or curve.shape[1] != 2:
+        raise ValueError("curve must be shape (L,2)")
+
+    x = curve[:, 0]
+    y = curve[:, 1]
+    # parameterization: uniform t in [0,1]
+    L = curve.shape[0]
+    t = jnp.linspace(0.0, 1.0, L)
+
+    # Convert timestamps to [0, 1] if needed
+    if (t[0] != 0) or (t[-1] != 1):
+        t = (t - t[0]) / (t[-1] - t[0])
+
+    rhs = jnp.column_stack([x, y])
+
+    # Subtract the contribution of the endpoints if needed
+    degree = K - 1
+
+    if match_endpoints:
+        assert (
+            degree >= 1
+        ), "The number of control points K must be at least 2 to match endpoints."
+        A = jnp.zeros([len(x), degree - 1])
+        for d in range(1, degree):
+            A = A.at[:, d - 1].set(
+                scipy.special.comb(degree, d) * (1 - t) ** (degree - d) * t**d
+            )
+        rhs = rhs.at[:, 0].set(
+            rhs[:, 0] - ((1 - t) ** degree * x[0] + t**degree * x[-1])
+        )
+        rhs = rhs.at[:, 1].set(
+            rhs[:, 1] - ((1 - t) ** degree * y[0] + t**degree * y[-1])
+        )
+        control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
+        control = jnp.vstack(
+            [jnp.column_stack([x[0], y[0]]), control, jnp.column_stack([x[-1], y[-1]])]
+        )
+    else:
+        assert degree >= 0, "The number of control points must be non-negative."
+        A = jnp.zeros([len(x), degree + 1])
+        for d in range(degree + 1):
+            A = A.at[:, d].set(
+                scipy.special.comb(degree, d) * (1 - t) ** (degree - d) * t**d
+            )
+        control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
+
+    # Take the interior control points only
+    # Return as a flattened array for compatibility with CMA-ES (x0)
+    return control[1:-1].flatten()
+
+
 def _cma_evolution_strategy(
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
@@ -132,6 +212,8 @@ def _cma_evolution_strategy(
     damping: float = 1,
     maxfevals: int = 25000,
     seed: float = jnp.nan,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     verbose: bool = True,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
@@ -163,6 +245,8 @@ def _cma_evolution_strategy(
             curve=curve,
             travel_stw=travel_stw,
             travel_time=travel_time,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
         )
 
         # Land penalization
@@ -181,6 +265,7 @@ def optimize(
     ],
     src: jnp.ndarray,
     dst: jnp.ndarray,
+    curve0: jnp.ndarray | None = None,
     land: Land | None = None,
     penalty: float = 10,
     travel_stw: float | None = None,
@@ -193,6 +278,8 @@ def optimize(
     tolfun: float = 1e-4,
     damping: float = 1,
     maxfevals: int = 25000,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     seed: float = jnp.nan,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
@@ -214,6 +301,9 @@ def optimize(
         Source point (2D)
     dst : jnp.ndarray
         Destination point (2D)
+    curve0 : jnp.ndarray | None, optional
+        Initial curve to start the optimization from, with shape (L,2).
+        If None, a straight line is used, by default None
     land_function : callable, optional
         A function that checks if points on a curve are on land, by default None
     penalty : float, optional
@@ -238,6 +328,10 @@ def optimize(
         Damping factor for the optimizer. By default 1
     maxfevals : int, optional
         Maximum number of function evaluations. By default 25000
+    weight_l1 : float, optional
+        Weight for the L1 norm in the combined cost. Default is 1.0.
+    weight_l2 : float, optional
+        Weight for the L2 norm in the combined cost. Default is 0.0.
     seed : int, optional
         Random seed for reproducibility. By default jnp.nan
     verbose : bool, optional
@@ -248,8 +342,24 @@ def optimize(
     tuple[jnp.ndarray, float]
         The optimized curve (shape L x 2), and the fuel cost
     """
-    # Initial solution as a straight line
-    x0 = jnp.linspace(src, dst, K - 2).flatten()
+    if curve0 is None:
+        # Initial solution as a straight line
+        x0 = jnp.linspace(src, dst, K - 2).flatten()
+    else:
+        # Validate src and dst match endpoints of curve0
+        if not jnp.allclose(curve0[0, :], src):
+            raise ValueError(
+                "The starting point of curve0 does not match src. "
+                f"curve0[0,:]={curve0[0, :]}, src={src}"
+            )
+        if not jnp.allclose(curve0[-1, :], dst):
+            raise ValueError(
+                "The ending point of curve0 does not match dst. "
+                f"curve0[-1,:]={curve0[-1, :]}, dst={dst}"
+            )
+        # Initial solution from provided curve
+        x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
+
     # Initial standard deviation to sample new solutions
     # One sigma is half the distance between src and dst
     sigma0 = float(jnp.linalg.norm(dst - src) * sigma0 / 2)
@@ -271,6 +381,8 @@ def optimize(
         tolfun=tolfun,
         damping=damping,
         maxfevals=maxfevals,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
         seed=seed,
         verbose=verbose,
     )
@@ -309,6 +421,8 @@ def optimize_with_increasing_penalization(
     tolfun: float = 1e-4,
     damping: float = 1,
     maxfevals: int = 25000,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
     seed: float = jnp.nan,
     verbose: bool = True,
 ) -> tuple[list[jnp.ndarray], list[float]]:
@@ -358,6 +472,10 @@ def optimize_with_increasing_penalization(
         Damping factor for the optimizer. By default 1
     maxfevals : int, optional
         Maximum number of function evaluations. By default 25000
+    weight_l1 : float, optional
+        Weight for the L1 norm in the combined cost. Default is 1.0.
+    weight_l2 : float, optional
+        Weight for the L2 norm in the combined cost. Default is 0.0.
     seed : int, optional
         Random seed for reproducibility. By default jnp.nan
     verbose : bool, optional
@@ -399,6 +517,8 @@ def optimize_with_increasing_penalization(
             tolfun=tolfun,
             damping=damping,
             maxfevals=maxfevals,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
             seed=seed,
             verbose=verbose,
         )
