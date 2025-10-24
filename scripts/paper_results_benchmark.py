@@ -1,9 +1,8 @@
 import matplotlib.pyplot as plt
 import typer
-from wrr_bench.benchmark import load
 
 from routetools.benchmark import (
-    extract_benchmark_instance,
+    load_benchmark_instance,
     optimize_benchmark_instance,
     optimize_fms_benchmark_instance,
 )
@@ -12,6 +11,9 @@ from routetools.plot import plot_curve
 
 def single_run(
     instance_name: str,
+    date_start: str = "2023-01-08",
+    vel_ship: int = 6,
+    data_path: str = "../weather-routing-benchmarks/data",
     penalty: float = 10.0,
     K: int = 6,
     L: int = 64,
@@ -23,15 +25,13 @@ def single_run(
     maxfevals: int = 25000,
 ):
     """Run a single benchmark instance and save the result to output/."""
-    dict_instance = load(
-        instance_name,
-        date_start="2023-01-08",
-        vel_ship=6,
-        data_path="../weather-routing-benchmarks/data",
-    )
-
     # Extract relevant information from the problem instance
-    dict_extracted = extract_benchmark_instance(dict_instance)
+    dict_instance = load_benchmark_instance(
+        instance_name,
+        date_start=date_start,
+        vel_ship=vel_ship,
+        data_path=data_path,
+    )
 
     print("The problem instance contains the following information:")
     print(", ".join(list(dict_instance.keys())))
@@ -48,8 +48,8 @@ def single_run(
         damping=damping,
         maxfevals=maxfevals,
     )
-    vectorfield = dict_extracted["vectorfield"]
-    land = dict_extracted["land"]
+    vectorfield = dict_instance["vectorfield"]
+    land = dict_instance["land"]
 
     # FMS
     curve_fms, _ = optimize_fms_benchmark_instance(

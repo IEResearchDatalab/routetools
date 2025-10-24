@@ -6,12 +6,12 @@ import os
 os.environ["JAX_DISABLE_JIT"] = "1"
 
 # Now import the rest of the modules
-
 from collections.abc import Callable
 from math import ceil
 from typing import Any
 
 import jax.numpy as jnp
+from wrr_bench.benchmark import load
 from wrr_bench.ocean import Ocean
 
 from routetools.circumnavigate import circumnavigate
@@ -121,19 +121,25 @@ class LandBenchmark(Land):
         )
 
 
-def extract_benchmark_instance(
-    dict_instance: dict[str, Any],
+def load_benchmark_instance(
+    instance_name: str,
+    date_start: str = "2023-01-08",
+    vel_ship: int = 6,
+    data_path: str = "../weather-routing-benchmarks/data",
 ) -> dict[str, Any]:
     """
     Extract relevant information from a benchmark instance dictionary.
 
     Parameters
     ----------
-    dict_instance : dict
-        Dictionary containing the problem instance, as loaded with
-        `wrr_bench.benchmark.load`
-        The problem instance contains the following information:
-        lat_start, lon_start, lat_end, lon_end, date_start, vel_ship, bounding_box, data
+    instance_name : str
+        Name of the benchmark instance to load.
+    date_start : str, optional
+        Start date for the benchmark instance, by default "2023-01-08".
+    vel_ship : int, optional
+        Velocity of the ship in knots, by default 6.
+    data_path : str, optional
+        Path to the data directory, by default "../weather-routing-benchmarks/data".
 
     Returns
     -------
@@ -146,6 +152,12 @@ def extract_benchmark_instance(
         - vectorfield: Callable function to get the current vectors
         - land: Land instance for land penalization
     """
+    dict_instance = load(
+        instance_name,
+        date_start=date_start,
+        vel_ship=vel_ship,
+        data_path=data_path,
+    )
     # Extract relevant information from the problem instance
     src = jnp.array([dict_instance["lon_start"], dict_instance["lat_start"]])
     dst = jnp.array([dict_instance["lon_end"], dict_instance["lat_end"]])
@@ -233,26 +245,31 @@ def optimize_benchmark_instance(
     tuple[jnp.ndarray, float]
         The optimized curve (shape L x 2), and the fuel cost
     """
-    dict_extracted = extract_benchmark_instance(dict_instance)
-
     if init_circumnavigate:
-        # Initialize the circumnavigate route
+        if verbose:
+            print("[INFO] Initializing with circumnavigation route...")
+        # Initialize the circumnavigation route
         curve0, _ = circumnavigate(
-            src=dict_extracted["src"],
-            dst=dict_extracted["dst"],
-            land=dict_extracted["land"],
+            src=dict_instance["src"],
+            dst=dict_instance["dst"],
+            land=dict_instance["land"],
+            res=4,
         )
+        if verbose:
+            print("[INFO] Circumnavigation route initialized.")
     else:
         curve0 = None
 
+    print(curve0.shape)
+
     curve_best, dict_cmaes = optimize(
-        vectorfield=dict_extracted["vectorfield"],
-        src=dict_extracted["src"],
-        dst=dict_extracted["dst"],
+        vectorfield=dict_instance["vectorfield"],
+        src=dict_instance["src"],
+        dst=dict_instance["dst"],
         curve0=curve0,
-        land=dict_extracted["land"],
-        travel_stw=dict_extracted["travel_stw"],
-        travel_time=dict_extracted["travel_time"],
+        land=dict_instance["land"],
+        travel_stw=dict_instance["travel_stw"],
+        travel_time=dict_instance["travel_time"],
         penalty=penalty,
         K=K,
         L=L,
@@ -312,14 +329,12 @@ def optimize_fms_benchmark_instance(
         The optimized curve (shape L x 2), and a dictionary with information about
         the optimization process
     """
-    dict_extracted = extract_benchmark_instance(dict_instance)
-
     curve_opt, dict_fms = optimize_fms(
-        vectorfield=dict_extracted["vectorfield"],
+        vectorfield=dict_instance["vectorfield"],
         curve=curve,
-        land=dict_extracted["land"],
-        travel_stw=dict_extracted["travel_stw"],
-        travel_time=dict_extracted["travel_time"],
+        land=dict_instance["land"],
+        travel_stw=dict_instance["travel_stw"],
+        travel_time=dict_instance["travel_time"],
         tolfun=tolfun,
         damping=damping,
         maxfevals=maxfevals,
