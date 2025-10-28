@@ -335,8 +335,8 @@ def main(
     ls_curve = [curve, curve_refined]
     ls_name = ["A* route", "FMS refined route"]
 
-    out = Path(out)
-    out.parent.mkdir(parents=True, exist_ok=True)
+    pout = Path(out)
+    pout.parent.mkdir(parents=True, exist_ok=True)
     typer.echo(f"Computed route with {len(curve)} waypoints")
     try:
         fig, ax = plot_curve(
@@ -347,7 +347,7 @@ def main(
             gridstep=0.5,
             figsize=(6, 6),
         )
-        jpg_path = out / "circumnavigation.jpg"
+        jpg_path = pout / "circumnavigation.jpg"
         fig.savefig(jpg_path, dpi=300, bbox_inches="tight")
         typer.echo(f"Route plot written to {jpg_path}")
         # close the figure
