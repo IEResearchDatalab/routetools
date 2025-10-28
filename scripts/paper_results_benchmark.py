@@ -97,19 +97,25 @@ def main(
         "EGHRG-MYKUL",
     ]
     for instance in ls_instances:
-        print(f"Running benchmark for instance {instance}")
-        single_run(
-            instance,
-            penalty=penalty,
-            K=K,
-            L=L,
-            num_pieces=num_pieces,
-            popsize=popsize,
-            sigma0=sigma0,
-            tolfun=tolfun,
-            damping=damping,
-            maxfevals=maxfevals,
-        )
+        print(f"[INFO] Running benchmark for instance {instance}")
+        try:
+            single_run(
+                instance,
+                penalty=penalty,
+                K=K,
+                L=L,
+                num_pieces=num_pieces,
+                popsize=popsize,
+                sigma0=sigma0,
+                tolfun=tolfun,
+                damping=damping,
+                maxfevals=maxfevals,
+            )
+        except IndexError as e:
+            print(
+                f"[ERROR] Benchmark for instance {instance} couldn't find "
+                f"circumnavigation: {e}"
+            )
 
 
 if __name__ == "__main__":
