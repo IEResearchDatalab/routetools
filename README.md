@@ -117,7 +117,7 @@ pip install git+ssh://git@github.com:Weather-Routing-Research/cmaes_bezier_demo.
 
 ### Benchmark data
 
-To be able to run the code, you need to download oceanographic data from [Google Drive](https://drive.google.com/file/d/1jE4adphfGBOWhPETZbNcmh17m6kmOet5/view?usp=sharing). This data is stored in a zip file (43.5 GB) and should be extracted to a folder (121 GB).
+To be able to run the code, you need to download oceanographic data from [Google Drive](https://drive.google.com/file/d/1jE4adphfGBOWhPETZbNcmh17m6kmOet5/view?usp=sharing). This data is stored in a zip file (15.5 GB) and should be extracted to a folder (24.0 GB).
 
 You can use the following bash script to download the data:
 
@@ -137,14 +137,11 @@ data
 │   ├── 2023-01-02.nc
 │   ├── ...
 │   └── 2023-12-31.nc
-├── waves
-│   ├── 2023-01-01.nc
-│   ├── 2023-01-02.nc
-│   ├── ...
-│   └── 2023-12-31.nc
 ├── earth-seas-1km-valid.geo.json
 └── earth-seas-2km5-valid.geo.json
 ```
+
+> Note: This data only includes ocean currents. If you want to include wave data, you need to download the full data folder (121 GB, compressed to 43.5 GB) from [here](https://drive.google.com/file/d/1aWQ8u6kT3v5nUo1YJ5u6F2X1Z3Zk9KXW/view?usp=sharing) instead.
 
 ## Run examples
 

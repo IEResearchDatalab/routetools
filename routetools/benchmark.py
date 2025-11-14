@@ -157,6 +157,7 @@ def load_benchmark_instance(
         date_start=date_start,
         vel_ship=vel_ship,
         data_path=data_path,
+        use_waves=False,
     )
     # Extract relevant information from the problem instance
     src = jnp.array([dict_instance["lon_start"], dict_instance["lat_start"]])
