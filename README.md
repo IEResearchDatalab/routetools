@@ -124,7 +124,7 @@ You can use the following bash script to download the data:
 ```bash
 curl -L -C - \
   -o data.zip \
-  'https://drive.usercontent.google.com/download?id=1jE4adphfGBOWhPETZbNcmh17m6kmOet5&export=download&confirm=t'
+  'https://drive.usercontent.google.com/download?id=1E52akVR--yPNUHB12vUl2IZH8S9-RuHA&export=download&confirm=t'
 unzip -o data.zip -d .
 ```
 
