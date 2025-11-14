@@ -62,15 +62,15 @@ def get_currents_to_vectorfield(
         else:
             shape = None  # No need to reshape later
 
-        # Ensure JAX JIT is disabled, check if lat is a traced array
-        if isinstance(lat, jax.core.Tracer):
+        try:
+            v, u = ocean.get_currents(lat, lon, ts_full)
+        except jax.errors.TracerArrayConversionError as e:
             raise RuntimeError(
-                "JAX JIT is enabled, which is incompatible with "
-                "ocean.get_currents() from wrr_bench.ocean."
-                "Please disable JIT by setting the environment variable "
-                "JAX_DISABLE_JIT=1 before importing any routetools module."
-            )
-        v, u = ocean.get_currents(lat, lon, ts_full)
+                "Failed to evaluate the vector field. "
+                "This may be due to JAX JIT compilation issues. "
+                "Try disabling JIT by setting the environment variable "
+                "`JAX_DISABLE_JIT=1` before running the code."
+            ) from e
 
         # Reshape to the original shape if needed
         if shape is not None:
@@ -351,28 +351,29 @@ def optimize_benchmark_instance(
     else:
         curve0 = None
 
-    curve_best, dict_cmaes = optimize(
-        vectorfield=dict_instance["vectorfield"],
-        src=dict_instance["src"],
-        dst=dict_instance["dst"],
-        curve0=curve0,
-        land=dict_instance["land"],
-        travel_stw=dict_instance["travel_stw"],
-        travel_time=dict_instance["travel_time"],
-        penalty=penalty,
-        K=K,
-        L=L,
-        num_pieces=num_pieces,
-        popsize=popsize,
-        sigma0=sigma0,
-        tolfun=tolfun,
-        damping=damping,
-        maxfevals=maxfevals,
-        weight_l1=weight_l1,
-        weight_l2=weight_l2,
-        seed=seed,
-        verbose=verbose,
-    )
+    with jax.disable_jit():
+        curve_best, dict_cmaes = optimize(
+            vectorfield=dict_instance["vectorfield"],
+            src=dict_instance["src"],
+            dst=dict_instance["dst"],
+            curve0=curve0,
+            land=dict_instance["land"],
+            travel_stw=dict_instance["travel_stw"],
+            travel_time=dict_instance["travel_time"],
+            penalty=penalty,
+            K=K,
+            L=L,
+            num_pieces=num_pieces,
+            popsize=popsize,
+            sigma0=sigma0,
+            tolfun=tolfun,
+            damping=damping,
+            maxfevals=maxfevals,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            seed=seed,
+            verbose=verbose,
+        )
 
     return curve_best, dict_cmaes
 
@@ -422,18 +423,19 @@ def optimize_fms_benchmark_instance(
         curve.ndim == 2 and curve.shape[1] == 2
     ), f"Curve must have shape (L, 2), but got {curve.shape}"
 
-    curve_opt, dict_fms = optimize_fms(
-        vectorfield=dict_instance["vectorfield"],
-        curve=curve,
-        land=dict_instance["land"],
-        travel_stw=dict_instance["travel_stw"],
-        travel_time=dict_instance["travel_time"],
-        tolfun=tolfun,
-        damping=damping,
-        maxfevals=maxfevals,
-        weight_l1=weight_l1,
-        weight_l2=weight_l2,
-        verbose=verbose,
-    )
+    with jax.disable_jit():
+        curve_opt, dict_fms = optimize_fms(
+            vectorfield=dict_instance["vectorfield"],
+            curve=curve,
+            land=dict_instance["land"],
+            travel_stw=dict_instance["travel_stw"],
+            travel_time=dict_instance["travel_time"],
+            tolfun=tolfun,
+            damping=damping,
+            maxfevals=maxfevals,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            verbose=verbose,
+        )
 
     return curve_opt, dict_fms

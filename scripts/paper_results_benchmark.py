@@ -79,13 +79,13 @@ def single_run(
 def main(
     penalty: float = 10.0,
     K: int = 6,
-    L: int = 128,
+    L: int = 64,
     num_pieces: int = 1,
-    popsize: int = 1000,
-    sigma0: int = 3,
-    tolfun: float = 1e-5,
+    popsize: int = 200,
+    sigma0: int = 1,
+    tolfun: float = 0.0001,
     damping: float = 1,
-    maxfevals: int = 1000000,
+    maxfevals: int = 25000,
 ):
     """Run benchmark instances and save the results to output/."""
     ls_instances = [
