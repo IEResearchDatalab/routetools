@@ -25,6 +25,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "typer>=0.19.2",
     "h3==4.0.0b2",
+    "wrr-bench",
 ]
 
 [project.urls]
@@ -97,6 +98,9 @@ dev-dependencies = [
     "pre-commit",
     "ipykernel",
 ]
+
+[tool.uv.sources]
+wrr-bench = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routing-benchmarks.git", branch = "main" }
 
 [project.optional-dependencies]
 cuda = ["jax[cuda]>=0.4.33"]

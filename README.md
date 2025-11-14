@@ -50,6 +50,63 @@ Install package and pinned dependencies with the [`uv`](https://docs.astral.sh/u
    source .venv/bin/activate
    ```
 
+### Git credentials for VCS dependencies
+
+When `uv` installs a package from a git repository (VCS dependency), Git may need credentials to fetch the remote. On non-interactive environments this commonly fails with:
+
+```bash
+fatal: could not read Username for 'https://github.com': terminal prompts disabled
+```
+
+Use one of the following approaches to make VCS fetches non-interactive.
+
+**Option A: SSH (preferred)**
+
+Generate an SSH key (WSL / Linux):
+
+```bash
+ssh-keygen -t ed25519 -C "your_email@example.com" -f ~/.ssh/id_ed25519 -N ""
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+cat ~/.ssh/id_ed25519.pub
+```
+
+Add the printed public key to GitHub (Settings → SSH and GPG keys). Test access:
+
+```bash
+ssh -T git@github.com
+git ls-remote git@github.com:Weather-Routing-Research/weather-routing-benchmarks.git refs/heads/main
+```
+
+Then use an SSH pip URL when adding or declaring the dependency:
+
+```bash
+uv add 'git+ssh://git@github.com/Weather-Routing-Research/weather-routing-benchmarks.git@main#egg=wrr_bench'
+uv sync
+```
+
+If you run `uv` from PowerShell on Windows, ensure the Windows SSH agent is running and the key is loaded (Start-Service ssh-agent; ssh-add $env:USERPROFILE\\.ssh\\id_ed25519), or run `uv` from WSL where the key was created.
+
+**Option B: HTTPS with credentials (fallback)**
+
+Use Git Credential Manager or GitHub CLI to cache credentials so Git won't prompt:
+
+PowerShell (Windows):
+
+```powershell
+git config --global credential.helper manager-core
+gh auth login --hostname github.com --git-protocol https
+```
+
+WSL / Linux (use gh or configure a credential helper that works in your environment):
+
+```bash
+gh auth login --hostname github.com --git-protocol https
+# or configure `git config --global credential.helper cache` for short-term caching
+```
+
+After configuring credentials, retry the `uv add` / `uv sync` command.
+
 ### Library
 
 Install a specific version of the package with `pip` or `uv pip`:
