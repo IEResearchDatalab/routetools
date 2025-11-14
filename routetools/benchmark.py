@@ -239,15 +239,7 @@ def circumnavigate(
     curve = jnp.stack([lons, lats], axis=1)
 
     # Refine the route using FMS optimization
-    curve, _ = optimize_fms(
-        vectorfield_zero,
-        curve=curve,
-        land=land,
-        travel_stw=1.0,
-        tolfun=1e-8,
-        maxfevals=50000,
-        damping=0.9,
-    )
+    curve, _ = optimize_fms(vectorfield_zero, curve=curve, land=land, travel_stw=1.0)
 
     return curve
 
