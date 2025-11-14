@@ -14,7 +14,7 @@ def single_run(
     date_start: str = "2023-01-08",
     vel_ship: int = 6,
     data_path: str = "./data",
-    penalty: float = 10.0,
+    penalty: float = 1e8,
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,
@@ -81,7 +81,7 @@ def single_run(
 
 
 def main(
-    penalty: float = 10.0,
+    penalty: float = 1e8,
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,
