@@ -117,38 +117,33 @@ pip install git+ssh://git@github.com:Weather-Routing-Research/cmaes_bezier_demo.
 
 ### Benchmark data
 
-The benchmark data used in the examples and tests is not included in the repository. You can download it from the [weather-routing-benchmarks](https://github.com/Weather-Routing-Research/weather-routing-benchmarks).
+To be able to run the code, you need to download oceanographic data from [Google Drive](https://drive.google.com/file/d/1jE4adphfGBOWhPETZbNcmh17m6kmOet5/view?usp=sharing). This data is stored in a zip file (43.5 GB) and should be extracted to a folder (121 GB).
 
-Clone the repository outside of this one and point to the data folder when loading a benchmark instance, for example:
-
-```python
-from wrr_bench.benchmark import load
-
-dict_instance = load(
-    "DEHAM-USNYC",
-    date_start="2023-01-08",
-    vel_ship=6,
-    data_path="../weather-routing-benchmarks/data",
-)
-
-print("The problem instance contains the following information:")
-print(", ".join(list(dict_instance.keys())))
-```
-
-Our advice is to follow the following folder structure:
-
-```
-some_folder/
-   routetools/  <- this repository
-   weather-routing-benchmarks/  <- benchmark data
-```
-
-From `routetools` you can then point to the data folder with `../weather-routing-benchmarks/data`.
-
-And to install `weather-routing-benchmarks` as a package in editable mode, run the following from `routetools`:
+You can use the following bash script to download the data:
 
 ```bash
-uv run pip install -e ../weather-routing-benchmarks
+curl -L -C - \
+  -o data.zip \
+  'https://drive.usercontent.google.com/download?id=1jE4adphfGBOWhPETZbNcmh17m6kmOet5&export=download&confirm=t'
+unzip -o data.zip -d .
+```
+
+The extracted folder should have the following structure:
+
+```
+data
+├── currents
+│   ├── 2023-01-01.nc
+│   ├── 2023-01-02.nc
+│   ├── ...
+│   └── 2023-12-31.nc
+├── waves
+│   ├── 2023-01-01.nc
+│   ├── 2023-01-02.nc
+│   ├── ...
+│   └── 2023-12-31.nc
+├── earth-seas-1km-valid.geo.json
+└── earth-seas-2km5-valid.geo.json
 ```
 
 ## Run examples
