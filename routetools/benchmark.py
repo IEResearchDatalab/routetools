@@ -11,13 +11,16 @@ from math import ceil
 from typing import Any
 
 import jax.numpy as jnp
+import numpy as np
 from wrr_bench.benchmark import load
 from wrr_bench.ocean import Ocean
+from wrr_utils.optimization import Circumnavigate
+from wrr_utils.route import Route
 
-from routetools.circumnavigate import circumnavigate
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
+from routetools.vectorfield import vectorfield_zero
 
 
 def get_currents_to_vectorfield(
@@ -179,7 +182,74 @@ def load_benchmark_instance(
         "travel_time": travel_time,
         "vectorfield": vectorfield,
         "land": land,
+        "data": ocean,
+        "date_start": dict_instance["date_start"],
     }
+
+
+def circumnavigate(
+    src: tuple[float, float],
+    dst: tuple[float, float],
+    ocean: Ocean,
+    land: LandBenchmark,
+    date_start: np.datetime64,
+) -> jnp.ndarray:
+    """Run A* on the h3 cell graph and return a list of (lat, lon) points.
+
+    If start or end are not inside any cell in `cells`, we snap them to the
+    nearest available cell centroid.
+    It then refines the resulting route using FMS optimization.
+
+    Parameters
+    ----------
+    src : tuple[float, float]
+        Source point as (lon, lat).
+    dst : tuple[float, float]
+        Destination point as (lon, lat).
+    land : Land | None, optional
+        Land instance to derive navigable cells from. If None, assumes no land
+        constraints, by default None.
+
+    Returns
+    -------
+    tuple[jnp.ndarray, jnp.ndarray]
+        Tuple containing:
+        - The refined route as an array of (lon, lat) points.
+        - The initial A* route as an array of (lon, lat) points.
+    """
+    lon_start, lat_start = src
+    lon_end, lat_end = dst
+    # Circumnavigate optimizer
+    opt = Circumnavigate(num_iter=0)  # No FMS refinement here
+    route: Route = opt.optimize(
+        lat_start=lat_start,
+        lon_start=lon_start,
+        lat_end=lat_end,
+        lon_end=lon_end,
+        data=ocean,
+        bounding_box=ocean.bounding_box,  # Required explicitly
+        date_start=date_start,
+        date_end=None,
+        vel_ship=10.0,  # Required explicitly, but not used
+    )
+
+    # Retrieve the curve from the Route instance
+    lats = jnp.asarray(route.lats)
+    lons = jnp.asarray(route.lons)
+    curve = jnp.stack([lons, lats], axis=1)
+
+    # Refine the route using FMS optimization
+    curve, _ = optimize_fms(
+        vectorfield_zero,
+        curve=curve,
+        land=land,
+        travel_stw=1.0,
+        tolfun=1e-8,
+        maxfevals=50000,
+        damping=0.9,
+    )
+
+    return curve
 
 
 def optimize_benchmark_instance(
@@ -250,11 +320,12 @@ def optimize_benchmark_instance(
         if verbose:
             print("[INFO] Initializing with circumnavigation route...")
         # Initialize the circumnavigation route
-        curve0, _ = circumnavigate(
+        curve0 = circumnavigate(
             src=dict_instance["src"],
             dst=dict_instance["dst"],
+            ocean=dict_instance["data"],
             land=dict_instance["land"],
-            res=4,
+            date_start=dict_instance["date_start"],
         )
         if verbose:
             print("[INFO] Circumnavigation route initialized.")
