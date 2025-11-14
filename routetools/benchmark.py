@@ -244,7 +244,9 @@ def circumnavigate(
     lats = jnp.asarray(route.lats)
     lons = jnp.asarray(route.lons)
     curve = jnp.stack([lons, lats], axis=1)
-    assert curve.ndim == 2 and curve.shape[1] == 2, "Curve must have shape (L, 2)"
+    assert (
+        curve.ndim == 2 and curve.shape[1] == 2
+    ), f"Curve must have shape (L, 2), but got {curve.shape}"
 
     # Refine the route using FMS optimization
     curves, _ = optimize_fms(
@@ -329,7 +331,9 @@ def optimize_benchmark_instance(
             land=dict_instance["land"],
             date_start=dict_instance["date_start"],
         )
-        assert curve0.ndim == 2 and curve0.shape[1] == 2, "Curve must have shape (L, 2)"
+        assert (
+            curve0.ndim == 2 and curve0.shape[1] == 2
+        ), f"Curve must have shape (L, 2), but got {curve0.shape}"
         if verbose:
             print("[INFO] Circumnavigation route initialized.")
     else:
@@ -402,6 +406,10 @@ def optimize_fms_benchmark_instance(
         The optimized curve (shape L x 2), and a dictionary with information about
         the optimization process
     """
+    assert (
+        curve.ndim == 2 and curve.shape[1] == 2
+    ), f"Curve must have shape (L, 2), but got {curve.shape}"
+
     curve_opt, dict_fms = optimize_fms(
         vectorfield=dict_instance["vectorfield"],
         curve=curve,
