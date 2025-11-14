@@ -257,7 +257,12 @@ def circumnavigate(
 
     # Refine the route using FMS optimization
     curves, _ = optimize_fms(
-        vectorfield_zero, curve=curve, land=land, travel_stw=1.0, verbose=verbose
+        vectorfield_zero,
+        curve=curve,
+        land=land,
+        travel_stw=1.0,
+        spherical_correction=True,
+        verbose=verbose,
     )
 
     return curves[0]
@@ -371,6 +376,7 @@ def optimize_benchmark_instance(
             maxfevals=maxfevals,
             weight_l1=weight_l1,
             weight_l2=weight_l2,
+            spherical_correction=True,
             seed=seed,
             verbose=verbose,
         )
@@ -435,6 +441,7 @@ def optimize_fms_benchmark_instance(
             maxfevals=maxfevals,
             weight_l1=weight_l1,
             weight_l2=weight_l2,
+            spherical_correction=True,
             verbose=verbose,
         )
 

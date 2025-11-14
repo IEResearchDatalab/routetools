@@ -18,6 +18,7 @@ EARTH_RADIUS = 6378137.0
         "travel_time",
         "weight_l1",
         "weight_l2",
+        "spherical_correction",
     ),
 )
 def cost_function(
@@ -29,6 +30,7 @@ def cost_function(
     travel_time: float | None = None,
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
+    spherical_correction: bool = False,
 ) -> jnp.ndarray:
     """
     Compute the cost of a batch of paths navigating over a vector field.
@@ -52,6 +54,8 @@ def cost_function(
         Weight for the L1 norm in the combined cost. Default is 1.0.
     weight_l2 : float, optional
         Weight for the L2 norm in the combined cost. Default is 0.0.
+    spherical_correction : bool, optional
+        Whether to apply spherical correction to distances. Default is False.
 
     Returns
     -------
@@ -61,10 +65,12 @@ def cost_function(
     is_time_variant: bool = getattr(vectorfield, "is_time_variant", False)
     # Choose which cost function to use
     if (travel_stw is not None) and is_time_variant:
-        cost = cost_function_constant_speed_time_variant(vectorfield, curve, travel_stw)
+        cost = cost_function_constant_speed_time_variant(
+            vectorfield, curve, travel_stw, spherical_correction=spherical_correction
+        )
     elif (travel_stw is not None) and (not is_time_variant):
         cost = cost_function_constant_speed_time_invariant(
-            vectorfield, curve, travel_stw
+            vectorfield, curve, travel_stw, spherical_correction=spherical_correction
         )
     elif (travel_time is not None) and is_time_variant:
         # Not supported
@@ -73,7 +79,7 @@ def cost_function(
         )
     elif (travel_time is not None) and (not is_time_variant):
         cost = cost_function_constant_cost_time_invariant(
-            vectorfield, curve, travel_time
+            vectorfield, curve, travel_time, spherical_correction=spherical_correction
         )
     else:
         # Arguments missing
@@ -88,7 +94,9 @@ def cost_function(
     return weight_l1 * l1 + weight_l2 * l2
 
 
-def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+def haversine_meters_module(
+    lat1: float, lon1: float, lat2: float, lon2: float
+) -> float:
     """Great-circle distance in meters between two points given in degrees."""
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -100,13 +108,30 @@ def haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     return 2 * EARTH_RADIUS * math.asin(math.sqrt(a))
 
 
-@partial(jit, static_argnames=("vectorfield", "travel_stw"))
+def haversine_meters_components(
+    lat1: jnp.ndarray,
+    lon1: jnp.ndarray,
+    lat2: jnp.ndarray,
+    lon2: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Great-circle distance in meters between two points given in degrees."""
+    # Compute components in meters
+    phi1 = jnp.radians(lat1)
+    phi2 = jnp.radians(lat2)
+    dlambda = jnp.radians(lon2 - lon1)
+    dx = EARTH_RADIUS * dlambda * jnp.cos((phi1 + phi2) / 2)
+    dy = EARTH_RADIUS * (jnp.radians(lat2) - jnp.radians(lat1))
+    return dx, dy
+
+
+@partial(jit, static_argnames=("vectorfield", "travel_stw", "spherical_correction"))
 def cost_function_constant_speed_time_invariant(
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ],
     curve: jnp.ndarray,
     travel_stw: float,
+    spherical_correction: bool = False,
 ) -> jnp.ndarray:
     """
     Compute the travel time of a batch of paths navigating over a vector field.
@@ -131,8 +156,16 @@ def cost_function_constant_speed_time_invariant(
     uinterp, vinterp = vectorfield(curvex, curvey, jnp.array([0.0]))
 
     # Distances between points in X and Y
-    dx = jnp.diff(curve[:, :, 0], axis=1)
-    dy = jnp.diff(curve[:, :, 1], axis=1)
+    if spherical_correction:
+        dx, dy = haversine_meters_components(
+            curve[:, :-1, 1],
+            curve[:, :-1, 0],
+            curve[:, 1:, 1],
+            curve[:, 1:, 0],
+        )
+    else:
+        dx = jnp.diff(curve[:, :, 0], axis=1)
+        dy = jnp.diff(curve[:, :, 1], axis=1)
     # Power of the distance (segment lengths)
     d2 = jnp.power(dx, 2) + jnp.power(dy, 2)
     # Power of the speed through water
@@ -147,13 +180,14 @@ def cost_function_constant_speed_time_invariant(
     return dt
 
 
-@partial(jit, static_argnames=("vectorfield", "travel_stw"))
+@partial(jit, static_argnames=("vectorfield", "travel_stw", "spherical_correction"))
 def cost_function_constant_speed_time_variant(
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ],
     curve: jnp.ndarray,
     travel_stw: float,
+    spherical_correction: bool = False,
 ) -> jnp.ndarray:
     """
     Compute the travel time of a batch of paths navigating over a vector field.
@@ -177,8 +211,16 @@ def cost_function_constant_speed_time_variant(
     curvey = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
 
     # Distances between points in X and Y
-    dx = jnp.diff(curve[:, :, 0], axis=1)
-    dy = jnp.diff(curve[:, :, 1], axis=1)
+    if spherical_correction:
+        dx, dy = haversine_meters_components(
+            curve[:, :-1, 1],
+            curve[:, :-1, 0],
+            curve[:, 1:, 1],
+            curve[:, 1:, 0],
+        )
+    else:
+        dx = jnp.diff(curve[:, :, 0], axis=1)
+        dy = jnp.diff(curve[:, :, 1], axis=1)
     # Power of the distance (segment lengths)
     d2 = jnp.power(dx, 2) + jnp.power(dy, 2)
     # Power of the speed through water
@@ -211,13 +253,14 @@ def cost_function_constant_speed_time_variant(
     return dt_array.T
 
 
-@partial(jit, static_argnames=("vectorfield", "travel_time"))
+@partial(jit, static_argnames=("vectorfield", "travel_time", "spherical_correction"))
 def cost_function_constant_cost_time_invariant(
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ],
     curve: jnp.ndarray,
     travel_time: float,
+    spherical_correction: bool = False,
 ) -> jnp.ndarray:
     """
     Compute the fuel consumption of a batch of paths navigating over a vector field.
@@ -242,8 +285,16 @@ def cost_function_constant_cost_time_invariant(
     uinterp, vinterp = vectorfield(curvex, curvey, jnp.array([0.0]))
 
     # Distances between points
-    dx = jnp.diff(curve[:, :, 0], axis=1)
-    dy = jnp.diff(curve[:, :, 1], axis=1)
+    if spherical_correction:
+        dx, dy = haversine_meters_components(
+            curve[:, :-1, 1],
+            curve[:, :-1, 0],
+            curve[:, 1:, 1],
+            curve[:, 1:, 0],
+        )
+    else:
+        dx = jnp.diff(curve[:, :, 0], axis=1)
+        dy = jnp.diff(curve[:, :, 1], axis=1)
     # Times between points
     dt = travel_time / (curve.shape[1] - 1)
     # We compute the speed over ground from the displacement

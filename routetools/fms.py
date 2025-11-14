@@ -127,6 +127,7 @@ def optimize_fms(
     maxfevals: int = 5000,
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
+    spherical_correction: bool = False,
     seed: int = 0,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
@@ -209,6 +210,7 @@ def optimize_fms(
                 travel_stw=travel_stw,
                 weight_l1=weight_l1,
                 weight_l2=weight_l2,
+                spherical_correction=spherical_correction,
             )
             ld = jnp.sum(h * lag**2)
             # Do note: The original formula used q0, q1 to compute l1, l2 and then
@@ -229,6 +231,7 @@ def optimize_fms(
                 travel_time=h,
                 weight_l1=weight_l1,
                 weight_l2=weight_l2,
+                spherical_correction=spherical_correction,
             )
             ld = jnp.sum(h * lag)
             # Do note: The original formula used q0, q1 to compute l1, l2 and then
@@ -270,6 +273,7 @@ def optimize_fms(
         travel_time=travel_time,
         weight_l1=weight_l1,
         weight_l2=weight_l2,
+        spherical_correction=spherical_correction,
     )
     delta = jnp.array([jnp.inf])
 
@@ -290,6 +294,7 @@ def optimize_fms(
             travel_time=travel_time,
             weight_l1=weight_l1,
             weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
         )
         delta = 1 - cost_now / cost_old
         idx += 1
