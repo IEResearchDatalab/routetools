@@ -229,7 +229,7 @@ def circumnavigate(
         data=ocean,
         bounding_box=ocean.bounding_box,  # Required explicitly
         date_start=date_start,
-        date_end=None,
+        date_end=None,  # Required explicitly, but not used
         vel_ship=10.0,  # Required explicitly, but not used
     )
 
