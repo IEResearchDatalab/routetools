@@ -67,7 +67,8 @@ def get_currents_to_vectorfield(
         else:
             shape = None  # No need to reshape later
 
-        # Get currents
+        # Warning: ocean.get_currents uses Numpy arrays internally
+        # If JIT is enabled, this will cause TracerArrayConversionError
         v, u = ocean.get_currents(lat, lon, ts_full)
 
         # Reshape to the original shape if needed
