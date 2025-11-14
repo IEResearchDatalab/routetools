@@ -1,3 +1,9 @@
+# Deactivate JAX before importing anything else
+import os
+
+os.environ["JAX_DISABLE_JIT"] = "1"
+
+# Rest of the imports
 from collections.abc import Callable
 from math import ceil
 from typing import Any
