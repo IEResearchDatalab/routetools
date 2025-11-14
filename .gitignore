@@ -159,8 +159,10 @@ Temporary Items
 .apdisk
 
 # User folders
+data/
 notebooks/
 output/
 
 # User files
 nohup.out
+*.zip

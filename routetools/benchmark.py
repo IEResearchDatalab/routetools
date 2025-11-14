@@ -125,7 +125,7 @@ def load_benchmark_instance(
     instance_name: str,
     date_start: str = "2023-01-08",
     vel_ship: int = 6,
-    data_path: str = "../weather-routing-benchmarks/data",
+    data_path: str = "./data",
 ) -> dict[str, Any]:
     """
     Extract relevant information from a benchmark instance dictionary.
@@ -139,7 +139,7 @@ def load_benchmark_instance(
     vel_ship : int, optional
         Velocity of the ship in knots, by default 6.
     data_path : str, optional
-        Path to the data directory, by default "../weather-routing-benchmarks/data".
+        Path to the data directory, by default "./data".
 
     Returns
     -------

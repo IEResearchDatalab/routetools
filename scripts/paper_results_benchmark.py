@@ -13,7 +13,7 @@ def single_run(
     instance_name: str,
     date_start: str = "2023-01-08",
     vel_ship: int = 6,
-    data_path: str = "../weather-routing-benchmarks/data",
+    data_path: str = "./data",
     penalty: float = 10.0,
     K: int = 6,
     L: int = 64,
