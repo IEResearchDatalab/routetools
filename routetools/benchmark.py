@@ -1,11 +1,3 @@
-# Disable JAX before anything else
-# This must be at the very top, before any JAX import
-# Required to ensure compatibility with wrr_bench
-import os
-
-os.environ["JAX_DISABLE_JIT"] = "1"
-
-# Now import the rest of the modules
 from collections.abc import Callable
 from math import ceil
 from typing import Any
@@ -162,37 +154,46 @@ def load_benchmark_instance(
         data_path=data_path,
         use_waves=False,
     )
-    # Extract relevant information from the problem instance
-    src = jnp.array([dict_instance["lon_start"], dict_instance["lat_start"]])
-    dst = jnp.array([dict_instance["lon_end"], dict_instance["lat_end"]])
 
     # Load ocean and land data
     ocean: Ocean = dict_instance["data"]
     vectorfield = get_currents_to_vectorfield(ocean)
     land = LandBenchmark(ocean, outbounds_is_land=True)
 
-    # Extract other parameters
-    travel_stw = dict_instance.get("vel_ship")
-    travel_time = dict_instance.get("travel_time")
+    # jnp arrays for src and dst
+    src = jnp.array([dict_instance["lon_start"], dict_instance["lat_start"]])
+    dst = jnp.array([dict_instance["lon_end"], dict_instance["lat_end"]])
 
     return {
+        # These ones are used for circumnavigation
+        "lat_start": dict_instance["lat_start"],
+        "lon_start": dict_instance["lon_start"],
+        "lat_end": dict_instance["lat_end"],
+        "lon_end": dict_instance["lon_end"],
+        "vel_ship": dict_instance.get("vel_ship", None),
+        "travel_time": dict_instance.get("travel_time", None),
+        "date_start": dict_instance["date_start"],
+        "date_end": dict_instance.get("date_end", None),
+        # These ones are used in CMA-ES optimization
         "src": src,
         "dst": dst,
-        "travel_stw": travel_stw,
-        "travel_time": travel_time,
+        "data": ocean,
         "vectorfield": vectorfield,
         "land": land,
-        "data": ocean,
-        "date_start": dict_instance["date_start"],
+        "travel_stw": dict_instance.get("vel_ship", None),
     }
 
 
 def circumnavigate(
-    src: tuple[float, float],
-    dst: tuple[float, float],
+    lat_start: float,
+    lon_start: float,
+    lat_end: float,
+    lon_end: float,
     ocean: Ocean,
     land: LandBenchmark,
     date_start: np.datetime64,
+    date_end: np.datetime64 | None = None,
+    vel_ship: float = 10.0,
     verbose: bool = False,
 ) -> jnp.ndarray:
     """Run A* on the h3 cell graph and return a list of (lat, lon) points.
@@ -224,8 +225,6 @@ def circumnavigate(
         - The refined route as an array of (lon, lat) points.
         - The initial A* route as an array of (lon, lat) points.
     """
-    lon_start, lat_start = src
-    lon_end, lat_end = dst
     # Circumnavigate optimizer
     opt = Circumnavigate(num_iter=0)  # No FMS refinement here
     route: Route = opt.optimize(
@@ -236,8 +235,8 @@ def circumnavigate(
         data=ocean,
         bounding_box=ocean.bounding_box,  # Required explicitly
         date_start=date_start,
-        date_end=None,  # Required explicitly, but not used
-        vel_ship=10.0,  # Required explicitly, but not used
+        date_end=date_end,  # Required explicitly, but not used
+        vel_ship=vel_ship,  # Required explicitly, but not used
     )
 
     # Retrieve the curve from the Route instance
@@ -325,11 +324,16 @@ def optimize_benchmark_instance(
             print("[INFO] Initializing with circumnavigation route...")
         # Initialize the circumnavigation route
         curve0 = circumnavigate(
-            src=dict_instance["src"],
-            dst=dict_instance["dst"],
+            lat_start=dict_instance["lat_start"],
+            lon_start=dict_instance["lon_start"],
+            lat_end=dict_instance["lat_end"],
+            lon_end=dict_instance["lon_end"],
             ocean=dict_instance["data"],
             land=dict_instance["land"],
             date_start=dict_instance["date_start"],
+            date_end=dict_instance.get("date_end"),
+            vel_ship=dict_instance.get("vel_ship"),
+            verbose=verbose,
         )
         assert (
             curve0.ndim == 2 and curve0.shape[1] == 2
