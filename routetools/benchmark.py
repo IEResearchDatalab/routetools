@@ -1,13 +1,8 @@
-# Deactivate JAX before importing anything else
-import os
-
-os.environ["JAX_DISABLE_JIT"] = "1"
-
-# Rest of the imports
 from collections.abc import Callable
 from math import ceil
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from wrr_bench.benchmark import load
@@ -67,8 +62,14 @@ def get_currents_to_vectorfield(
         else:
             shape = None  # No need to reshape later
 
-        # Warning: ocean.get_currents uses Numpy arrays internally
-        # If JIT is enabled, this will cause TracerArrayConversionError
+        # Ensure JAX JIT is disabled, check if lat is a traced array
+        if isinstance(lat, jax.core.Tracer):
+            raise RuntimeError(
+                "JAX JIT is enabled, which is incompatible with "
+                "ocean.get_currents() from wrr_bench.ocean."
+                "Please disable JIT by setting the environment variable "
+                "JAX_DISABLE_JIT=1 before importing any routetools module."
+            )
         v, u = ocean.get_currents(lat, lon, ts_full)
 
         # Reshape to the original shape if needed
