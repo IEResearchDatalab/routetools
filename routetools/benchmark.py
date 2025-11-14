@@ -303,7 +303,7 @@ def optimize_benchmark_instance(
         The problem instance contains the following information:
         lat_start, lon_start, lat_end, lon_end, date_start, vel_ship, bounding_box, data
     penalty : float, optional
-        Penalty for land points, by default 10
+        Penalty for land points, by default 1e8
     K : int, optional
         Number of free Bézier control points. By default 6
     L : int, optional
