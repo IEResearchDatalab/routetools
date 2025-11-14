@@ -193,6 +193,7 @@ def circumnavigate(
     ocean: Ocean,
     land: LandBenchmark,
     date_start: np.datetime64,
+    verbose: bool = False,
 ) -> jnp.ndarray:
     """Run A* on the h3 cell graph and return a list of (lat, lon) points.
 
@@ -206,9 +207,15 @@ def circumnavigate(
         Source point as (lon, lat).
     dst : tuple[float, float]
         Destination point as (lon, lat).
+    ocean : Ocean
+        Ocean instance to retrieve current data from.
     land : Land | None, optional
         Land instance to derive navigable cells from. If None, assumes no land
         constraints, by default None.
+    date_start : np.datetime64
+        Start date for the route.
+    verbose : bool, optional
+        Whether to print verbose output, by default False.
 
     Returns
     -------
@@ -240,7 +247,9 @@ def circumnavigate(
     assert curve.ndim == 2 and curve.shape[1] == 2, "Curve must have shape (L, 2)"
 
     # Refine the route using FMS optimization
-    curves, _ = optimize_fms(vectorfield_zero, curve=curve, land=land, travel_stw=1.0)
+    curves, _ = optimize_fms(
+        vectorfield_zero, curve=curve, land=land, travel_stw=1.0, verbose=verbose
+    )
 
     return curves[0]
 
