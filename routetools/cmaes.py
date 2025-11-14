@@ -223,7 +223,7 @@ def _cma_evolution_strategy(
         x0,
         sigma0,
         inopts={
-            "popsize": popsize,
+            "popsize": popsize - 1,  # minus one because we add the best solution
             "tolfun": tolfun,
             "maxfevals": maxfevals,
             "seed": seed,
@@ -235,9 +235,16 @@ def _cma_evolution_strategy(
     if land is not None:
         assert penalty is not None, "penalty must be a number"
 
+    # Store the original solution as the current best solution
+    best_solution = x0.tolist()
+
     # Optimization loop
     while not es.stop():
         X = es.ask()  # sample len(X) candidate solutions
+        # Append the current best solution to the population
+        X.append(best_solution)
+
+        # Transform controls into curves and compute costs
         curve = control_to_curve(jnp.array(X), src, dst, L=L, num_pieces=num_pieces)
 
         cost: jnp.ndarray = cost_function(
@@ -256,6 +263,9 @@ def _cma_evolution_strategy(
         es.tell(X, cost.tolist())  # update the optimizer
         if verbose:
             es.disp()
+
+        # Store the current best solution
+        best_solution = es.best.x
     return es
 
 

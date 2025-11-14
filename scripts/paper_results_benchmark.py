@@ -52,14 +52,18 @@ def single_run(
     land = dict_instance["land"]
 
     # FMS
-    curve_fms, _ = optimize_fms_benchmark_instance(
-        dict_instance,
-        curve=curve_cmaes,
-        tolfun=tolfun,
-        damping=damping,
-        maxfevals=maxfevals,
-        verbose=True,
-    )
+    try:
+        curve_fms, _ = optimize_fms_benchmark_instance(
+            dict_instance,
+            curve=curve_cmaes,
+            tolfun=tolfun,
+            damping=damping,
+            maxfevals=maxfevals,
+            verbose=True,
+        )
+    except Exception as e:
+        print(f"[ERROR] FMS optimization failed for instance {instance_name}: {e}")
+        curve_fms = curve_cmaes  # Fallback to CMA-ES curve if FMS fails
 
     # Plot the curve
     plot_curve(
