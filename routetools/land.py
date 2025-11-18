@@ -22,6 +22,7 @@ class Land:
         outbounds_is_land: bool = False,
         random_seed: int | None = None,
         land_array: jnp.ndarray | None = None,
+        penalize_segments: bool = True,
     ):
         """Class to check if points on a curve are on land.
 
@@ -43,6 +44,8 @@ class Land:
             if True, points outside the limits are considered land, by default False
         random_seed : int, optional
             random seed for reproducibility, by default None
+        penalize_segments : bool, optional
+            If True, penalize segments, not points, by default True
         """
         # Ensure resolution is 2D
         if resolution is None:
@@ -95,6 +98,7 @@ class Land:
         self.shape = self._array.shape
         self.interpolate = interpolate
         self.outbounds_is_land = outbounds_is_land
+        self.penalize_segments = penalize_segments
 
     @property
     def array(self) -> jnp.ndarray:
@@ -252,7 +256,8 @@ class Land:
         is_land = self(curve)
 
         # Consecutive points on land count as one
-        is_land = jnp.diff(is_land, axis=1) != 0
+        if self.penalize_segments:
+            is_land = jnp.diff(is_land, axis=1) != 0
 
         # Return the sum of the number of land intersections times the penalty
         return jnp.sum(is_land, axis=1) * penalty

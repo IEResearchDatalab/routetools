@@ -76,29 +76,34 @@ def single_run(
         xlim=(land.xmin, land.xmax),
         ylim=(land.ymin, land.ymax),
     )
+    plt.tight_layout()
     plt.savefig(f"output/benchmark_{instance_name}.jpg", dpi=300)
     plt.close()
 
 
 def main(
     penalty: float = 1e8,
-    K: int = 6,
+    K: int = 8,
     L: int = 64,
     num_pieces: int = 1,
-    popsize: int = 200,
+    popsize: int = 500,
     sigma0: int = 1,
     tolfun: float = 0.0001,
     damping: float = 1,
-    maxfevals: int = 25000,
+    maxfevals: int = 250000,
 ):
     """Run benchmark instances and save the results to output/."""
     ls_instances = [
         "DEHAM-USNYC",
         "USNYC-DEHAM",
+        "EGHRG-MYKUL",
+        "MYKUL-EGHRG",
+        "EGPSD-ESALG",
+        "ESALG-EGPSD",
+        "PABLB-PECLL",
+        "PECLL-PABLB",
         "PAONX-USNYC",
         "USNYC-PAONX",
-        "MYKUL-EGHRG",
-        "EGHRG-MYKUL",
     ]
     for instance in ls_instances:
         print(f"[INFO] Running benchmark for instance {instance}")

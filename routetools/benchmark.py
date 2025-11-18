@@ -170,7 +170,7 @@ def load_benchmark_instance(
     # Load ocean and land data
     ocean: Ocean = dict_instance["data"]
     vectorfield = get_currents_to_vectorfield(ocean)
-    land = LandBenchmark(ocean, outbounds_is_land=True)
+    land = LandBenchmark(ocean, outbounds_is_land=True, penalize_segments=False)
 
     # jnp arrays for src and dst
     src = jnp.array([dict_instance["lon_start"], dict_instance["lat_start"]])
@@ -371,6 +371,9 @@ def optimize_benchmark_instance(
             date_start=dict_instance["date_start"],
             date_end=dict_instance.get("date_end"),
             vel_ship=dict_instance.get("vel_ship"),
+            grid_resolution=4,
+            neighbour_disk_size=3,
+            land_dilation=0,
             verbose=verbose,
         )
         assert (
