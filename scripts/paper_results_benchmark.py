@@ -47,6 +47,7 @@ def single_run(
         tolfun=tolfun,
         damping=damping,
         maxfevals=maxfevals,
+        init_circumnavigate=False,
     )
     vectorfield = dict_instance["vectorfield"]
     land = dict_instance["land"]
@@ -83,14 +84,14 @@ def single_run(
 
 def main(
     penalty: float = 1e8,
-    K: int = 8,
+    K: int = 12,
     L: int = 64,
     num_pieces: int = 1,
     popsize: int = 500,
     sigma0: int = 1,
-    tolfun: float = 0.0001,
+    tolfun: float = 1e-6,
     damping: float = 1,
-    maxfevals: int = 250000,
+    maxfevals: int = int(1e6),
 ):
     """Run benchmark instances and save the results to output/."""
     ls_instances = [
