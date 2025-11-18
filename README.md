@@ -196,7 +196,7 @@ uv sync
 ### Create a kernel for Jupyter
 
 ```{bash}
-uv run ipython kernel install --user --name=cmaes
+uv run ipython kernel install --user --name=routetools
 ```
 
 ### Tools

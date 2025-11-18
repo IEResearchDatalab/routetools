@@ -128,6 +128,7 @@ def load_benchmark_instance(
     instance_name: str,
     date_start: str = "2023-01-08",
     vel_ship: int = 6,
+    bounding_border: int = 10,
     data_path: str = "./data",
 ) -> dict[str, Any]:
     """
@@ -141,6 +142,8 @@ def load_benchmark_instance(
         Start date for the benchmark instance, by default "2023-01-08".
     vel_ship : int, optional
         Velocity of the ship in knots, by default 6.
+    bounding_border: int, optional
+        Border size for bounding box, by default 10.
     data_path : str, optional
         Path to the data directory, by default "./data".
 
@@ -160,6 +163,7 @@ def load_benchmark_instance(
         date_start=date_start,
         vel_ship=vel_ship,
         data_path=data_path,
+        bounding_border=bounding_border,
         use_waves=False,
     )
 
@@ -202,6 +206,9 @@ def circumnavigate(
     date_start: np.datetime64,
     date_end: np.datetime64 | None = None,
     vel_ship: float = 10.0,
+    grid_resolution: int = 4,
+    neighbour_disk_size: int = 3,
+    land_dilation: int = 0,
     verbose: bool = False,
 ) -> jnp.ndarray:
     """Run A* on the h3 cell graph and return a list of (lat, lon) points.
@@ -234,7 +241,12 @@ def circumnavigate(
         - The initial A* route as an array of (lon, lat) points.
     """
     # Circumnavigate optimizer
-    opt = Circumnavigate(num_iter=0)  # No FMS refinement here
+    opt = Circumnavigate(
+        grid_resolution=grid_resolution,
+        neighbour_disk_size=neighbour_disk_size,
+        land_dilation=land_dilation,
+        num_iter=0,  # No FMS refinement here
+    )
     route: Route = opt.optimize(
         lat_start=lat_start,
         lon_start=lon_start,
@@ -254,6 +266,19 @@ def circumnavigate(
     assert (
         curve.ndim == 2 and curve.shape[1] == 2
     ), f"Curve must have shape (L, 2), but got {curve.shape}"
+
+    # Include x10 points in the middle of each segment for better FMS refinement
+    curve_fine = []
+    for i in range(len(curve) - 1):
+        p0 = curve[i]
+        p1 = curve[i + 1]
+        curve_fine.append(p0)
+        for j in range(1, 10):
+            t = j / 10.0
+            p = (1 - t) * p0 + t * p1
+            curve_fine.append(p)
+    curve_fine.append(curve[-1])
+    curve = jnp.array(curve_fine)
 
     # Refine the route using FMS optimization
     curves, _ = optimize_fms(
