@@ -27,6 +27,7 @@ dependencies = [
     "h3==4.0.0b2",
     "wrr-bench",
     "wrr-utils",
+    "borb @ https://files.pythonhosted.org/packages/7a/4e/b193d894ffb0fde0f773b0476d8b041528302fa86bccf2cc8006c79404e4/borb-3.0.1.tar.gz",
     "jupyter-server>=2.17.0",
 ]
 

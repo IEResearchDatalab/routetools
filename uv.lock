@@ -237,15 +237,15 @@ wheels = [
 
 [[package]]
 name = "borb"
-version = "3.0.2"
-source = { registry = "https://pypi.org/simple" }
+version = "3.0.1"
+source = { url = "https://files.pythonhosted.org/packages/7a/4e/b193d894ffb0fde0f773b0476d8b041528302fa86bccf2cc8006c79404e4/borb-3.0.1.tar.gz" }
 dependencies = [
     { name = "setuptools" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9a/30/1b89298f55ea770739b9ec34f07560927d9fc1bb9ac1065e889ab3bfdc26/borb-3.0.2.tar.gz", hash = "sha256:ec520cc3a8d1090a188814139b318b8c6e5136cea50f851cb225a4e6ce1889a5", size = 2657668, upload-time = "2025-07-12T10:31:02.406Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/68/44/7794a75f0c9f7b9aea2195f3099a2336be807cadff5d4f11c2dc00090c2e/borb-3.0.2-py3-none-any.whl", hash = "sha256:2090715252b3a953eb978c0e951794b78f6e6f9f44d8cac7a26e8c93539d5f9a", size = 3059578, upload-time = "2025-07-12T10:31:01.104Z" },
-]
+sdist = { hash = "sha256:610a20720b5e2d0749d2867d1b18d82c69e9b140ac28552477a7dc3fac60b7a3" }
+
+[package.metadata]
+requires-dist = [{ name = "setuptools", specifier = ">=51.1.1" }]
 
 [[package]]
 name = "boto3"
@@ -2339,6 +2339,7 @@ name = "routetools"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "borb" },
     { name = "cma" },
     { name = "fastapi" },
     { name = "h3" },
@@ -2374,6 +2375,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "borb", url = "https://files.pythonhosted.org/packages/7a/4e/b193d894ffb0fde0f773b0476d8b041528302fa86bccf2cc8006c79404e4/borb-3.0.1.tar.gz" },
     { name = "cma", specifier = ">=4.0.0" },
     { name = "fastapi" },
     { name = "h3", specifier = "==4.0.0b2" },
