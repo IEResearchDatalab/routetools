@@ -15,14 +15,14 @@ def single_run(
     vel_ship: int = 6,
     data_path: str = "./data",
     penalty: float = 1e8,
-    K: int = 6,
+    K: int = 12,
     L: int = 64,
     num_pieces: int = 1,
-    popsize: int = 200,
+    popsize: int = 5000,
     sigma0: int = 1,
-    tolfun: float = 0.0001,
-    damping: float = 1,
-    maxfevals: int = 25000,
+    tolfun: float = 1e-8,
+    damping: float = 0.9,
+    maxfevals: int = 1000000,
 ):
     """Run a single benchmark instance and save the result to output/."""
     # Extract relevant information from the problem instance
@@ -36,7 +36,7 @@ def single_run(
     print("The problem instance contains the following information:")
     print(", ".join(list(dict_instance.keys())))
 
-    curve_cmaes, _ = optimize_benchmark_instance(
+    curve_cmaes, dict_cmaes = optimize_benchmark_instance(
         dict_instance,
         penalty=penalty,
         K=K,
@@ -51,11 +51,12 @@ def single_run(
     )
     vectorfield = dict_instance["vectorfield"]
     land = dict_instance["land"]
+    cost_cmaes = dict_cmaes["cost"]
 
     # FMS
-    curve_fms, _ = optimize_fms_benchmark_instance(
+    curve_fms, dict_fms = optimize_fms_benchmark_instance(
         dict_instance,
-        curve=curve_cmaes,
+        curve=curve_cmaes.copy(),
         tolfun=tolfun,
         damping=damping,
         maxfevals=maxfevals,
@@ -63,12 +64,13 @@ def single_run(
     )
     # FMS adds an extra batch dimension, remove it
     curve_fms = curve_fms[0]
+    cost_fms = dict_fms["cost"][0]
 
     # Plot the curve
     plot_curve(
         vectorfield=vectorfield,
         ls_curve=[curve_cmaes, curve_fms],
-        ls_name=["CMA-ES", "FMS"],
+        ls_name=[f"CMA-ES (cost={cost_cmaes:.2e})", f"FMS (cost={cost_fms:.2e})"],
         land=land,
         gridstep=0.5,
         figsize=(6, 6),
@@ -85,11 +87,11 @@ def main(
     K: int = 12,
     L: int = 64,
     num_pieces: int = 1,
-    popsize: int = 1000,
+    popsize: int = 5000,
     sigma0: int = 1,
-    tolfun: float = 1e-6,
-    damping: float = 1,
-    maxfevals: int = int(1e6),
+    tolfun: float = 1e-8,
+    damping: float = 0.9,
+    maxfevals: int = 1000000,
 ):
     """Run benchmark instances and save the results to output/."""
     ls_instances = [
