@@ -87,7 +87,7 @@ def main(
     K: int = 12,
     L: int = 64,
     num_pieces: int = 1,
-    popsize: int = 500,
+    popsize: int = 1000,
     sigma0: int = 1,
     tolfun: float = 1e-6,
     damping: float = 1,
@@ -97,8 +97,8 @@ def main(
     ls_instances = [
         "DEHAM-USNYC",
         "USNYC-DEHAM",
-        "EGHRG-MYKUL",
-        "MYKUL-EGHRG",
+        # "EGHRG-MYKUL",  # Suez canal is impossible
+        # "MYKUL-EGHRG",  # Suez canal is impossible
         "EGPSD-ESALG",
         "ESALG-EGPSD",
         "PABLB-PECLL",
