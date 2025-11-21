@@ -36,6 +36,12 @@ def get_currents_to_vectorfield(
         A function that takes latitude, longitude, and time arrays as input,
         and returns the corresponding current vectors (v, u).
     """
+    interpolator = ocean.currents_interpolator
+    begin = jnp.array(interpolator.begin, dtype=jnp.float32)[None, :]
+    spacing = jnp.array(interpolator.spacing, dtype=jnp.float32)[None, :]
+    vmat = jnp.array(interpolator.data[0], dtype=jnp.float32)
+    umat = jnp.array(interpolator.data[1], dtype=jnp.float32)
+    order = interpolator.order
 
     # Get currents requires len(ts) == len(lat) == len(lon)
     # But our code handles len(ts) < len(lat)
@@ -62,15 +68,15 @@ def get_currents_to_vectorfield(
         else:
             shape = None  # No need to reshape later
 
-        try:
-            v, u = ocean.get_currents(lat, lon, ts_full)
-        except jax.errors.TracerArrayConversionError as e:
-            raise RuntimeError(
-                "Failed to evaluate the vector field. "
-                "This may be due to JAX JIT compilation issues. "
-                "Try disabling JIT by setting the environment variable "
-                "`JAX_DISABLE_JIT=1` before running the code."
-            ) from e
+        # Create the coordinates for interpolation
+        x = jnp.array([ts_full, lat, lon]).T
+
+        # Normalize coordinates
+        coords = (x - begin) / spacing
+
+        # Interpolate u and v components
+        u = jax.scipy.ndimage.map_coordinates(umat, coords.T, order=order, mode="wrap")
+        v = jax.scipy.ndimage.map_coordinates(vmat, coords.T, order=order, mode="wrap")
 
         # Reshape to the original shape if needed
         if shape is not None:
