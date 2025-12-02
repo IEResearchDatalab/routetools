@@ -1,4 +1,6 @@
 import datetime as dt
+import json
+import os
 
 import matplotlib.pyplot as plt
 import typer
@@ -25,8 +27,32 @@ def single_run(
     tolfun: float = 1e-8,
     damping: float = 0.9,
     maxfevals: int = 1000000,
+    path_jsons: str = "output/json",
+    idx: int = 0,
 ):
     """Run a single benchmark instance and save the result to output/."""
+    # Path to the JSON file
+    path_json = f"{path_jsons}/{idx:06d}.json"
+    # If the file already exists, skip
+    if os.path.exists(path_json):
+        return
+
+    # Initialize the results dictionary with the parameters
+    results = {
+        "instance_name": instance_name,
+        "date_start": date_start,
+        "vel_ship": vel_ship,
+        "penalty": penalty,
+        "K": K,
+        "L": L,
+        "num_pieces": num_pieces,
+        "popsize": popsize,
+        "sigma0": sigma0,
+        "tolfun": tolfun,
+        "damping": damping,
+        "maxfevals": maxfevals,
+    }
+
     # Extract relevant information from the problem instance
     dict_instance = load_benchmark_instance(
         instance_name,
@@ -55,6 +81,16 @@ def single_run(
     land = dict_instance["land"]
     cost_cmaes = dict_cmaes["cost"]
 
+    # Update the results dictionary with the optimization results
+    results.update(
+        {
+            "cost_cmaes": cost_cmaes,
+            "comp_time_cmaes": dict_cmaes["comp_time"],
+            "niter_cmaes": dict_cmaes["niter"],
+            "curve_cmaes": curve_cmaes.tolist(),
+        }
+    )
+
     # FMS
     curve_fms, dict_fms = optimize_fms_benchmark_instance(
         dict_instance,
@@ -68,6 +104,24 @@ def single_run(
     curve_fms = curve_fms[0]
     cost_fms = dict_fms["cost"][0]
 
+    # Update the results dictionary with the optimization results
+    results.update(
+        {
+            "cost_fms": cost_fms,  # FMS returns a list of costs
+            "comp_time_fms": dict_fms["comp_time"],
+            "niter_fms": dict_fms["niter"],
+            "curve_fms": curve_fms.tolist(),
+        }
+    )
+
+    # Save the results in a JSON file
+    with open(path_json, "w") as f:
+        json.dump(results, f, indent=4)
+
+    # Delete the results variable to free up memory
+    results.clear()
+    del results
+
     # Plot the curve
     plot_curve(
         vectorfield=vectorfield,
@@ -80,7 +134,7 @@ def single_run(
         ylim=(land.ymin, land.ymax),
     )
     plt.tight_layout()
-    plt.savefig(f"output/benchmark_{instance_name}.jpg", dpi=300)
+    plt.savefig(f"output/benchmark_{instance_name}_{date_start}.jpg", dpi=300)
     plt.close()
 
 
@@ -94,6 +148,7 @@ def main(
     tolfun: float = 1e-8,
     damping: float = 0.9,
     maxfevals: int = 1000000,
+    path_jsons: str = "output/json_benchmark",
 ):
     """Run benchmark instances and save the results to output/."""
     ls_instances = [
@@ -108,6 +163,12 @@ def main(
         "PAONX-USNYC",
         "USNYC-PAONX",
     ]
+
+    # Initialize index for JSON filenames
+    idx = 0
+
+    # Make sure the output/json directory exists
+    os.makedirs(path_jsons, exist_ok=True)
 
     # Loop over each week of 2023
     date = dt.datetime(2023, 1, 1)
@@ -126,6 +187,7 @@ def main(
             try:
                 single_run(
                     instance,
+                    date_start=date_start,
                     penalty=penalty,
                     K=K,
                     L=L,
@@ -135,12 +197,17 @@ def main(
                     tolfun=tolfun,
                     damping=damping,
                     maxfevals=maxfevals,
+                    path_jsons=path_jsons,
+                    idx=idx,
                 )
+
             except IndexError as e:
                 print(
                     f"[ERROR] Benchmark for instance {instance} couldn't find "
                     f"circumnavigation: {e}"
                 )
+            # Increment index
+            idx += 1
 
 
 if __name__ == "__main__":
