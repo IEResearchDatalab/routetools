@@ -1,3 +1,5 @@
+import datetime as dt
+
 import matplotlib.pyplot as plt
 import typer
 
@@ -106,26 +108,39 @@ def main(
         "PAONX-USNYC",
         "USNYC-PAONX",
     ]
-    for instance in ls_instances:
-        print(f"[INFO] Running benchmark for instance {instance}")
-        try:
-            single_run(
-                instance,
-                penalty=penalty,
-                K=K,
-                L=L,
-                num_pieces=num_pieces,
-                popsize=popsize,
-                sigma0=sigma0,
-                tolfun=tolfun,
-                damping=damping,
-                maxfevals=maxfevals,
-            )
-        except IndexError as e:
+
+    # Loop over each week of 2023
+    date = dt.datetime(2023, 1, 1)
+    ls_weeks = [date.strftime("%Y-%m-%d")]
+    while date.year == 2023:
+        date += dt.timedelta(weeks=1)
+        ls_weeks.append(date.strftime("%Y-%m-%d"))
+
+    for date_start in ls_weeks:
+        print(f"[INFO] Starting benchmarks for week starting {date_start}")
+        for instance in ls_instances:
             print(
-                f"[ERROR] Benchmark for instance {instance} couldn't find "
-                f"circumnavigation: {e}"
+                f"[INFO] Running benchmark for instance {instance}"
+                f" and date {date_start}"
             )
+            try:
+                single_run(
+                    instance,
+                    penalty=penalty,
+                    K=K,
+                    L=L,
+                    num_pieces=num_pieces,
+                    popsize=popsize,
+                    sigma0=sigma0,
+                    tolfun=tolfun,
+                    damping=damping,
+                    maxfevals=maxfevals,
+                )
+            except IndexError as e:
+                print(
+                    f"[ERROR] Benchmark for instance {instance} couldn't find "
+                    f"circumnavigation: {e}"
+                )
 
 
 if __name__ == "__main__":
