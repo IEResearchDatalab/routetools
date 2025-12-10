@@ -1,7 +1,6 @@
 import datetime as dt
 import json
 import os
-from tabnanny import verbose
 
 import matplotlib.pyplot as plt
 import typer
@@ -22,11 +21,15 @@ def single_run(
     num_pieces: int = 1,
     popsize: int = 5000,
     sigma0: int = 1,
-    tolfun: float = 1e-8,
-    damping: float = 0.9,
-    maxfevals: int = 1000000,
+    tolfun_cmaes: float = 1e-4,
+    damping_cmaes: float = 1,
+    maxfevals_cmaes: int = int(1e6),
+    tolfun_fms: float = -10,  # Negative to disable early stopping
+    damping_fms: float = 0.9,
+    maxfevals_fms: int = int(1e5),
     path_jsons: str = "output/json",
     idx: int = 0,
+    verbose: bool = True,
 ):
     """Run a single benchmark instance and save the result to output/."""
     # Path to the JSON file
@@ -46,9 +49,12 @@ def single_run(
         "num_pieces": num_pieces,
         "popsize": popsize,
         "sigma0": sigma0,
-        "tolfun": tolfun,
-        "damping": damping,
-        "maxfevals": maxfevals,
+        "tolfun_cmaes": tolfun_cmaes,
+        "damping_cmaes": damping_cmaes,
+        "maxfevals_cmaes": maxfevals_cmaes,
+        "tolfun_fms": tolfun_fms,
+        "damping_fms": damping_fms,
+        "maxfevals_fms": maxfevals_fms,
     }
 
     # Extract relevant information from the problem instance
@@ -70,10 +76,11 @@ def single_run(
         num_pieces=num_pieces,
         popsize=popsize,
         sigma0=sigma0,
-        tolfun=tolfun,
-        damping=damping,
-        maxfevals=maxfevals,
+        tolfun=tolfun_cmaes,
+        damping=damping_cmaes,
+        maxfevals=maxfevals_cmaes,
         init_circumnavigate=False,
+        verbose=verbose,
     )
     cost_cmaes = dict_cmaes["cost"]
 
@@ -94,9 +101,9 @@ def single_run(
         land=dict_instance["land"],
         travel_stw=dict_instance["travel_stw"],
         travel_time=dict_instance["travel_time"],
-        tolfun=tolfun,
-        damping=damping,
-        maxfevals=maxfevals,
+        tolfun=tolfun_fms,
+        damping=damping_fms,
+        maxfevals=maxfevals_fms,
         weight_l1=1.0,
         weight_l2=0.0,
         spherical_correction=True,
@@ -142,19 +149,11 @@ def single_run(
     plt.close()
 
 
-def main(
-    penalty: float = 1e8,
-    K: int = 12,
-    L: int = 64,
-    num_pieces: int = 1,
-    popsize: int = 5000,
-    sigma0: int = 1,
-    tolfun: float = 1e-10,
-    damping: float = 0.9,
-    maxfevals: int = 1000000,
-    path_jsons: str = "output/json_benchmark",
-):
-    """Run benchmark instances and save the results to output/."""
+def main(path_jsons: str = "output/json_benchmark"):
+    """Run benchmark instances and save the results to output/.
+
+    Change the parameters in single_run() as needed.
+    """
     ls_instances = [
         "DEHAM-USNYC",
         "USNYC-DEHAM",
@@ -190,19 +189,7 @@ def main(
             )
             try:
                 single_run(
-                    instance,
-                    date_start=date_start,
-                    penalty=penalty,
-                    K=K,
-                    L=L,
-                    num_pieces=num_pieces,
-                    popsize=popsize,
-                    sigma0=sigma0,
-                    tolfun=tolfun,
-                    damping=damping,
-                    maxfevals=maxfevals,
-                    path_jsons=path_jsons,
-                    idx=idx,
+                    instance, date_start=date_start, path_jsons=path_jsons, idx=idx
                 )
 
             except IndexError as e:
