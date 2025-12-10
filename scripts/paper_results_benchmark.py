@@ -1,15 +1,13 @@
 import datetime as dt
 import json
 import os
+from tabnanny import verbose
 
 import matplotlib.pyplot as plt
 import typer
 
-from routetools.benchmark import (
-    load_benchmark_instance,
-    optimize_benchmark_instance,
-    optimize_fms_benchmark_instance,
-)
+from routetools.benchmark import load_benchmark_instance, optimize_benchmark_instance
+from routetools.fms import optimize_fms
 from routetools.plot import plot_curve
 
 
@@ -77,8 +75,6 @@ def single_run(
         maxfevals=maxfevals,
         init_circumnavigate=False,
     )
-    vectorfield = dict_instance["vectorfield"]
-    land = dict_instance["land"]
     cost_cmaes = dict_cmaes["cost"]
 
     # Update the results dictionary with the optimization results
@@ -92,13 +88,19 @@ def single_run(
     )
 
     # FMS
-    curve_fms, dict_fms = optimize_fms_benchmark_instance(
-        dict_instance,
-        curve=curve_cmaes.copy(),
+    curve_fms, dict_fms = optimize_fms(
+        vectorfield=dict_instance["vectorfield"],
+        curve=curve_cmaes,
+        land=dict_instance["land"],
+        travel_stw=dict_instance["travel_stw"],
+        travel_time=dict_instance["travel_time"],
         tolfun=tolfun,
         damping=damping,
         maxfevals=maxfevals,
-        verbose=True,
+        weight_l1=1.0,
+        weight_l2=0.0,
+        spherical_correction=True,
+        verbose=verbose,
     )
     # FMS adds an extra batch dimension, remove it
     curve_fms = curve_fms[0]
@@ -123,6 +125,8 @@ def single_run(
     del results
 
     # Plot the curve
+    vectorfield = dict_instance["vectorfield"]
+    land = dict_instance["land"]
     plot_curve(
         vectorfield=vectorfield,
         ls_curve=[curve_cmaes, curve_fms],
@@ -145,7 +149,7 @@ def main(
     num_pieces: int = 1,
     popsize: int = 5000,
     sigma0: int = 1,
-    tolfun: float = 1e-8,
+    tolfun: float = 1e-10,
     damping: float = 0.9,
     maxfevals: int = 1000000,
     path_jsons: str = "output/json_benchmark",
