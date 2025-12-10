@@ -23,12 +23,13 @@ def single_run(
     sigma0: int = 1,
     tolfun_cmaes: float = 1e-4,
     damping_cmaes: float = 1,
-    maxfevals_cmaes: int = int(1e6),
-    tolfun_fms: float = -10,  # Negative to disable early stopping
-    damping_fms: float = 0.9,
-    maxfevals_fms: int = int(1e5),
+    maxfevals_cmaes: int = int(1e5),
+    tolfun_fms: float = -1,  # Negative to disable early stopping
+    damping_fms: float = 0.99,
+    maxfevals_fms: int = int(5e4),
     path_jsons: str = "output/json",
     idx: int = 0,
+    seed: int = 42,
     verbose: bool = True,
 ):
     """Run a single benchmark instance and save the result to output/."""
@@ -55,6 +56,7 @@ def single_run(
         "tolfun_fms": tolfun_fms,
         "damping_fms": damping_fms,
         "maxfevals_fms": maxfevals_fms,
+        "seed": seed,
     }
 
     # Extract relevant information from the problem instance
@@ -80,6 +82,7 @@ def single_run(
         damping=damping_cmaes,
         maxfevals=maxfevals_cmaes,
         init_circumnavigate=False,
+        seed=seed,
         verbose=verbose,
     )
     cost_cmaes = dict_cmaes["cost"]
@@ -107,6 +110,7 @@ def single_run(
         weight_l1=1.0,
         weight_l2=0.0,
         spherical_correction=True,
+        seed=seed,
         verbose=verbose,
     )
     # FMS adds an extra batch dimension, remove it
