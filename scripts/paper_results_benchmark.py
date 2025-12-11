@@ -26,7 +26,7 @@ def single_run(
     maxfevals_cmaes: int = int(1e5),
     patience_fms: int = 50,
     damping_fms: float = 0.8,
-    maxfevals_fms: int = int(5e4),
+    maxfevals_fms: int = int(1e6),
     path_jsons: str = "output/json",
     idx: int = 0,
     seed: int = 42,
@@ -149,7 +149,8 @@ def single_run(
         ylim=(land.ymin, land.ymax),
     )
     plt.tight_layout()
-    plt.savefig(f"output/benchmark_{instance_name}_{date_start}.jpg", dpi=300)
+    # We use redundant naming to avoid too many images
+    plt.savefig(f"output/benchmark_{instance_name}.jpg", dpi=300)
     plt.close()
 
 
@@ -180,6 +181,7 @@ def main(path_jsons: str = "output/json_benchmark"):
     # Loop over each week of 2023
     date = dt.datetime(2023, 1, 1)
     ls_weeks = [date.strftime("%Y-%m-%d")]
+    ls_velships = [3, 6, 12]
     while date.year == 2023:
         date += dt.timedelta(weeks=1)
         ls_weeks.append(date.strftime("%Y-%m-%d"))
@@ -187,22 +189,28 @@ def main(path_jsons: str = "output/json_benchmark"):
     for date_start in ls_weeks:
         print(f"[INFO] Starting benchmarks for week starting {date_start}")
         for instance in ls_instances:
-            print(
-                f"[INFO] Running benchmark for instance {instance}"
-                f" and date {date_start}"
-            )
-            try:
-                single_run(
-                    instance, date_start=date_start, path_jsons=path_jsons, idx=idx
-                )
-
-            except IndexError as e:
+            for vel_ship in ls_velships:
                 print(
-                    f"[ERROR] Benchmark for instance {instance} couldn't find "
-                    f"circumnavigation: {e}"
+                    f"[INFO] Running benchmark for instance {instance}"
+                    f" and date {date_start}"
+                    f" and ship velocity {vel_ship}"
                 )
-            # Increment index
-            idx += 1
+                try:
+                    single_run(
+                        instance,
+                        date_start=date_start,
+                        vel_ship=vel_ship,
+                        path_jsons=path_jsons,
+                        idx=idx,
+                    )
+
+                except IndexError as e:
+                    print(
+                        f"[ERROR] Benchmark for instance {instance} couldn't find "
+                        f"circumnavigation: {e}"
+                    )
+                # Increment index
+                idx += 1
 
 
 if __name__ == "__main__":
