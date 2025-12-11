@@ -56,6 +56,6 @@ maxfevals = [500000]
 cmaes_seed = [0, 1, 2, 3, 4]
 
 [refiner.fms]
-tolfun = [1e-6]
+patience = [50]
 damping = [0.5]
 maxfevals = [500000]

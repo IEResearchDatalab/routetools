@@ -115,7 +115,7 @@ def run_param_configuration(
         land=land,
         travel_stw=params.get("travel_stw"),
         travel_time=params.get("travel_time"),
-        tolfun=params["refiner_tolfun"],
+        patience=params["refiner_patience"],
         damping=params["refiner_damping"],
         maxfevals=params["refiner_maxfevals"],
         weight_l1=params.get("weight_l1", 1.0),

@@ -85,7 +85,7 @@ def main(w: float = 2, maxfevals: int = 50, damping: float = 0.1, frames: int = 
             damping=damping,
             travel_stw=1,
             maxfevals=maxfevals,
-            tolfun=1e-11,
+            patience=50,
             verbose=False,
         )
         costs = dict_fms["cost"]

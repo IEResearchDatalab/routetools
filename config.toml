@@ -62,6 +62,6 @@ damping = [1.0]
 maxfevals = [50000]
 
 [refiner.fms]
-tolfun = [1e-12]
+patience = [50]
 damping = [0.5]
 maxfevals = [50000]

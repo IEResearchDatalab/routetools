@@ -122,7 +122,7 @@ def optimize_fms(
     num_points: int = 200,
     travel_stw: float | None = None,
     travel_time: float | None = None,
-    tolfun: float = 1e-4,
+    patience: int = 50,
     damping: float = 0.9,
     maxfevals: int = 5000,
     weight_l1: float = 1.0,
@@ -159,8 +159,8 @@ def optimize_fms(
         Fixed speed through water, by default None
     travel_time : float | None, optional
         Fixed travel time, by default None
-    tolfun : float, optional
-        Tolerance for the cost reduction between epochs, by default 1e-4
+    patience : int, optional
+        Number of iterations without improvement before stopping, by default 50
     damping : float, optional
         Damping factor, by default 0.9
     maxfevals : int, optional
@@ -275,12 +275,13 @@ def optimize_fms(
         weight_l2=weight_l2,
         spherical_correction=spherical_correction,
     )
-    delta = jnp.array([jnp.inf])
+    cost_best = cost_now.copy()
+    curve_best = curve.copy()
+    early_stop = jnp.zeros(cost_now.shape)
 
     # Loop iterations
     idx = 0
-    while (idx < maxfevals) & (delta >= tolfun).any():
-        cost_old = cost_now
+    while (idx < maxfevals) & (early_stop < patience).any():
         curve_old = curve.copy()
         curve = solve_vectorized(curve)
         # Replace points on land with previous iteration
@@ -296,7 +297,16 @@ def optimize_fms(
             weight_l2=weight_l2,
             spherical_correction=spherical_correction,
         )
-        delta = 1 - cost_now / cost_old
+
+        # Update early stopping counter
+        early_stop += jnp.where(cost_now >= cost_best, 1, 0)
+        early_stop = jnp.where(cost_best > cost_now, 0, early_stop)
+
+        # Store best solution
+        improved = cost_now < cost_best
+        cost_best = jnp.where(improved, cost_now, cost_best)
+        curve_best = jnp.where(improved[:, None, None], curve, curve_best)
+
         idx += 1
         if verbose and (idx % 500 == 0 or idx == 1):
             print(f"FMS - Iteration {idx}, cost: {cost_now.min():.4f}")
@@ -307,12 +317,12 @@ def optimize_fms(
         print("FMS - Fuel cost:", cost_now.min())
 
     dict_fms = {
-        "cost": cost_now.tolist(),
+        "cost": cost_best.tolist(),
         "niter": idx,
         "comp_time": int(round(time.time() - start)),
     }
 
-    return curve, dict_fms
+    return curve_best, dict_fms
 
 
 def main(gpu: bool = True, optimize_time: bool = False) -> None:
@@ -338,7 +348,7 @@ def main(gpu: bool = True, optimize_time: bool = False) -> None:
         num_points=200,
         travel_stw=None if optimize_time else 1,
         travel_time=10 if optimize_time else None,
-        tolfun=1e-6,
+        patience=50,
     )
 
     xmin, xmax = curve[..., 0].min(), curve[..., 0].max()

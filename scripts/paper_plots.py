@@ -104,7 +104,7 @@ def run_single_simulation(
     cmaes_damping: float = 1.0,
     cmaes_maxfevals: int = 500000,
     cmaes_seed: int = 0,
-    fms_tolfun: float = 1e-6,
+    fms_patience: int = 50,
     fms_damping: float = 0.5,
     fms_maxfevals: int = 500000,
     weight_l1: float = 1.0,
@@ -132,8 +132,9 @@ def run_single_simulation(
         The initial standard deviation for CMA-ES, by default 1.
     cmaes_tolfun : float, optional
         The tolerance for the function value in CMA-ES, by default 0.0001.
-    fms_tolfun : float, optional
-        The tolerance for the function value in FMS, by default 1e-6.
+    fms_patience : int, optional
+        The number of iterations without improvement before stopping for FMS,
+        by default 50.
     fms_damping : float, optional
         The damping factor for FMS, by default 0.9.
     fms_maxfevals : int, optional
@@ -197,7 +198,7 @@ def run_single_simulation(
         curve=curve_straight,
         travel_stw=travel_stw,
         travel_time=travel_time,
-        tolfun=fms_tolfun,
+        patience=fms_patience,
         damping=fms_damping,
         maxfevals=fms_maxfevals,
         weight_l1=weight_l1,
@@ -214,7 +215,7 @@ def run_single_simulation(
         curve=curve_cmaes,
         travel_stw=travel_stw,
         travel_time=travel_time,
-        tolfun=fms_tolfun,
+        patience=fms_patience,
         damping=fms_damping,
         maxfevals=fms_maxfevals,
         weight_l1=weight_l1,
