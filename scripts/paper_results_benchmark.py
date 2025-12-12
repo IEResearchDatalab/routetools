@@ -24,8 +24,8 @@ def single_run(
     tolfun_cmaes: float = 1e-4,
     damping_cmaes: float = 1,
     maxfevals_cmaes: int = int(1e5),
-    patience_fms: int = 50,
-    damping_fms: float = 0.8,
+    patience_fms: int = 100,
+    damping_fms: float = 0.9,
     maxfevals_fms: int = int(1e6),
     path_jsons: str = "output/json",
     idx: int = 0,
@@ -209,9 +209,16 @@ def main(path_jsons: str = "output/json_benchmark"):
                         f"[ERROR] Benchmark for instance {instance} couldn't find "
                         f"circumnavigation: {e}"
                     )
+                except FileNotFoundError as e:
+                    print(
+                        f"[ERROR] Benchmark for instance {instance} couldn't find "
+                        f"data files: {e}"
+                    )
                 # Increment index
                 idx += 1
 
 
 if __name__ == "__main__":
+    typer.run(main)
+    typer.run(main)
     typer.run(main)
