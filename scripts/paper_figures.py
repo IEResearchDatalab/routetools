@@ -82,7 +82,12 @@ def fullyear_savings_speed(df: pd.DataFrame, path_output: Path):
 
 
 def main(path_json: str = "output/json_benchmark"):
-    """Run a single benchmark instance and save the results to output/."""
+    """Generate the figures for the paper from benchmark results.
+
+    Requires to run first:
+    - scripts/paper_results_benchmark.py
+    - scripts/paper_results_orthodromic.py
+    """
     df = generate_dataframe(Path(path_json))
     fullyear_savings_speed(df, Path("output"))
 
