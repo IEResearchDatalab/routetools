@@ -65,7 +65,8 @@ def single_run(
             vel_ship=dict_instance.get("vel_ship"),
             grid_resolution=4,
             neighbour_disk_size=3,
-            land_dilation=0,
+            land_dilation=1,
+            fms_damping=0.0,
             verbose=verbose,
         )
     else:
