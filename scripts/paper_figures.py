@@ -8,7 +8,7 @@ import pandas as pd
 import statsmodels.api as sm
 
 
-def generate_dataframe(folder: Path) -> pd.DataFrame:
+def generate_individual_dataframe(folder: Path) -> pd.DataFrame:
     """Generate a pandas DataFrame from all JSON files in the given folder.
 
     Parameters
@@ -38,6 +38,27 @@ def generate_dataframe(folder: Path) -> pd.DataFrame:
     df = pd.DataFrame(ls_data)
     # Save the DataFrame to a CSV file for future use
     df.to_csv(pth_df, index=False)
+    return df
+
+
+def generate_dataframe(
+    path_bers: str = "output/json_benchmark",
+    path_ortho: str = "output/json_orthodromic",
+):
+    """Generate a combined DataFrame from BERS and orthodromic results."""
+    df_bers = generate_individual_dataframe(Path(path_bers))
+    df_ortho = generate_individual_dataframe(Path(path_ortho))
+    # Merge the two DataFrames on instance_name, date_start, vel_ship
+    df = pd.merge(
+        df_bers,
+        df_ortho,
+        on=["instance_name", "date_start", "vel_ship"],
+        suffixes=("", "_ortho"),
+    )
+    # Rename cost to cost_ortho
+    df = df.rename(columns={"cost": "cost_ortho"})
+    # Calculate the time savings as a percentage
+    df["gain"] = 100 * (df["cost_ortho"] - df["cost_fms"]) / df["cost_ortho"]
     return df
 
 
@@ -81,14 +102,20 @@ def fullyear_savings_speed(df: pd.DataFrame, path_output: Path):
     plt.show()
 
 
-def main(path_json: str = "output/json_benchmark"):
+def main(
+    path_bers: str = "output/json_benchmark",
+    path_ortho: str = "output/json_orthodromic",
+):
     """Generate the figures for the paper from benchmark results.
 
     Requires to run first:
     - scripts/paper_results_benchmark.py
     - scripts/paper_results_orthodromic.py
     """
-    df = generate_dataframe(Path(path_json))
+    df = generate_dataframe(
+        path_bers=path_bers,
+        path_ortho=path_ortho,
+    )
     fullyear_savings_speed(df, Path("output"))
 
 
