@@ -205,18 +205,13 @@ def main(path_jsons: str = "output/json_benchmark"):
                     )
 
                 except IndexError as e:
-                    print(
-                        f"[ERROR] Benchmark for instance {instance} couldn't find "
-                        f"circumnavigation: {e}"
-                    )
+                    print(f"[ERROR] Benchmark for instance {instance} failed: {e}")
                 except FileNotFoundError as e:
-                    print(
-                        f"[ERROR] Benchmark for instance {instance} couldn't find "
-                        f"data files: {e}"
-                    )
+                    print(f"[ERROR] Benchmark for instance {instance} failed: {e}")
                 # Increment index
                 idx += 1
 
 
 if __name__ == "__main__":
+    typer.run(main)
     typer.run(main)
