@@ -50,9 +50,6 @@ def generate_individual_dataframe(folder: Path) -> pd.DataFrame:
     """
     # First check if the dataframe already exists inside the folder
     pth_df = folder / "dataframe.csv"
-    if pth_df.exists():
-        df = pd.read_csv(pth_df)
-        return df
     ls_data = []
     # Loop through all JSON files in the folder and extract relevant data
     for path_json in folder.glob("*.json"):
@@ -220,6 +217,54 @@ def fullyear_savings_odp(df: pd.DataFrame, path_output: Path):
         )
 
 
+def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: float):
+    """Create boxplots of time savings per benchmark instance.
+
+    Percent reduction in travel time achieved by the algorithm compared to the
+    orthodromic route at 6 knots. ODPs are sorted by decreasing distance along the
+    X-axis, and formatted such that the arrow '>' always points to the destination,
+    i.e., 'D < O', 'O > D'.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing benchmark results.
+    path_output : Path
+        Path to the output folder where the plot will be saved.
+    vel_ship : float
+        Ship velocity to filter the DataFrame.
+    """
+    df_sub = df[df["vel_ship"] == vel_ship]
+    # Sort instances by mean distance
+    order_instances = (
+        df_sub.groupby("instance_name")["dist_ortho"]
+        .mean()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+    plt.figure(figsize=(10, 5))
+    ax = plt.gca()
+    # Create boxplot
+    box = ax.boxplot(
+        [df_sub[df_sub["instance_name"] == inst]["gain"] for inst in order_instances],
+        positions=np.arange(len(order_instances)),
+        patch_artist=True,
+        medianprops=dict(color="black"),
+    )
+    # Color the boxes
+    for patch in box["boxes"]:
+        patch.set_facecolor("lightblue")
+    # Set x-ticks and labels
+    ax.set_xticks(np.arange(len(order_instances)))
+    ax.set_xticklabels(order_instances, rotation=45, ha="right")
+    ax.set_ylabel(f"Time Savings [%] of {MODEL} over Orthodromic")
+    ax.set_title(f"Time Savings per Benchmark Instance at {int(2 * vel_ship)} knots")
+    ax.axhline(0, color="red", linestyle="--")
+    plt.tight_layout()
+    plt.savefig(path_output / f"boxplot_gains_{int(2 * vel_ship)}knots.png", dpi=300)
+    plt.close()
+
+
 def main(
     path_bers: str = "output/json_benchmark",
     path_ortho: str = "output/json_orthodromic",
@@ -236,6 +281,7 @@ def main(
     )
     fullyear_savings_speed(df, Path("output"))
     fullyear_savings_odp(df, Path("output"))
+    boxplot_gains_per_instance(df, Path("output"), vel_ship=3)
 
 
 if __name__ == "__main__":
