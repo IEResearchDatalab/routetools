@@ -402,6 +402,8 @@ def optimize_benchmark_instance(
             grid_resolution=4,
             neighbour_disk_size=3,
             land_dilation=0,
+            fms_maxfevals=10000,
+            fms_damping=0.0,
             verbose=verbose,
         )
         assert (
