@@ -214,4 +214,3 @@ def main(path_jsons: str = "output/json_benchmark"):
 
 if __name__ == "__main__":
     typer.run(main)
-    typer.run(main)
