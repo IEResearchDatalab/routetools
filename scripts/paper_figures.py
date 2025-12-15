@@ -35,6 +35,32 @@ def season(week: int) -> str:
         return "winter"
 
 
+def orthodromic_distance(instance_name: str) -> float:
+    """Hardcoded orthodromic distances for benchmark instances.
+
+    Parameters
+    ----------
+    instance_name : str
+        Name of the benchmark instance.
+
+    Returns
+    -------
+    float
+        Orthodromic distance in nautical miles.
+    """
+    dict_dist = {
+        "DEHAM-USNYC": 6248,
+        "USNYC-DEHAM": 6248,
+        "EGPSD-ESALG": 3533,
+        "ESALG-EGPSD": 3533,
+        "PABLB-PECLL": 2474,
+        "PECLL-PABLB": 2474,
+        "PAONX-USNYC": 3617,
+        "USNYC-PAONX": 3617,
+    }
+    return dict_dist.get(instance_name, 0.0)
+
+
 def generate_individual_dataframe(folder: Path) -> pd.DataFrame:
     """Generate a pandas DataFrame from all JSON files in the given folder.
 
@@ -90,6 +116,8 @@ def generate_dataframe(
     df["week"] = df["date_start"].dt.isocalendar().week
     # Create season column from week
     df["season"] = df["week"].apply(season)
+    # Add orthodromic distance column
+    df["dist_ortho"] = df["instance_name"].apply(orthodromic_distance)
     # Sort by: instance_name, vel_ship, date_start
     df = df.sort_values(by=["instance_name", "vel_ship", "date_start"])
     return df
@@ -217,6 +245,31 @@ def fullyear_savings_odp(df: pd.DataFrame, path_output: Path):
         )
 
 
+def format_instance_name(name: str) -> str:
+    """Format instance name to include an arrow pointing to the destination.
+
+    Parameters
+    ----------
+    name : str
+        Original instance name in the format 'START-END'.
+
+    Returns
+    -------
+    str
+        Formatted instance name with arrow, e.g., 'START > END' or 'END < START'.
+    """
+    parts = name.split("-")
+    if len(parts) != 2:
+        return name
+    start, end = parts
+    # Simple heuristic: if start port code is lexicographically smaller than end,
+    # use '>'
+    if start < end:
+        return f"{start} > {end}"
+    else:
+        return f"{end} < {start}"
+
+
 def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: float):
     """Create boxplots of time savings per benchmark instance.
 
@@ -234,7 +287,10 @@ def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: fl
     vel_ship : float
         Ship velocity to filter the DataFrame.
     """
-    df_sub = df[df["vel_ship"] == vel_ship]
+    df_sub = df[df["vel_ship"] == vel_ship].copy()
+
+    # New instance names with arrows
+    df_sub["instance_name"] = df_sub["instance_name"].apply(format_instance_name)
     # Sort instances by mean distance
     order_instances = (
         df_sub.groupby("instance_name")["dist_ortho"]
@@ -265,6 +321,52 @@ def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: fl
     plt.close()
 
 
+def table_gains_per_season(df: pd.DataFrame, path_output: Path):
+    """Generate a LaTeX table of average gains per season.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing benchmark results.
+    path_output : Path
+        Path to the output folder where the LaTeX table will be saved.
+    """
+    latex_code = r"""
+\begin{table}[htbp]
+    \centering
+    \caption{Gains of \name{} algorithm over orthodromic route,
+    grouped by each season of 2023 in the Northern Hemisphere.}
+    \label{tab:seasons}
+    \begin{tabular}{lrrr}
+    \toprule
+    {\textbf{Season}} & \multicolumn{3}{c}{ \textbf{Avg. Gain \% (Std.)}}\\
+     & \textbf{6 kn} & \textbf{12 kn} & \textbf{24 kn} \\ \midrule
+    Winter & x.x (x.x) & x.x (x.x) & x.x (x.x)\\
+    Spring & x.x (x.x) & x.x (x.x) & x.x (x.x)\\
+    Summer & x.x (x.x) & x.x (x.x) & x.x (x.x)\\
+    Autumn & x.x (x.x) & x.x (x.x) & x.x (x.x)\\ \bottomrule
+    \end{tabular}
+\end{table}
+    """
+    # Fill in the table with actual data
+    seasons = ["winter", "spring", "summer", "autumn"]
+    speeds = [3, 6, 12]  # Corresponding to 6, 12, 24 knots
+    for season_name in seasons:
+        row = f"{season_name.capitalize()} & "
+        for speed in speeds:
+            df_sub = df[(df["season"] == season_name) & (df["vel_ship"] == speed)]
+            mean_gain = df_sub["gain"].mean()
+            std_gain = df_sub["gain"].std()
+            row += f"{mean_gain:.1f} ({std_gain:.1f}) & "
+        row = row.removesuffix(" & ") + r"\\"
+        latex_code = latex_code.replace(
+            f"{season_name.capitalize()} & x.x (x.x) & x.x (x.x) & x.x (x.x)\\\\", row
+        )
+    # Save the LaTeX code to a .tex file
+    with open(path_output / "table_gains_per_season.tex", "w") as f:
+        f.write(latex_code)
+
+
 def main(
     path_bers: str = "output/json_benchmark",
     path_ortho: str = "output/json_orthodromic",
@@ -282,6 +384,7 @@ def main(
     fullyear_savings_speed(df, Path("output"))
     fullyear_savings_odp(df, Path("output"))
     boxplot_gains_per_instance(df, Path("output"), vel_ship=3)
+    table_gains_per_season(df, Path("output"))
 
 
 if __name__ == "__main__":
