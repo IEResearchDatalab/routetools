@@ -74,7 +74,7 @@ def fullyear_savings_speed(df: pd.DataFrame, path_output: Path):
     """
     # Initialize matplotlib colors
     colors = ["red", "blue", "green"]
-    xmin, xmax = -5, 15
+    xmin, xmax = -50, 50
     plt.figure(figsize=(6, 3))
 
     for idx, (v, df_sub) in enumerate(df.groupby("vel_ship")):
