@@ -23,7 +23,7 @@ def single_run(
     sigma0: int = 1,
     tolfun_cmaes: float = 1e-4,
     damping_cmaes: float = 1,
-    maxfevals_cmaes: int = int(1e5),
+    maxfevals_cmaes: int = int(5e5),
     patience_fms: int = 100,
     damping_fms: float = 0.9,
     maxfevals_fms: int = int(1e6),
