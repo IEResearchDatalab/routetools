@@ -215,6 +215,9 @@ def circumnavigate(
     grid_resolution: int = 4,
     neighbour_disk_size: int = 3,
     land_dilation: int = 0,
+    fms_patience: int = 100,
+    fms_damping: float = 0.9,
+    fms_maxfevals: int = int(1e6),
     verbose: bool = False,
 ) -> jnp.ndarray:
     """Run A* on the h3 cell graph and return a list of (lat, lon) points.
@@ -236,6 +239,22 @@ def circumnavigate(
         constraints, by default None.
     date_start : np.datetime64
         Start date for the route.
+    date_end : np.datetime64 | None, optional
+        End date for the route, by default None.
+    vel_ship : float, optional
+        Speed through water of the ship in knots, by default 10.0.
+    grid_resolution : int, optional
+        Grid resolution in kilometers, by default 4.
+    neighbour_disk_size : int, optional
+        Neighbour disk size for A* search, by default 3.
+    land_dilation : int, optional
+        Land dilation in number of cells, by default 0.
+    fms_patience : int, optional
+        Patience for FMS optimization, by default 100.
+    fms_damping : float, optional
+        Damping factor for FMS optimization, by default 0.9.
+    fms_maxfevals : int, optional
+        Maximum number of function evaluations for FMS optimization, by default 1e6.
     verbose : bool, optional
         Whether to print verbose output, by default False.
 
@@ -292,6 +311,9 @@ def circumnavigate(
         curve=curve,
         land=land,
         travel_stw=1.0,
+        patience=fms_patience,
+        damping=fms_damping,
+        maxfevals=fms_maxfevals,
         spherical_correction=True,
         verbose=verbose,
     )
