@@ -149,8 +149,6 @@ def single_run(
             json.dump(
                 {
                     "instance_name": instance_name,
-                    "date_start": date_start,
-                    "vel_ship": vel_ship,
                     "curve": curve_circ.tolist(),
                 },
                 f,
