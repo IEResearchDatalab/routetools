@@ -9,6 +9,7 @@ import typer
 from routetools.benchmark import circumnavigate, load_benchmark_instance
 from routetools.cost import cost_function
 from routetools.plot import plot_curve
+from routetools.utils import json_name_safe
 
 
 def single_run(
@@ -18,14 +19,15 @@ def single_run(
     vel_ship: int = 6,
     data_path: str = "./data",
     path_jsons: str = "output/json",
-    idx: int = 0,
+    overwrite: bool = False,
     verbose: bool = True,
 ):
     """Run a single benchmark instance and save the result to output/."""
     # Path to the JSON file
-    path_json = f"{path_jsons}/{idx:06d}.json"
+    unique_name = json_name_safe(instance_name, date_start, vel_ship)
+    path_json = f"{path_jsons}/{unique_name}.json"
     # If the file already exists, skip
-    if os.path.exists(path_json):
+    if os.path.exists(path_json) and not overwrite:
         # Load existing curve if provided
         if curve is None:
             with open(path_json) as f:
@@ -137,16 +139,13 @@ def main(path_jsons: str = "output/json_orthodromic"):
         "USNYC-PAONX",
     ]
 
-    # Initialize index for JSON filenames
-    idx = 0
-
     # Make sure the output/json directory exists
     os.makedirs(path_jsons, exist_ok=True)
 
     # Loop over each week of 2023
     date = dt.datetime(2023, 1, 1)
     ls_weeks = [date.strftime("%Y-%m-%d")]
-    ls_velships = [3, 6, 12]
+    ls_velships = [1, 2]
     while date.year == 2023:
         date += dt.timedelta(weeks=1)
         ls_weeks.append(date.strftime("%Y-%m-%d"))
@@ -169,7 +168,6 @@ def main(path_jsons: str = "output/json_orthodromic"):
                         date_start=date_start,
                         vel_ship=vel_ship,
                         path_jsons=path_jsons,
-                        idx=idx,
                     )
 
                 except FileNotFoundError as e:
@@ -177,8 +175,6 @@ def main(path_jsons: str = "output/json_orthodromic"):
                         f"[ERROR] Benchmark for instance {instance} couldn't find "
                         f"data files: {e}"
                     )
-                # Increment index
-                idx += 1
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import typer
 from routetools.benchmark import load_benchmark_instance, optimize_benchmark_instance
 from routetools.fms import optimize_fms
 from routetools.plot import plot_curve
+from routetools.utils import json_name_safe
 
 
 def single_run(
@@ -16,27 +17,30 @@ def single_run(
     vel_ship: int = 6,
     data_path: str = "./data",
     penalty: float = 1e8,
-    K: int = 12,
+    K: int = 10,
     L: int = 256,
-    num_pieces: int = 1,
+    num_pieces: int = 3,
     popsize: int = 5000,
     sigma0: int = 1,
-    tolfun_cmaes: float = 1e-4,
+    tolfun_cmaes: float = 1e-3,
     damping_cmaes: float = 1,
     maxfevals_cmaes: int = int(5e5),
     patience_fms: int = 100,
     damping_fms: float = 0.9,
     maxfevals_fms: int = int(1e6),
     path_jsons: str = "output/json",
-    idx: int = 0,
     seed: int = 42,
+    overwrite: bool = False,
     verbose: bool = True,
 ):
     """Run a single benchmark instance and save the result to output/."""
     # Path to the JSON file
-    path_json = f"{path_jsons}/{idx:06d}.json"
+    # Create a unique name based on the parameters
+    unique_name = json_name_safe(instance_name, date_start, vel_ship)
+    path_json = f"{path_jsons}/{unique_name}.json"
+
     # If the file already exists, skip
-    if os.path.exists(path_json):
+    if os.path.exists(path_json) and not overwrite:
         return
 
     # Initialize the results dictionary with the parameters
@@ -172,9 +176,6 @@ def main(path_jsons: str = "output/json_benchmark"):
         "USNYC-PAONX",
     ]
 
-    # Initialize index for JSON filenames
-    idx = 0
-
     # Make sure the output/json directory exists
     os.makedirs(path_jsons, exist_ok=True)
 
@@ -186,9 +187,8 @@ def main(path_jsons: str = "output/json_benchmark"):
         date += dt.timedelta(weeks=1)
         ls_weeks.append(date.strftime("%Y-%m-%d"))
 
-    for date_start in ls_weeks:
-        print(f"[INFO] Starting benchmarks for week starting {date_start}")
-        for instance in ls_instances:
+    for instance in ls_instances:
+        for date_start in ls_weeks:
             for vel_ship in ls_velships:
                 print(
                     f"[INFO] Running benchmark for instance {instance}"
@@ -201,15 +201,12 @@ def main(path_jsons: str = "output/json_benchmark"):
                         date_start=date_start,
                         vel_ship=vel_ship,
                         path_jsons=path_jsons,
-                        idx=idx,
                     )
 
                 except IndexError as e:
                     print(f"[ERROR] Benchmark for instance {instance} failed: {e}")
                 except FileNotFoundError as e:
                     print(f"[ERROR] Benchmark for instance {instance} failed: {e}")
-                # Increment index
-                idx += 1
 
 
 if __name__ == "__main__":
