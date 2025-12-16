@@ -290,8 +290,8 @@ def single_run(
     # ----------------------------------------------------------------------
     # Distance to end vs time plot
     # ----------------------------------------------------------------------
-    lat_circ, lon_circ = curve_circ[:, 0], curve_circ[:, 1]
-    lat_fms, lon_fms = curve_fms[:, 0], curve_fms[:, 1]
+    lat_circ, lon_circ = curve_circ[:, 1], curve_circ[:, 0]
+    lat_fms, lon_fms = curve_fms[:, 1], curve_fms[:, 0]
     lat_end = jnp.ones_like(lat_circ) * dict_instance["lat_end"]
     lon_end = jnp.ones_like(lon_circ) * dict_instance["lon_end"]
     # Compute distance to the end point over time

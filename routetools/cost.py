@@ -137,10 +137,8 @@ def haversine_distance_from_curve(curve: jnp.ndarray) -> float:
     float
         The total distance of the trajectory in meters.
     """
-    lat_circ, lon_circ = curve[:, 0], curve[:, 1]
-    dx, dy = haversine_meters_components(
-        lat_circ[:-1], lon_circ[:-1], lat_circ[1:], lon_circ[1:]
-    )
+    lat, lon = curve[:, 1], curve[:, 0]
+    dx, dy = haversine_meters_components(lat[:-1], lon[:-1], lat[1:], lon[1:])
     return jnp.sum(jnp.sqrt(dx**2 + dy**2))
 
 
