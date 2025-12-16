@@ -105,7 +105,7 @@ def haversine_meters_module(
         math.sin(dphi / 2) ** 2
         + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     )
-    return 2 * EARTH_RADIUS * math.asin(math.sqrt(a))
+    return jnp.abs(2 * EARTH_RADIUS * math.asin(math.sqrt(a)))
 
 
 def haversine_meters_components(
@@ -121,7 +121,27 @@ def haversine_meters_components(
     dlambda = jnp.radians(lon2 - lon1)
     dx = EARTH_RADIUS * dlambda * jnp.cos((phi1 + phi2) / 2)
     dy = EARTH_RADIUS * (jnp.radians(lat2) - jnp.radians(lat1))
-    return dx, dy
+    return jnp.abs(dx), jnp.abs(dy)
+
+
+def haversine_distance_from_curve(curve: jnp.ndarray) -> float:
+    """Given a curve, return its Haversine distance in meters.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        An array of shape (L, 2) representing a trajectory.
+
+    Returns
+    -------
+    float
+        The total distance of the trajectory in meters.
+    """
+    lat_circ, lon_circ = curve[:, 0], curve[:, 1]
+    dist_circ_meters, _ = haversine_meters_components(
+        lat_circ[:-1], lon_circ[:-1], lat_circ[1:], lon_circ[1:]
+    )
+    return jnp.sum(dist_circ_meters)
 
 
 @partial(jit, static_argnames=("vectorfield", "travel_stw", "spherical_correction"))
