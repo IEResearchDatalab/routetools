@@ -105,7 +105,7 @@ def haversine_meters_module(
         math.sin(dphi / 2) ** 2
         + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     )
-    return jnp.abs(2 * EARTH_RADIUS * math.asin(math.sqrt(a)))
+    return 2 * EARTH_RADIUS * math.asin(math.sqrt(a))
 
 
 def haversine_meters_components(
@@ -115,12 +115,12 @@ def haversine_meters_components(
     lon2: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Great-circle distance in meters between two points given in degrees."""
+    # Convert from degrees to radians
+    phi1, phi2 = jnp.radians(lat1), jnp.radians(lat2)
+    lambda1, lambda2 = jnp.radians(lon1), jnp.radians(lon2)
     # Compute components in meters
-    phi1 = jnp.radians(lat1)
-    phi2 = jnp.radians(lat2)
-    dlambda = jnp.radians(lon2 - lon1)
-    dx = EARTH_RADIUS * dlambda * jnp.cos((phi1 + phi2) / 2)
-    dy = EARTH_RADIUS * (jnp.radians(lat2) - jnp.radians(lat1))
+    dy = EARTH_RADIUS * (phi2 - phi1)
+    dx = EARTH_RADIUS * (lambda2 - lambda1) * jnp.cos((phi1 + phi2) / 2)
     return jnp.abs(dx), jnp.abs(dy)
 
 
@@ -138,10 +138,10 @@ def haversine_distance_from_curve(curve: jnp.ndarray) -> float:
         The total distance of the trajectory in meters.
     """
     lat_circ, lon_circ = curve[:, 0], curve[:, 1]
-    dist_circ_meters, _ = haversine_meters_components(
+    dx, dy = haversine_meters_components(
         lat_circ[:-1], lon_circ[:-1], lat_circ[1:], lon_circ[1:]
     )
-    return jnp.sum(dist_circ_meters)
+    return jnp.sum(jnp.sqrt(dx**2 + dy**2))
 
 
 @partial(jit, static_argnames=("vectorfield", "travel_stw", "spherical_correction"))
