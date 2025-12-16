@@ -11,7 +11,12 @@ from routetools.benchmark import (
     load_benchmark_instance,
     optimize_benchmark_instance,
 )
-from routetools.cost import cost_function, haversine_distance_from_curve
+from routetools.cost import (
+    cost_function,
+    cost_function_constant_speed_time_variant,
+    haversine_distance_from_curve,
+    haversine_meters_components,
+)
 from routetools.fms import optimize_fms
 from routetools.plot import plot_curve
 
@@ -42,9 +47,9 @@ def single_run(
     num_pieces: int = 3,
     popsize: int = 5000,
     sigma0: int = 1,
-    tolfun_cmaes: float = 1e-3,
+    tolfun_cmaes: float = 60,
     damping_cmaes: float = 1,
-    maxfevals_cmaes: int = int(5e5),
+    maxfevals_cmaes: int = int(1e6),
     patience_fms: int = 100,
     damping_fms: float = 0.9,
     maxfevals_fms: int = int(1e6),
@@ -280,6 +285,54 @@ def single_run(
     plt.tight_layout()
     # We use redundant naming to avoid too many images
     plt.savefig(f"output/benchmark_{instance_name}.jpg", dpi=300)
+    plt.close()
+
+    # ----------------------------------------------------------------------
+    # Distance to end vs time plot
+    # ----------------------------------------------------------------------
+    lat_circ, lon_circ = curve_circ[:, 0], curve_circ[:, 1]
+    lat_fms, lon_fms = curve_fms[:, 0], curve_fms[:, 1]
+    lat_end = jnp.ones_like(lat_circ) * dict_instance["lat_end"]
+    lon_end = jnp.ones_like(lon_circ) * dict_instance["lon_end"]
+    # Compute distance to the end point over time
+    dx_circ, dy_circ = haversine_meters_components(lat_circ, lon_circ, lat_end, lon_end)
+    d_circ = jnp.sqrt(dx_circ**2 + dy_circ**2) / 1000  # in km
+    lat_end = jnp.ones_like(lat_fms) * dict_instance["lat_end"]
+    lon_end = jnp.ones_like(lon_fms) * dict_instance["lon_end"]
+    dx_fms, dy_fms = haversine_meters_components(lat_fms, lon_fms, lat_end, lon_end)
+    d_fms = jnp.sqrt(dx_fms**2 + dy_fms**2) / 1000  # in km
+    # Compute time vector
+    t_circ = cost_function_constant_speed_time_variant(
+        vectorfield=dict_instance["vectorfield"],
+        curve=curve_circ[jnp.newaxis, :, :],
+        travel_stw=vel_ship,
+        spherical_correction=True,
+    )
+    t_circ = t_circ[0] / 3600  # in hours
+    t_fms = cost_function_constant_speed_time_variant(
+        vectorfield=dict_instance["vectorfield"],
+        curve=curve_fms[jnp.newaxis, :, :],
+        travel_stw=vel_ship,
+        spherical_correction=True,
+    )
+    t_fms = t_fms[0] / 3600  # in hours
+    # Append a first time as 0
+    t_circ = jnp.concatenate([jnp.array([0.0]), t_circ])
+    t_fms = jnp.concatenate([jnp.array([0.0]), t_fms])
+    # Compute cumulative time to have a proper x-axis
+    t_circ = jnp.cumsum(t_circ)
+    t_fms = jnp.cumsum(t_fms)
+    # Plot distance to end vs time
+    plt.figure(figsize=(6, 4))
+    plt.plot(t_circ, d_circ, label="Circumnavigate", linewidth=2)
+    plt.plot(t_fms, d_fms, label="FMS", linewidth=2)
+    plt.xlabel("Time (hours)")
+    plt.ylabel("Distance to destination (km)")
+    plt.title(f"Distance to destination vs time for {instance_name}")
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.savefig(f"output/benchmark_{instance_name}_distance.jpg", dpi=300)
     plt.close()
 
 
