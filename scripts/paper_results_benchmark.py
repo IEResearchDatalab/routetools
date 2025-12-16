@@ -2,13 +2,33 @@ import datetime as dt
 import json
 import os
 
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import typer
 
-from routetools.benchmark import load_benchmark_instance, optimize_benchmark_instance
+from routetools.benchmark import (
+    circumnavigate,
+    load_benchmark_instance,
+    optimize_benchmark_instance,
+)
+from routetools.cost import cost_function, haversine_distance_from_curve
 from routetools.fms import optimize_fms
 from routetools.plot import plot_curve
-from routetools.utils import json_name_safe
+
+YEAR = 2023
+LS_VELOCITIES = [3, 6, 12]
+LS_INSTANCES = [
+    "DEHAM-USNYC",
+    "USNYC-DEHAM",
+    # "EGHRG-MYKUL",  # Suez canal is impossible
+    # "MYKUL-EGHRG",  # Suez canal is impossible
+    "EGPSD-ESALG",
+    "ESALG-EGPSD",
+    "PABLB-PECLL",
+    "PECLL-PABLB",
+    "PAONX-USNYC",
+    "USNYC-PAONX",
+]
 
 
 def single_run(
@@ -28,7 +48,8 @@ def single_run(
     patience_fms: int = 100,
     damping_fms: float = 0.9,
     maxfevals_fms: int = int(1e6),
-    path_jsons: str = "output/json",
+    path_jsons: str = "output/json_benchmark",
+    path_jsons_circ: str = "output/json_circumnavigation",
     seed: int = 42,
     overwrite: bool = False,
     verbose: bool = True,
@@ -36,7 +57,13 @@ def single_run(
     """Run a single benchmark instance and save the result to output/."""
     # Path to the JSON file
     # Create a unique name based on the parameters
-    unique_name = json_name_safe(instance_name, date_start, vel_ship)
+    # Remove "-" from instance name for filename compatibility
+    name = instance_name.replace("-", "")
+    # Turn date into "YYMMDD"
+    date_str = dt.datetime.strptime(date_start, "%Y-%m-%d").strftime("%y%m%d")
+    # Ensure vel_ship is string and integer
+    vel_ship = int(vel_ship)
+    unique_name = f"{name}_{date_str}_{vel_ship}"
     path_json = f"{path_jsons}/{unique_name}.json"
 
     # If the file already exists, skip
@@ -74,6 +101,87 @@ def single_run(
     print("The problem instance contains the following information:")
     print(", ".join(list(dict_instance.keys())))
 
+    # ----------------------------------------------------------------------
+    # Initialize the circumnavigation route
+    # ----------------------------------------------------------------------
+
+    # Find if the circumnavigation curve already exists
+    # The name is the instance name, sorted alphabetically to avoid duplicates
+    port1, port2 = instance_name.split("-")
+    name_circ = "".join(sorted([port1, port2]))
+    path_json_circ = f"{path_jsons_circ}/{name_circ}.json"
+    if os.path.exists(path_json_circ):
+        with open(path_json_circ) as f:
+            data = json.load(f)
+            curve = data["curve"]
+            curve = [[pt[0], pt[1]] for pt in curve]
+            # Convert to jax array
+            curve_circ = jnp.array(curve)
+            # Check the start and end points match, else reverse
+            if not (
+                jnp.isclose(curve_circ[0, 0], dict_instance["lat_start"])
+                and jnp.isclose(curve_circ[0, 1], dict_instance["lon_start"])
+                and jnp.isclose(curve_circ[-1, 0], dict_instance["lat_end"])
+                and jnp.isclose(curve_circ[-1, 1], dict_instance["lon_end"])
+            ):
+                curve_circ = curve_circ[::-1, :]
+    else:
+        # Compute the circumnavigation curve
+        curve_circ = circumnavigate(
+            lat_start=dict_instance["lat_start"],
+            lon_start=dict_instance["lon_start"],
+            lat_end=dict_instance["lat_end"],
+            lon_end=dict_instance["lon_end"],
+            ocean=dict_instance["data"],
+            land=dict_instance["land"],
+            date_start=dict_instance["date_start"],
+            date_end=dict_instance.get("date_end"),
+            vel_ship=dict_instance.get("vel_ship"),
+            grid_resolution=4,
+            neighbour_disk_size=3,
+            land_dilation=1,
+            fms_damping=0.0,
+            verbose=verbose,
+        )
+        # Save the circumnavigation curve
+        os.makedirs(path_jsons_circ, exist_ok=True)
+        with open(path_json_circ, "w") as f:
+            json.dump(
+                {
+                    "instance_name": instance_name,
+                    "date_start": date_start,
+                    "vel_ship": vel_ship,
+                    "curve": curve_circ.tolist(),
+                },
+                f,
+                indent=4,
+            )
+
+    cost_circ = cost_function(
+        vectorfield=dict_instance["vectorfield"],
+        curve=curve_circ[jnp.newaxis, :, :],
+        travel_stw=vel_ship,
+        travel_time=None,
+        spherical_correction=True,
+    )
+    cost_circ = int(cost_circ[0])
+
+    # Compute distance too
+    dist_circ_km = haversine_distance_from_curve(curve_circ) / 1000
+
+    # Update the results dictionary with the optimization results
+    results.update(
+        {
+            "cost_circ": cost_circ,
+            "distance_circ": float(dist_circ_km),
+            "curve_circ": curve_circ.tolist(),
+        }
+    )
+
+    # ----------------------------------------------------------------------
+    # Optimize with CMA-ES
+    # ----------------------------------------------------------------------
+
     curve_cmaes, dict_cmaes = optimize_benchmark_instance(
         dict_instance,
         penalty=penalty,
@@ -91,17 +199,24 @@ def single_run(
     )
     cost_cmaes = dict_cmaes["cost"]
 
+    # Compute distance too
+    dist_cmaes_km = haversine_distance_from_curve(curve_cmaes) / 1000
+
     # Update the results dictionary with the optimization results
     results.update(
         {
             "cost_cmaes": cost_cmaes,
+            "distance_cmaes": float(dist_cmaes_km),
             "comp_time_cmaes": dict_cmaes["comp_time"],
             "niter_cmaes": dict_cmaes["niter"],
             "curve_cmaes": curve_cmaes.tolist(),
         }
     )
 
+    # ----------------------------------------------------------------------
     # FMS
+    # ----------------------------------------------------------------------
+
     curve_fms, dict_fms = optimize_fms(
         vectorfield=dict_instance["vectorfield"],
         curve=curve_cmaes,
@@ -121,10 +236,14 @@ def single_run(
     curve_fms = curve_fms[0]
     cost_fms = dict_fms["cost"][0]
 
+    # Compute distance too
+    dist_fms_km = haversine_distance_from_curve(curve_fms) / 1000
+
     # Update the results dictionary with the optimization results
     results.update(
         {
             "cost_fms": cost_fms,  # FMS returns a list of costs
+            "distance_fms": float(dist_fms_km),
             "comp_time_fms": dict_fms["comp_time"],
             "niter_fms": dict_fms["niter"],
             "curve_fms": curve_fms.tolist(),
@@ -139,13 +258,21 @@ def single_run(
     results.clear()
     del results
 
+    # ----------------------------------------------------------------------
+    # Plot the results
+    # ----------------------------------------------------------------------
+
     # Plot the curve
     vectorfield = dict_instance["vectorfield"]
     land = dict_instance["land"]
     plot_curve(
         vectorfield=vectorfield,
-        ls_curve=[curve_cmaes, curve_fms],
-        ls_name=[f"CMA-ES (cost={cost_cmaes:.2e})", f"FMS (cost={cost_fms:.2e})"],
+        ls_curve=[curve_circ, curve_cmaes, curve_fms],
+        ls_name=[
+            f"Circumnavigate ({cost_circ / 3600:.1f} h, {dist_circ_km:.1f} km)",
+            f"CMA-ES ({cost_cmaes / 3600:.1f} h, {dist_cmaes_km:.1f} km)",
+            f"FMS ({cost_fms / 3600:.1f} h, {dist_fms_km:.1f} km)",
+        ],
         land=land,
         gridstep=0.5,
         figsize=(6, 6),
@@ -163,33 +290,19 @@ def main(path_jsons: str = "output/json_benchmark"):
 
     Change the parameters in single_run() as needed.
     """
-    ls_instances = [
-        "DEHAM-USNYC",
-        "USNYC-DEHAM",
-        # "EGHRG-MYKUL",  # Suez canal is impossible
-        # "MYKUL-EGHRG",  # Suez canal is impossible
-        "EGPSD-ESALG",
-        "ESALG-EGPSD",
-        "PABLB-PECLL",
-        "PECLL-PABLB",
-        "PAONX-USNYC",
-        "USNYC-PAONX",
-    ]
-
     # Make sure the output/json directory exists
     os.makedirs(path_jsons, exist_ok=True)
 
     # Loop over each week of 2023
-    date = dt.datetime(2023, 1, 1)
+    date = dt.datetime(YEAR, 1, 1)
     ls_weeks = [date.strftime("%Y-%m-%d")]
-    ls_velships = [3, 6, 12]
-    while date.year == 2023:
+    while date.year == YEAR:
         date += dt.timedelta(weeks=1)
         ls_weeks.append(date.strftime("%Y-%m-%d"))
 
-    for instance in ls_instances:
+    for instance in LS_INSTANCES:
         for date_start in ls_weeks:
-            for vel_ship in ls_velships:
+            for vel_ship in LS_VELOCITIES:
                 print(
                     f"[INFO] Running benchmark for instance {instance}"
                     f" and date {date_start}"
