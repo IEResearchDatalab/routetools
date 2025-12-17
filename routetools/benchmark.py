@@ -335,7 +335,8 @@ def optimize_benchmark_instance(
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
     seed: float = jnp.nan,
-    init_circumnavigate: bool = True,
+    curve0: jnp.ndarray | None = None,
+    init_circumnavigate: bool = False,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
@@ -375,6 +376,13 @@ def optimize_benchmark_instance(
         Weight for the L1 norm in the combined cost. Default is 1.0.
     weight_l2 : float, optional
         Weight for the L2 norm in the combined cost. Default is 0.0.
+    curve0 : jnp.ndarray | None, optional
+        Initial curve for the optimization (shape L x 2). Coordinates (lon, lat).
+        If None, will initialize with circumnavigation route if `init_circumnavigate`
+        is True. By default None
+    init_circumnavigate : bool, optional
+        Whether to initialize the optimization with a circumnavigation route.
+        By default False.
     seed : int, optional
         Random seed for reproducibility. By default jnp.nan
     verbose : bool, optional
@@ -385,7 +393,10 @@ def optimize_benchmark_instance(
     tuple[jnp.ndarray, float]
         The optimized curve (shape L x 2), and the fuel cost
     """
-    if init_circumnavigate:
+    if curve0 is not None:
+        if verbose:
+            print("[INFO] Using provided initial curve for optimization.")
+    elif init_circumnavigate:
         if verbose:
             print("[INFO] Initializing with circumnavigation route...")
         # Initialize the circumnavigation route
