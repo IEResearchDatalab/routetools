@@ -122,7 +122,7 @@ def haversine_meters_components(
     # Compute components in meters
     dy = EARTH_RADIUS * (phi2 - phi1)
     dx = EARTH_RADIUS * (lambda2 - lambda1) * jnp.cos((phi1 + phi2) / 2)
-    return jnp.abs(dx), jnp.abs(dy)
+    return dx, dy
 
 
 def haversine_distance_from_curve(curve: jnp.ndarray) -> float:
