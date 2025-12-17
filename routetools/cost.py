@@ -46,6 +46,7 @@ def cost_function(
         vector field.
     curve : jnp.ndarray
         A batch of trajectories (an array of shape B x L x 2).
+        Coordinates are (lon, lat) or (x, y).
     travel_stw : float, optional
         The boat will have this fixed speed through water (STW).
     travel_time : float, optional
@@ -130,14 +131,14 @@ def haversine_distance_from_curve(curve: jnp.ndarray) -> float:
     Parameters
     ----------
     curve : jnp.ndarray
-        An array of shape (L, 2) representing a trajectory.
+        An array of shape (L, 2) representing a trajectory (lon, lat).
 
     Returns
     -------
     float
         The total distance of the trajectory in meters.
     """
-    lat, lon = curve[:, 1], curve[:, 0]
+    lon, lat = curve[:, 0], curve[:, 1]
     dx, dy = haversine_meters_components(lat[:-1], lon[:-1], lat[1:], lon[1:])
     return jnp.sum(jnp.sqrt(dx**2 + dy**2))
 
@@ -159,7 +160,8 @@ def cost_function_constant_speed_time_invariant(
     vectorfield : Callable
         A function that returns the horizontal and vertical components of the vector
     curve : jnp.ndarray
-        A batch of trajectories (an array of shape B x L x 2)
+        A batch of trajectories (an array of shape B x L x 2).
+        Coordinates are (lon, lat) or (x, y)
     travel_stw : float
         The boat will have this fixed speed through water (STW)
 
@@ -215,7 +217,8 @@ def cost_function_constant_speed_time_variant(
     vectorfield : Callable
         A function that returns the horizontal and vertical components of the vector
     curve : jnp.ndarray
-        A batch of trajectories (an array of shape B x L x 2)
+        A batch of trajectories (an array of shape B x L x 2).
+        Coordinates are (lon, lat) or (x, y).
     travel_stw : float
         The boat will have this fixed speed through water (STW)
 
@@ -288,7 +291,8 @@ def cost_function_constant_cost_time_invariant(
     vectorfield : Callable
         A function that returns the horizontal and vertical components of the vector
     curve : jnp.ndarray
-        A batch of trajectories (an array of shape B x L x 2)
+        A batch of trajectories (an array of shape B x L x 2).
+        Coordinates are (lon, lat) or (x, y).
     travel_time : float
         The boat can regulate its STW but must complete the path in exactly this time.
 

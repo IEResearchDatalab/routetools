@@ -21,6 +21,7 @@ from routetools.fms import optimize_fms
 from routetools.plot import plot_curve
 
 YEAR = 2023
+WEEKS = 1
 LS_VELOCITIES = [3, 6, 12]
 LS_INSTANCES = [
     "DEHAM-USNYC",
@@ -119,15 +120,15 @@ def single_run(
         with open(path_json_circ) as f:
             data = json.load(f)
             curve = data["curve"]
-            curve = [[pt[0], pt[1]] for pt in curve]
+            curve = [[pt[0], pt[1]] for pt in curve]  # (lon, lat)
             # Convert to jax array
             curve_circ = jnp.array(curve)
             # Check the start and end points match, else reverse
             if not (
-                jnp.isclose(curve_circ[0, 0], dict_instance["lat_start"])
-                and jnp.isclose(curve_circ[0, 1], dict_instance["lon_start"])
-                and jnp.isclose(curve_circ[-1, 0], dict_instance["lat_end"])
-                and jnp.isclose(curve_circ[-1, 1], dict_instance["lon_end"])
+                jnp.isclose(curve_circ[0, 1], dict_instance["lat_start"])
+                and jnp.isclose(curve_circ[0, 0], dict_instance["lon_start"])
+                and jnp.isclose(curve_circ[-1, 1], dict_instance["lat_end"])
+                and jnp.isclose(curve_circ[-1, 0], dict_instance["lon_end"])
             ):
                 curve_circ = curve_circ[::-1, :]
     else:
@@ -344,11 +345,13 @@ def main(path_jsons: str = "output/json_benchmark"):
     # Make sure the output/json directory exists
     os.makedirs(path_jsons, exist_ok=True)
 
-    # Loop over each week of 2023
-    date = dt.datetime(YEAR, 1, 1)
-    ls_weeks = [date.strftime("%Y-%m-%d")]
-    while date.year == YEAR:
-        date += dt.timedelta(weeks=1)
+    # Loop over each week of target year
+    ls_weeks = []
+    for week in range(WEEKS):
+        date = dt.datetime(YEAR, 1, 1) + dt.timedelta(weeks=week)
+        # If the date is above the year, stop
+        if date.year > YEAR:
+            break
         ls_weeks.append(date.strftime("%Y-%m-%d"))
 
     for instance in LS_INSTANCES:
