@@ -15,7 +15,8 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "typer-slim",
-    "jax>=0.4.33",
+    "jax==0.8.1",
+    "jaxlib==0.8.1",
     "matplotlib>=3.9.2",
     "cma>=4.0.0",
     "pytest>=8.3.2",
@@ -108,6 +109,6 @@ wrr-bench = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routi
 wrr-utils = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routing-research.git", branch = "main" }
 
 [project.optional-dependencies]
-cuda = ["jax[cuda]>=0.4.33"]
+cuda = ["jax[cuda]==0.8.1"]
 
 

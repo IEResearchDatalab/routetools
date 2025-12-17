@@ -157,6 +157,26 @@ If your computer does not have a GPU, you can force JAX to use the CPU with `JAX
 JAX_PLATFORMS=cpu uv run scripts/single_run.py
 ```
 
+## Using GPU with JAX
+
+### Quick start (session)
+
+Source the activation script to prefer GPU for JAX in your current shell:
+
+```bash
+source scripts/activate_gpu.sh
+```
+
+This sets `JAX_PLATFORM_NAME=cuda`, `CUDA_VISIBLE_DEVICES=0`, and `XLA_PYTHON_CLIENT_PREALLOCATE=false` so JAX will pick the local GPU by default.
+
+### Project-wide / tooling
+
+The repository includes a `.env` file with the same defaults; tools that read `.env` (or your CI) can load it. You can also set the variables per-command:
+
+```bash
+JAX_PLATFORM_NAME=cuda CUDA_VISIBLE_DEVICES=0 uv run scripts/single_run.py
+```
+
 ## Setup development environment (Unix)
 
 Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) and pre-commit hooks:
