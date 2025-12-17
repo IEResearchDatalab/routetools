@@ -371,7 +371,8 @@ def optimize(
                 f"curve0[-1,:]={curve0[-1, :]}, dst={dst}"
             )
         # Initial solution from provided curve
-        x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
+        x0 = curve_to_control(curve0, K=K, num_pieces=1)
+        # Requires a single piece to generate control points
 
     # Initial standard deviation to sample new solutions
     # One sigma is half the distance between src and dst
