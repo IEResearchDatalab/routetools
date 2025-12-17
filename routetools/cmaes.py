@@ -259,7 +259,7 @@ def _cma_evolution_strategy(
         )
 
         # Land penalization
-        if land is not None:
+        if land is not None and penalty > 0:
             cost += land.penalization(curve, penalty=penalty)
 
         es.tell(X, cost.tolist())  # update the optimizer
@@ -404,7 +404,7 @@ def optimize(
         print("Optimization time:", time.time() - start)
         print("Fuel cost:", es.best.f)
 
-    Xbest = es.best.x[None, :]
+    Xbest = jnp.asarray(es.best.x)[None, :]
     curve_best = control_to_curve(Xbest, src, dst, L=L, num_pieces=num_pieces)[0, ...]
 
     dict_cmaes = {

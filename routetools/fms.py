@@ -118,6 +118,7 @@ def optimize_fms(
     dst: jnp.ndarray | None = None,
     curve: jnp.ndarray | None = None,
     land: Land | None = None,
+    penalty: float = 1e8,
     num_curves: int = 10,
     num_points: int = 200,
     travel_stw: float | None = None,
@@ -285,7 +286,7 @@ def optimize_fms(
         curve_old = curve.copy()
         curve = solve_vectorized(curve)
         # Replace points on land with previous iteration
-        if land is not None:
+        if land is not None and penalty > 0:
             is_land = land(curve) > 0
             curve = jnp.where(is_land[..., None], curve_old, curve)
         cost_now = cost_function(
