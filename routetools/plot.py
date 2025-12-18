@@ -412,7 +412,8 @@ def plot_distance_to_end_vs_time(
 
     # Plot distance to end vs time
     fig = plt.figure(figsize=(6, 4))
-    ax = plt.gca()
+    # Creato two axes, one on top of the other
+    ax1, ax2 = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [2, 1]})
     for idx, d_curve in enumerate(ls_dist):
         t_curve = ls_cost[idx]
         label = ""
@@ -421,17 +422,46 @@ def plot_distance_to_end_vs_time(
             dist = d_curve[0]
             cost = t_curve[-1]
             label += f" ({int(dist)} km, {cost:.1f} h)"
-        ax.plot(
+        ax1.plot(
             t_curve,
             d_curve,
             marker="o",
             markersize=2,
             label=label,
         )
-    ax.set_xlabel("Time (hours)")
-    ax.set_ylabel("Distance to traverse (km)")
-    ax.set_title(f"{name} | {int(vel_ship * 2)} knots")
-    ax.legend()
-    ax.grid()
+    ax1.set_xlabel("Time (hours)")
+    ax1.set_ylabel("Distance to traverse (km)")
+    ax1.set_title(f"{name} | {int(vel_ship * 2)} knots")
+    ax1.legend()
+    ax1.grid()
+    # In the second axis, plot the difference between each pair of curves
+    if len(ls_dist) == 2:
+        d_curve_a = ls_dist[0]
+        d_curve_b = ls_dist[1]
+        # Interpolate the shorter curve to the longer one
+        if ls_cost[0][-1] < ls_cost[1][-1]:
+            d_curve_a = jnp.interp(ls_cost[1], ls_cost[0], ls_dist[0])  # type: ignore
+            d_curve_a = jnp.maximum(d_curve_a, 0)
+            t_curve = ls_cost[1]
+        else:
+            d_curve_b = jnp.interp(ls_cost[0], ls_cost[1], ls_dist[1])  # type: ignore
+            d_curve_b = jnp.maximum(d_curve_b, 0)
+            t_curve = ls_cost[0]
+        d_diff = d_curve_a - d_curve_b
+        ax2.plot(
+            t_curve,
+            d_diff,
+            marker="o",
+            markersize=2,
+            color="red",
+            label="Distance difference",
+        )
+        ax2.set_xlabel("Time (hours)")
+        ax2.set_ylabel("Difference (km)")
+        ax2.legend()
+        ax2.grid()
+    else:
+        # Remove the second axis if there are not exactly two curves
+        fig.delaxes(ax2)
     plt.tight_layout()
-    return fig, ax
+    return fig, (ax1, ax2)
