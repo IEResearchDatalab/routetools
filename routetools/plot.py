@@ -412,7 +412,7 @@ def plot_distance_to_end_vs_time(
 
     # Plot distance to end vs time
     fig = plt.figure(figsize=(6, 4))
-    # Creato two axes, one on top of the other
+    # Create two axes, one on top of the other
     ax1, ax2 = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [2, 1]})
     for idx, d_curve in enumerate(ls_dist):
         t_curve = ls_cost[idx]
