@@ -73,7 +73,7 @@ def generate_dataframe(path_output: str = "output/json_benchmark") -> pd.DataFra
     return df
 
 
-def plot_bers_vs_circdromic(
+def plot_bers_vs_circumnavigation(
     df: pd.DataFrame, instance_name: str, vel_ship: float, path_output: Path
 ):
     """Plot BERS vs Orthodromic travel times for a given benchmark and ship speed.
@@ -408,7 +408,7 @@ def main(path_output: str = "output/json_benchmark"):
     - scripts/paper_results_benchmark.py
     """
     df = generate_dataframe(path_output=path_output)
-    plot_bers_vs_circdromic(
+    plot_bers_vs_circumnavigation(
         df, instance_name="USNYC-PAONX", vel_ship=3, path_output=Path("output")
     )
     fullyear_savings_speed(df, Path("output"))
