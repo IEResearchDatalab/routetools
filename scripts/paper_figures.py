@@ -40,46 +40,10 @@ def season(week: int) -> str:
         return "winter"
 
 
-def orthodromic_distance(instance_name: str) -> float:
-    """Hardcoded orthodromic distances for benchmark instances.
-
-    Parameters
-    ----------
-    instance_name : str
-        Name of the benchmark instance.
-
-    Returns
-    -------
-    float
-        Orthodromic distance in nautical miles.
-    """
-    dict_dist = {
-        "DEHAM-USNYC": 6248,
-        "USNYC-DEHAM": 6248,
-        "EGPSD-ESALG": 3533,
-        "ESALG-EGPSD": 3533,
-        "PABLB-PECLL": 2474,
-        "PECLL-PABLB": 2474,
-        "PAONX-USNYC": 3617,
-        "USNYC-PAONX": 3617,
-    }
-    return dict_dist.get(instance_name, 0.0)
-
-
-def generate_individual_dataframe(folder: Path) -> pd.DataFrame:
-    """Generate a pandas DataFrame from all JSON files in the given folder.
-
-    Parameters
-    ----------
-    folder : Path
-        Path to the folder containing JSON files.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame containing the extracted data from the JSON files.
-    """
+def generate_dataframe(path_output: str = "output/json_benchmark") -> pd.DataFrame:
+    """Generate a combined DataFrame from BERS and orthodromic results."""
     # First check if the dataframe already exists inside the folder
+    folder = Path(path_output)
     pth_df = folder / "dataframe.csv"
     ls_data = []
     # Loop through all JSON files in the folder and extract relevant data
@@ -88,49 +52,28 @@ def generate_individual_dataframe(folder: Path) -> pd.DataFrame:
             data: dict[str, Any] = json.load(file)
             # Drop any keys that are lists
             data = {k: v for k, v in data.items() if not isinstance(v, list)}
-            # Include the ID of the JSON file
-            data["id"] = path_json.stem
             ls_data.append(data)
     # Create a DataFrame from the list of dictionaries
     df = pd.DataFrame(ls_data)
     # Save the DataFrame to a CSV file for future use
     df.to_csv(pth_df, index=False)
-    return df
-
-
-def generate_dataframe(
-    path_bers: str = "output/json_benchmark",
-    path_ortho: str = "output/json_orthodromic",
-):
-    """Generate a combined DataFrame from BERS and orthodromic results."""
-    df_bers = generate_individual_dataframe(Path(path_bers))
-    df_ortho = generate_individual_dataframe(Path(path_ortho))
-    # Merge the two DataFrames on instance_name, date_start, vel_ship
-    df = pd.merge(
-        df_bers,
-        df_ortho,
-        on=["instance_name", "date_start", "vel_ship"],
-        suffixes=("", "_ortho"),
-    )
-    # Rename cost to cost_ortho
-    df = df.rename(columns={"cost": "cost_ortho"})
     # Calculate the time savings as a percentage
-    df["gain"] = 100 * (df["cost_ortho"] - df["cost_fms"]) / df["cost_ortho"]
+    df["gain"] = 100 * (df["cost_circ"] - df["cost_fms"]) / df["cost_circ"]
     # Calculate relative distance increase
-    # df["rel_dist"] = 100 * (df["dist_fms"] - df["dist_ortho"]) / df["dist_ortho"]
+    df["relative_distance"] = (
+        100 * (df["distance_fms"] - df["distance_circ"]) / df["distance_circ"]
+    )
     # Create week column from date_start
     df["date_start"] = pd.to_datetime(df["date_start"])
     df["week"] = df["date_start"].dt.isocalendar().week
     # Create season column from week
     df["season"] = df["week"].apply(season)
-    # Add orthodromic distance column
-    df["dist_ortho"] = df["instance_name"].apply(orthodromic_distance)
     # Sort by: instance_name, vel_ship, date_start
     df = df.sort_values(by=["instance_name", "vel_ship", "date_start"])
     return df
 
 
-def plot_bers_vs_orthodromic(
+def plot_bers_vs_circdromic(
     df: pd.DataFrame, instance_name: str, vel_ship: float, path_output: Path
 ):
     """Plot BERS vs Orthodromic travel times for a given benchmark and ship speed.
@@ -151,18 +94,20 @@ def plot_bers_vs_orthodromic(
     ].copy()
     # Find the biggest gain and take its IDs
     idx_max_gain = df_sub["gain"].idxmax()
-    ids_max_gain = df_sub.loc[idx_max_gain, ["id", "id_ortho"]]
+    instance_name, date_start, vel_ship = df_sub.loc[
+        idx_max_gain, ["instance_name", "date_start", "vel_ship"]
+    ]
+    name = instance_name.replace("-", "")
+    # Turn date into "YYMMDD"
+    date_str = date_start.strftime("%y%m%d")
+    unique_name = f"{name}_{date_str}_{vel_ship}"
     # Load the curves from the JSON files
-    with open(Path("output/json_benchmark") / f"{ids_max_gain['id']}.json") as f:
+    with open(Path("output/json_benchmark") / f"{unique_name}.json") as f:
         data_bers = json.load(f)
-    with open(
-        Path("output/json_orthodromic") / f"{ids_max_gain['id_ortho']}.json"
-    ) as f:
-        data_ortho = json.load(f)
     # Extract the curves
     curve_cmaes = jnp.array(data_bers["curve_cmaes"])
     curve_fms = jnp.array(data_bers["curve_fms"])
-    curve_ortho = jnp.array(data_ortho["curve"])
+    curve_circ = jnp.array(data_bers["curve_circ"])
     # Extract the vectorfield and land data
     dict_instance = load_benchmark_instance(
         instance_name, date_start=data_bers["date_start"], vel_ship=vel_ship
@@ -171,7 +116,7 @@ def plot_bers_vs_orthodromic(
     dict_costs = {}
 
     for name, curve in [
-        ("Orthodromic", curve_ortho),
+        ("Orthodromic", curve_circ),
         ("CMA-ES", curve_cmaes),
         ("FMS", curve_fms),
     ]:
@@ -190,7 +135,7 @@ def plot_bers_vs_orthodromic(
     land = dict_instance["land"]
     plot_curve(
         vectorfield=vectorfield,
-        ls_curve=[curve_ortho, curve_cmaes, curve_fms],
+        ls_curve=[curve_circ, curve_cmaes, curve_fms],
         ls_name=[
             f"Orthodromic ({dict_costs['Orthodromic']} hrs)",
             f"CMA-ES ({dict_costs['CMA-ES']} hrs)",
@@ -224,7 +169,7 @@ def fullyear_savings_speed(df: pd.DataFrame, path_output: Path):
     """
     # Initialize matplotlib colors
     colors = ["red", "blue", "green"]
-    xmin, xmax = -50, 50
+    xmin, xmax = -2, 10
     plt.figure(figsize=(6, 3))
 
     for idx, (v, df_sub) in enumerate(df.groupby("vel_ship")):
@@ -280,7 +225,7 @@ def fullyear_savings_odp(df: pd.DataFrame, path_output: Path):
             ax = plt.gca()
             # Set the x-axis and y-axis data
             x = df3["week"]
-            y1 = df3["cost_ortho"]
+            y1 = df3["cost_circ"]
             y1 = 100 * (y1 - y1.mean()) / y1.mean()
             y2 = df3["gain"]
             # y3 = df3["rel_dist"]
@@ -317,7 +262,7 @@ def fullyear_savings_odp(df: pd.DataFrame, path_output: Path):
                             "week": row["week"],
                             "gain": row["gain"],
                             "time": row["cost_fms"],
-                            "time_circ": row["cost_ortho"],
+                            "time_circ": row["cost_circ"],
                             # "rel_dist": row["rel_dist"],
                         }
                     )
@@ -382,7 +327,7 @@ def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: fl
     df_sub["instance_name"] = df_sub["instance_name"].apply(format_instance_name)
     # Sort instances by mean distance
     order_instances = (
-        df_sub.groupby("instance_name")["dist_ortho"]
+        df_sub.groupby("instance_name")["distance_circ"]
         .mean()
         .sort_values(ascending=False)
         .index.tolist()
@@ -456,21 +401,14 @@ def table_gains_per_season(df: pd.DataFrame, path_output: Path):
         f.write(latex_code)
 
 
-def main(
-    path_bers: str = "output/json_benchmark",
-    path_ortho: str = "output/json_orthodromic",
-):
+def main(path_output: str = "output/json_benchmark"):
     """Generate the figures for the paper from benchmark results.
 
     Requires to run first:
     - scripts/paper_results_benchmark.py
-    - scripts/paper_results_orthodromic.py
     """
-    df = generate_dataframe(
-        path_bers=path_bers,
-        path_ortho=path_ortho,
-    )
-    plot_bers_vs_orthodromic(
+    df = generate_dataframe(path_output=path_output)
+    plot_bers_vs_circdromic(
         df, instance_name="USNYC-PAONX", vel_ship=3, path_output=Path("output")
     )
     fullyear_savings_speed(df, Path("output"))
