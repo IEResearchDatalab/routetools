@@ -40,14 +40,13 @@ def season(week: int) -> str:
         return "winter"
 
 
-def generate_dataframe(path_output: str = "output/json_benchmark") -> pd.DataFrame:
+def generate_dataframe(path_output: Path) -> pd.DataFrame:
     """Generate a combined DataFrame from BERS and orthodromic results."""
     # First check if the dataframe already exists inside the folder
-    folder = Path(path_output)
-    pth_df = folder / "dataframe.csv"
+    pth_df = path_output / "dataframe.csv"
     ls_data = []
     # Loop through all JSON files in the folder and extract relevant data
-    for path_json in folder.glob("*.json"):
+    for path_json in path_output.glob("*.json"):
         with open(path_json) as file:
             data: dict[str, Any] = json.load(file)
             # Drop any keys that are lists
@@ -153,7 +152,7 @@ def plot_bers_vs_circumnavigation(
     )
     plt.tight_layout()
     # We use redundant naming to avoid too many images
-    plt.savefig(f"output/benchmark_{instance_name}.jpg", dpi=300)
+    plt.savefig(path_output / f"benchmark_{instance_name}.jpg", dpi=300)
     plt.close()
 
 
@@ -407,7 +406,7 @@ def main(path_output: str = "output/json_benchmark"):
     Requires to run first:
     - scripts/paper_results_benchmark.py
     """
-    df = generate_dataframe(path_output=path_output)
+    df = generate_dataframe(Path(path_output))
     plot_bers_vs_circumnavigation(
         df, instance_name="USNYC-PAONX", vel_ship=3, path_output=Path("output")
     )
