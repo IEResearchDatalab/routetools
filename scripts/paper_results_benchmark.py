@@ -166,7 +166,7 @@ def single_run(
     cost_circ = int(cost_circ[0])
 
     # Compute distance too
-    dist_circ_km = haversine_distance_from_curve(curve_circ) / 1000
+    dist_circ_km = jnp.sum(haversine_distance_from_curve(curve_circ)) / 1000
 
     # Update the results dictionary with the optimization results
     results.update(
@@ -200,7 +200,7 @@ def single_run(
     cost_cmaes = dict_cmaes["cost"]
 
     # Compute distance too
-    dist_cmaes_km = haversine_distance_from_curve(curve_cmaes) / 1000
+    dist_cmaes_km = jnp.sum(haversine_distance_from_curve(curve_cmaes)) / 1000
 
     # Update the results dictionary with the optimization results
     results.update(
@@ -237,7 +237,7 @@ def single_run(
     cost_fms = dict_fms["cost"][0]
 
     # Compute distance too
-    dist_fms_km = haversine_distance_from_curve(curve_fms) / 1000
+    dist_fms_km = jnp.sum(haversine_distance_from_curve(curve_fms)) / 1000
 
     # Update the results dictionary with the optimization results
     results.update(

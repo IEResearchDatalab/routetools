@@ -125,7 +125,7 @@ def haversine_meters_components(
     return dx, dy
 
 
-def haversine_distance_from_curve(curve: jnp.ndarray) -> float:
+def haversine_distance_from_curve(curve: jnp.ndarray) -> jnp.ndarray:
     """Given a curve, return its Haversine distance in meters.
 
     Parameters
@@ -135,12 +135,12 @@ def haversine_distance_from_curve(curve: jnp.ndarray) -> float:
 
     Returns
     -------
-    float
-        The total distance of the trajectory in meters.
+    jnp.ndarray
+        An array of shape (L-1,) representing the distances between consecutive points.
     """
     lon, lat = curve[:, 0], curve[:, 1]
     dx, dy = haversine_meters_components(lat[:-1], lon[:-1], lat[1:], lon[1:])
-    return jnp.sum(jnp.sqrt(dx**2 + dy**2))
+    return jnp.sqrt(dx**2 + dy**2)
 
 
 @partial(jit, static_argnames=("vectorfield", "travel_stw", "spherical_correction"))

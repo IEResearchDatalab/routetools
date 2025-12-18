@@ -11,7 +11,7 @@ from matplotlib.figure import Figure
 
 from routetools.cost import (
     cost_function_constant_speed_time_variant,
-    haversine_meters_components,
+    haversine_distance_from_curve,
 )
 from routetools.land import Land
 
@@ -384,19 +384,16 @@ def plot_distance_to_end_vs_time(
     tuple[Figure, Axes]
         Figure and Axes objects
     """
-    # Extract lat/lon from curves
-    lat_circ, lon_circ = curve_a[:, 1], curve_a[:, 0]
-    lat_fms, lon_fms = curve_b[:, 1], curve_b[:, 0]
-    lat_end = jnp.ones_like(lat_circ) * lat_circ[-1]
-    lon_end = jnp.ones_like(lon_circ) * lon_circ[-1]
-    # Compute distance to the end point over time
-    dx_circ, dy_circ = haversine_meters_components(lat_circ, lon_circ, lat_end, lon_end)
-    d_circ = jnp.sqrt(dx_circ**2 + dy_circ**2) / 1000  # in km
-    lat_end = jnp.ones_like(lat_fms) * lat_fms[-1]
-    lon_end = jnp.ones_like(lon_fms) * lon_fms[-1]
-    dx_fms, dy_fms = haversine_meters_components(lat_fms, lon_fms, lat_end, lon_end)
-    d_fms = jnp.sqrt(dx_fms**2 + dy_fms**2) / 1000  # in km
-    # Compute time vector
+    # Compute distance traversed between points (L-1)
+    d_circ = haversine_distance_from_curve(curve_a) / 1000  # in km
+    d_fms = haversine_distance_from_curve(curve_b) / 1000  # in km
+    # Compute the cumulative sum, backwards from the end point
+    d_circ = jnp.cumsum(d_circ[::-1])[::-1]
+    d_fms = jnp.cumsum(d_fms[::-1])[::-1]
+    # Include a 0 at the end (L)
+    d_circ = jnp.concatenate([d_circ, jnp.array([0.0])])
+    d_fms = jnp.concatenate([d_fms, jnp.array([0.0])])
+    # Compute time vector (L-1)
     t_circ = cost_function_constant_speed_time_variant(
         vectorfield=vectorfield,
         curve=curve_a[jnp.newaxis, :, :],
@@ -411,7 +408,7 @@ def plot_distance_to_end_vs_time(
         spherical_correction=True,
     )
     t_fms = t_fms[0] / 3600  # in hours
-    # Append a first time as 0
+    # Append a first time as 0 (L)
     t_circ = jnp.concatenate([jnp.array([0.0]), t_circ])
     t_fms = jnp.concatenate([jnp.array([0.0]), t_fms])
     # Compute cumulative time to have a proper x-axis
@@ -423,8 +420,8 @@ def plot_distance_to_end_vs_time(
     ax.plot(t_circ, d_circ, label="Circumnavigate", linewidth=2)
     ax.plot(t_fms, d_fms, label="FMS", linewidth=2)
     ax.set_xlabel("Time (hours)")
-    ax.set_ylabel("Distance to destination (km)")
-    ax.set_title(f"Distance to destination vs time for {name}")
+    ax.set_ylabel("Distance to traverse (km)")
+    ax.set_title(f"Distance to traverse vs time for {name}")
     ax.legend()
     ax.grid()
     plt.tight_layout()
