@@ -189,7 +189,7 @@ def fullyear_savings_speed(df: pd.DataFrame, path_output: Path):
 
     plt.grid()
     plt.xlabel(f"Time savings [%] of {MODEL} over orthodromic")
-    plt.ylabel("Count (no. benchmarks)")
+    plt.ylabel("Count (no. instances)")
     plt.legend()
     plt.tight_layout()
     plt.savefig(path_output / "fullyear_speed.png", dpi=300)
