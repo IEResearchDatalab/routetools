@@ -356,11 +356,11 @@ def plot_table_aggregated(
 
 
 def plot_distance_to_end_vs_time(
-    curve_a: jnp.ndarray,
-    curve_b: jnp.ndarray,
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, float], tuple[jnp.ndarray, jnp.ndarray]
     ],
+    ls_curve: list[jnp.ndarray],
+    ls_name: list[str] | None = None,
     name: str = "",
     vel_ship: float = 10.0,
 ) -> tuple[Figure, Axes]:
@@ -384,41 +384,47 @@ def plot_distance_to_end_vs_time(
     tuple[Figure, Axes]
         Figure and Axes objects
     """
-    # Compute distance traversed between points (L-1)
-    d_circ = haversine_distance_from_curve(curve_a) / 1000  # in km
-    d_fms = haversine_distance_from_curve(curve_b) / 1000  # in km
-    # Compute the cumulative sum, backwards from the end point
-    d_circ = jnp.cumsum(d_circ[::-1])[::-1]
-    d_fms = jnp.cumsum(d_fms[::-1])[::-1]
-    # Include a 0 at the end (L)
-    d_circ = jnp.concatenate([d_circ, jnp.array([0.0])])
-    d_fms = jnp.concatenate([d_fms, jnp.array([0.0])])
-    # Compute time vector (L-1)
-    t_circ = cost_function_constant_speed_time_variant(
-        vectorfield=vectorfield,
-        curve=curve_a[jnp.newaxis, :, :],
-        travel_stw=vel_ship,
-        spherical_correction=True,
-    )
-    t_circ = t_circ[0] / 3600  # in hours
-    t_fms = cost_function_constant_speed_time_variant(
-        vectorfield=vectorfield,
-        curve=curve_b[jnp.newaxis, :, :],
-        travel_stw=vel_ship,
-        spherical_correction=True,
-    )
-    t_fms = t_fms[0] / 3600  # in hours
-    # Append a first time as 0 (L)
-    t_circ = jnp.concatenate([jnp.array([0.0]), t_circ])
-    t_fms = jnp.concatenate([jnp.array([0.0]), t_fms])
-    # Compute cumulative time to have a proper x-axis
-    t_circ = jnp.cumsum(t_circ)
-    t_fms = jnp.cumsum(t_fms)
+    ls_dist: list[jnp.ndarray] = []
+    ls_cost: list[jnp.ndarray] = []
+
+    for curve in ls_curve:
+        # Compute distance traversed between points (L-1)
+        d_curve = haversine_distance_from_curve(curve) / 1000  # in km
+        # Compute the cumulative sum, backwards from the end point
+        d_curve = jnp.cumsum(d_curve[::-1])[::-1]
+        # Include a 0 at the end (L)
+        d_curve = jnp.concatenate([d_curve, jnp.array([0.0])])
+        ls_dist.append(d_curve)
+
+        # Compute time vector (L-1)
+        t_curve = cost_function_constant_speed_time_variant(
+            vectorfield=vectorfield,
+            curve=curve[jnp.newaxis, :, :],
+            travel_stw=vel_ship,
+            spherical_correction=True,
+        )
+        t_curve = t_curve[0] / 3600  # in hours
+        # Append a first time as 0 (L)
+        t_curve = jnp.concatenate([jnp.array([0.0]), t_curve])
+        # Compute cumulative time to have a proper x-axis
+        t_curve = jnp.cumsum(t_curve)
+        ls_cost.append(t_curve)
+
     # Plot distance to end vs time
     fig = plt.figure(figsize=(6, 4))
     ax = plt.gca()
-    ax.plot(t_circ, d_circ, label="Circumnavigate", linewidth=2)
-    ax.plot(t_fms, d_fms, label="FMS", linewidth=2)
+    for idx, d_curve in enumerate(ls_dist):
+        t_curve = ls_cost[idx]
+        label = ""
+        if ls_name is not None and len(ls_name) == len(ls_curve):
+            label = ls_name[idx]
+        ax.plot(
+            t_curve,
+            d_curve,
+            marker="o",
+            markersize=2,
+            label=label,
+        )
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("Distance to traverse (km)")
     ax.set_title(f"Distance to traverse vs time for {name}")

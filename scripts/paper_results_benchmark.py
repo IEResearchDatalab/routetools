@@ -3,7 +3,6 @@ import json
 import os
 
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 import typer
 
 from routetools.benchmark import (
@@ -13,7 +12,6 @@ from routetools.benchmark import (
 )
 from routetools.cost import cost_function, haversine_distance_from_curve
 from routetools.fms import optimize_fms
-from routetools.plot import plot_curve, plot_distance_to_end_vs_time
 
 YEAR = 2023
 WEEKS = 52
@@ -257,41 +255,6 @@ def single_run(
     # Delete the results variable to free up memory
     results.clear()
     del results
-
-    # ----------------------------------------------------------------------
-    # Plot the results
-    # ----------------------------------------------------------------------
-
-    # Plot the curve
-    vectorfield = dict_instance["vectorfield"]
-    land = dict_instance["land"]
-    plot_curve(
-        vectorfield=vectorfield,
-        ls_curve=[curve_circ, curve_cmaes, curve_fms],
-        ls_name=[
-            f"Circumnavigate ({cost_circ / 3600:.1f} h, {dist_circ_km:.1f} km)",
-            f"CMA-ES ({cost_cmaes / 3600:.1f} h, {dist_cmaes_km:.1f} km)",
-            f"FMS ({cost_fms / 3600:.1f} h, {dist_fms_km:.1f} km)",
-        ],
-        land=land,
-        gridstep=0.5,
-        figsize=(6, 6),
-        xlim=(land.xmin, land.xmax),
-        ylim=(land.ymin, land.ymax),
-    )
-    plt.tight_layout()
-    # We use redundant naming to avoid too many images
-    plt.savefig(f"output/benchmark_{instance_name}.jpg", dpi=300)
-    plt.close()
-
-    # ----------------------------------------------------------------------
-    # Distance to end vs time plot
-    # ----------------------------------------------------------------------
-    fig, _ = plot_distance_to_end_vs_time(
-        curve_circ, curve_fms, vectorfield, name=instance_name, vel_ship=vel_ship
-    )
-    fig.savefig(f"output/benchmark_{instance_name}_distance.jpg", dpi=300)
-    fig.close()
 
 
 def main(path_jsons: str = "output/json_benchmark"):
