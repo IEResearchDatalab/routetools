@@ -418,6 +418,9 @@ def plot_distance_to_end_vs_time(
         label = ""
         if ls_name is not None and len(ls_name) == len(ls_curve):
             label = ls_name[idx]
+            dist = d_curve[0]
+            cost = t_curve[-1]
+            label += f" ({int(dist)} km, {cost:.1f} h)"
         ax.plot(
             t_curve,
             d_curve,
@@ -427,7 +430,7 @@ def plot_distance_to_end_vs_time(
         )
     ax.set_xlabel("Time (hours)")
     ax.set_ylabel("Distance to traverse (km)")
-    ax.set_title(f"Distance to traverse vs time for {name}")
+    ax.set_title(f"{name} | {int(vel_ship * 2)} knots")
     ax.legend()
     ax.grid()
     plt.tight_layout()
