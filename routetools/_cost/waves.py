@@ -152,8 +152,9 @@ def _correction_factor(froude_number: jnp.ndarray, coef_block: float) -> jnp.nda
 
 
 def speed_loss_involuntary(
+    angle: jnp.ndarray,
     wave_height: jnp.ndarray,
-    wave_incidence_angle: jnp.ndarray,
+    wave_angle: jnp.ndarray,
     vel_ship: float,
     coef_block: float = 0.6,
     length: float = 220,
@@ -170,10 +171,12 @@ def speed_loss_involuntary(
 
     Parameters
     ----------
-    beaufort : jnp.ndarray
-        Sliding scale of Beaufort levels
+    angle : jnp.ndarray
+        Ship's heading angle with respect to North in degrees
+    wave_height : jnp.ndarray
+        Wave heights in meters
     wave_incidence_angle : jnp.ndarray
-        Relative angle between ship and incoming waves in degrees
+        Angle of the waves with respect to North in degrees
     vel_ship : float
         Ship velocity over water
     coef_block : float, optional
@@ -188,7 +191,12 @@ def speed_loss_involuntary(
     jnp.ndarray
         Adjusted ship speed over water after involuntary speed loss due to waves.
     """
+    # Compute wave incidence angle
+    wia = jnp.mod(jnp.abs(angle - wave_angle), 360)
+    wave_incidence_angle = jnp.minimum(wia, 360 - wia)
+
     beaufort = beaufort_scale(wave_height=wave_height, asfloat=True)
+
     c_beta = _coefficient_direction_reduction(wave_incidence_angle, beaufort)
     c_u = _coefficient_speed_reduction(beaufort, displacement)
 

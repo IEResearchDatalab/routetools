@@ -172,10 +172,15 @@ def cost_function_constant_speed_time_invariant(
     # Power of the distance (segment lengths)
     d2 = jnp.power(dx, 2) + jnp.power(dy, 2)
     if wavefield is not None:
+        # Ship's angle
+        angle = jnp.degrees(jnp.arctan2(dy, dx))
         wave_height, wave_direction = wavefield(curvex, curvey, curvet)
         # TODO: Problem with dimensions of time
         travel_stw_mod = speed_loss_involuntary(
-            wave_height=wave_height, wave_direction=wave_direction, vel_ship=travel_stw
+            angle=angle,
+            wave_height=wave_height,
+            wave_angle=wave_direction,
+            vel_ship=travel_stw,
         )
     else:
         travel_stw_mod = travel_stw
@@ -252,10 +257,13 @@ def cost_function_constant_speed_time_variant(
         uinterp, vinterp = vectorfield(x, y, t)
         # Apply reduction of speed due to waves if wavefield is provided
         if wavefield is not None:
+            # Ship's angle
+            angle = jnp.degrees(jnp.arctan2(dy_step, dx_step))
             wave_height, wave_direction = wavefield(x, y, t)
             travel_stw_mod = speed_loss_involuntary(
+                angle=angle,
                 wave_height=wave_height,
-                wave_incidence_angle=wave_direction,
+                wave_angle=wave_direction,
                 vel_ship=travel_stw,
             )
         else:
