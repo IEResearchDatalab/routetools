@@ -249,6 +249,13 @@ def single_run(
         }
     )
 
+    # Move the "curve_" keys to the bottom for better readability
+    dict_curves = {k: v for k, v in results.items() if k.startswith("curve_")}
+    keys_curves = list(dict_curves.keys())
+    for k in keys_curves:
+        results.pop(k)
+    results.update(dict_curves)
+
     # Save the results in a JSON file
     with open(path_json, "w") as f:
         json.dump(results, f, indent=4)
