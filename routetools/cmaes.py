@@ -306,11 +306,11 @@ def _cma_evolution_strategy(
     if land is not None:
         assert penalty is not None, "penalty must be a number"
 
-    # Initialize storage for the top solutions
-    top_curves: jnp.ndarray = jnp.zeros((keep_top, L, 2))
-    top_costs: jnp.ndarray = jnp.full((keep_top,), jnp.inf)
     # Turn the percentage into a number
     num_top = int(keep_top * popsize)
+    # Initialize storage for the top solutions
+    top_curves: jnp.ndarray = jnp.zeros((num_top, L, 2))
+    top_costs: jnp.ndarray = jnp.full((num_top,), jnp.inf)
 
     # Optimization loop
     while not es.stop():
