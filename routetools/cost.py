@@ -48,9 +48,11 @@ def cost_function(
         A batch of trajectories (an array of shape B x L x 2).
         Coordinates are (lon, lat) or (x, y).
     travel_stw : float, optional
-        The boat will have this fixed speed through water (STW).
+        The boat will have this fixed speed through water (STW). If applying the
+        spherical correction, this speed is in meters per second.
     travel_time : float, optional
         The boat can regulate its STW but must complete the path in exactly this time.
+        If applying the spherical correction, this time is in seconds.
     weight_l1 : float, optional
         Weight for the L1 norm in the combined cost. Default is 1.0.
     weight_l2 : float, optional
