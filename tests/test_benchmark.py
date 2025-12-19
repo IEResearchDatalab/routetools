@@ -1,7 +1,16 @@
 import jax.numpy as jnp
+from jax import jit
 
 from routetools.cost import cost_function
-from routetools.vectorfield import vectorfield_zero
+from routetools.vectorfield import time_invariant, vectorfield_zero
+
+
+@jit  # type: ignore[misc]
+@time_invariant
+def vectorfield_constant(
+    x: jnp.ndarray, y: jnp.ndarray, t: jnp.ndarray
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    return jnp.ones_like(x), jnp.zeros_like(y)
 
 
 def test_cost_function_constant_speed_time_variant():
