@@ -7,7 +7,7 @@ from functools import partial
 import jax.numpy as jnp
 from jax import jit, lax
 
-EARTH_RADIUS = 6378137.0
+EARTH_RADIUS = 6371000  # in meters, globe mean radius
 
 
 @partial(
