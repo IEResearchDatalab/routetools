@@ -114,12 +114,12 @@ def control_to_curve(
     return result
 
 
-def _single_piece_to_control(
-    curve: jnp.ndarray, K: int = 6, match_endpoints: bool = True
-) -> jnp.ndarray:
+def _single_piece_to_control(curve: jnp.ndarray, K: int = 6) -> jnp.ndarray:
     """Fit Bézier control points from a sampled piece.
 
-    Returns an array of control points with shape (2K), compatible with CMA-ES.
+    Returns an array of control points with shape (2K-4), compatible with CMA-ES.
+    The start and end control points are not included in the output,
+    but are taken into account for the total K.
 
     Parameters
     ----------
@@ -128,14 +128,11 @@ def _single_piece_to_control(
     K : int, optional
         Number of free Bézier control points, accounting for source and destination
         that will not be included in the output. By default 6
-    match_endpoints : bool, optional
-        Whether to enforce the endpoints of the curve to match the endpoints of the
-        Bézier curve, by default True
 
     Returns
     -------
     jnp.ndarray
-        The fitted control points, with shape (2K) or (2K-4) if match_endpoints is True
+        The fitted control points, with shape (2K-4)
     """
     if curve.ndim != 2 or curve.shape[1] != 2:
         raise ValueError("curve must be shape (L,2)")
@@ -152,36 +149,23 @@ def _single_piece_to_control(
 
     rhs = jnp.column_stack([x, y])
 
-    # Subtract the contribution of the endpoints if needed
+    # Subtract the contribution of the endpoints
     degree = K - 1
 
-    if match_endpoints:
-        assert (
-            degree >= 1
-        ), "The number of control points K must be at least 2 to match endpoints."
-        A = jnp.zeros([len(x), degree - 1])
-        for d in range(1, degree):
-            A = A.at[:, d - 1].set(
-                scipy.special.comb(degree, d) * (1 - t) ** (degree - d) * t**d
-            )
-        rhs = rhs.at[:, 0].set(
-            rhs[:, 0] - ((1 - t) ** degree * x[0] + t**degree * x[-1])
+    assert (
+        degree >= 1
+    ), "The number of control points K must be at least 2 to match endpoints."
+    A = jnp.zeros([len(x), degree - 1])
+    for d in range(1, degree):
+        A = A.at[:, d - 1].set(
+            scipy.special.comb(degree, d) * (1 - t) ** (degree - d) * t**d
         )
-        rhs = rhs.at[:, 1].set(
-            rhs[:, 1] - ((1 - t) ** degree * y[0] + t**degree * y[-1])
-        )
-        control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
-        control = jnp.vstack(
-            [jnp.column_stack([x[0], y[0]]), control, jnp.column_stack([x[-1], y[-1]])]
-        )
-    else:
-        assert degree >= 0, "The number of control points must be non-negative."
-        A = jnp.zeros([len(x), degree + 1])
-        for d in range(degree + 1):
-            A = A.at[:, d].set(
-                scipy.special.comb(degree, d) * (1 - t) ** (degree - d) * t**d
-            )
-        control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
+    rhs = rhs.at[:, 0].set(rhs[:, 0] - ((1 - t) ** degree * x[0] + t**degree * x[-1]))
+    rhs = rhs.at[:, 1].set(rhs[:, 1] - ((1 - t) ** degree * y[0] + t**degree * y[-1]))
+    control = jnp.linalg.lstsq(A, rhs, rcond=None)[0]
+    control = jnp.vstack(
+        [jnp.column_stack([x[0], y[0]]), control, jnp.column_stack([x[-1], y[-1]])]
+    )
 
     # Take the interior control points only
     # Return as a flattened array for compatibility with CMA-ES (x0)
@@ -189,7 +173,7 @@ def _single_piece_to_control(
 
 
 def curve_to_control(
-    curve: jnp.ndarray, K: int = 6, num_pieces: int = 1, match_endpoints: bool = True
+    curve: jnp.ndarray, K: int = 6, num_pieces: int = 1
 ) -> jnp.ndarray:
     """Fit Bézier control points from a sampled curve.
 
@@ -202,17 +186,14 @@ def curve_to_control(
     K : int, optional
         Number of free Bézier control points, accounting for source and destination
         that will not be included in the output. By default 6
-    match_endpoints : bool, optional
-        Whether to enforce the endpoints of the curve to match the endpoints of the
-        Bézier curve, by default True
 
     Returns
     -------
     jnp.ndarray
-        The fitted control points, with shape (2K) or (2K-4) if match_endpoints is True
+        The fitted control points, with shape (2K-4)
     """
     if num_pieces == 1:
-        return _single_piece_to_control(curve, K=K, match_endpoints=match_endpoints)
+        return _single_piece_to_control(curve, K=K)
     else:
         # Ensure that the number of control points is divisible by the number of pieces
         control_per_piece = (K - 1) / num_pieces
@@ -242,9 +223,7 @@ def curve_to_control(
             if i < remainder:
                 end_idx += 1
             piece = curve[start_idx:end_idx, :]
-            control_piece = _single_piece_to_control(
-                piece, K=control_per_piece + 2, match_endpoints=True
-            )
+            control_piece = _single_piece_to_control(piece, K=control_per_piece + 2)
             # Reshape to (control_per_piece, 2)
             control_piece = control_piece.reshape(-1, 2)
             # Keep the first control point. But not the last (will be repeated)
@@ -283,7 +262,7 @@ def _cma_evolution_strategy(
     seed: float = jnp.nan,
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
-    keep_top: float = 0.05,
+    keep_top: float = 0.0,
     spherical_correction: bool = False,
     verbose: bool = True,
     **kwargs: dict[str, Any],
@@ -385,6 +364,7 @@ def optimize(
     maxfevals: int = 25000,
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
+    keep_top: float = 0.0,
     spherical_correction: bool = False,
     seed: float = jnp.nan,
     verbose: bool = True,
@@ -441,6 +421,9 @@ def optimize(
         Weight for the L1 norm in the combined cost. Default is 1.0.
     weight_l2 : float, optional
         Weight for the L2 norm in the combined cost. Default is 0.0.
+    keep_top : float, optional
+        Percentage of top solutions to keep across generations (between 0 and 1).
+        By default 0.0
     seed : int, optional
         Random seed for reproducibility. By default jnp.nan
     verbose : bool, optional
@@ -494,6 +477,7 @@ def optimize(
         weight_l1=weight_l1,
         weight_l2=weight_l2,
         seed=seed,
+        keep_top=keep_top,
         spherical_correction=spherical_correction,
         verbose=verbose,
     )

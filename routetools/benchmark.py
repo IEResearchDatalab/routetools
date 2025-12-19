@@ -387,6 +387,7 @@ def optimize_benchmark_instance(
     maxfevals: int = 25000,
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
+    keep_top: float = 0.0,
     seed: float = jnp.nan,
     curve0: jnp.ndarray | None = None,
     init_circumnavigate: bool = False,
@@ -478,30 +479,30 @@ def optimize_benchmark_instance(
     else:
         curve0 = None
 
-    with jax.disable_jit():
-        curve_best, dict_cmaes = optimize(
-            vectorfield=dict_instance["vectorfield"],
-            src=dict_instance["src"],
-            dst=dict_instance["dst"],
-            curve0=curve0,
-            land=dict_instance["land"],
-            wavefield=dict_instance["wavefield"],
-            travel_stw=dict_instance["travel_stw"],
-            travel_time=dict_instance["travel_time"],
-            penalty=penalty,
-            K=K,
-            L=L,
-            num_pieces=num_pieces,
-            popsize=popsize,
-            sigma0=sigma0,
-            tolfun=tolfun,
-            damping=damping,
-            maxfevals=maxfevals,
-            weight_l1=weight_l1,
-            weight_l2=weight_l2,
-            spherical_correction=True,
-            seed=seed,
-            verbose=verbose,
-        )
+    curve_best, dict_cmaes = optimize(
+        vectorfield=dict_instance["vectorfield"],
+        src=dict_instance["src"],
+        dst=dict_instance["dst"],
+        curve0=curve0,
+        land=dict_instance["land"],
+        wavefield=dict_instance["wavefield"],
+        travel_stw=dict_instance["travel_stw"],
+        travel_time=dict_instance["travel_time"],
+        penalty=penalty,
+        K=K,
+        L=L,
+        num_pieces=num_pieces,
+        popsize=popsize,
+        sigma0=sigma0,
+        tolfun=tolfun,
+        damping=damping,
+        maxfevals=maxfevals,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
+        spherical_correction=True,
+        keep_top=keep_top,
+        seed=seed,
+        verbose=verbose,
+    )
 
     return curve_best, dict_cmaes

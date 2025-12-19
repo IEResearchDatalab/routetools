@@ -185,7 +185,7 @@ def test_curve_to_control_onepiece(L: int = 64, K: int = 8):
     """Test the curve_to_control function."""
     t = jnp.linspace(0, 1, L)
     curve = jnp.stack((t, t**2), axis=1)  # A simple quadratic curve
-    control_points = curve_to_control(curve, K=K, num_pieces=1, match_endpoints=True)
+    control_points = curve_to_control(curve, K=K, num_pieces=1)
     assert control_points.shape == (
         2 * K - 4,
     ), f"Expected shape (2*{K - 2},), got {control_points.shape}"
@@ -216,9 +216,7 @@ def test_curve_to_control_piecewise(L: int = 127, K: int = 10, num_pieces: int =
     """Test the curve_to_control function."""
     t = jnp.linspace(0, 1, L)
     curve = jnp.stack((t, t**2), axis=1)  # A simple quadratic curve
-    control_points = curve_to_control(
-        curve, K=K, num_pieces=num_pieces, match_endpoints=True
-    )
+    control_points = curve_to_control(curve, K=K, num_pieces=num_pieces)
     assert control_points.shape == (
         2 * K - 4,
     ), f"Expected shape (2*{K - 2},), got {control_points.shape}"
