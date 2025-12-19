@@ -283,6 +283,7 @@ def _cma_evolution_strategy(
     seed: float = jnp.nan,
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
+    keep_top: int = 10,
     spherical_correction: bool = False,
     verbose: bool = True,
     **kwargs: dict[str, Any],
@@ -304,6 +305,10 @@ def _cma_evolution_strategy(
     # Check if the land penalization is consistent
     if land is not None:
         assert penalty is not None, "penalty must be a number"
+
+    # Initialize storage for the top solutions
+    top_curves: jnp.ndarray = jnp.zeros((keep_top, L, 2))
+    top_costs: jnp.ndarray = jnp.full((keep_top,), jnp.inf)
 
     # Optimization loop
     while not es.stop():
@@ -327,9 +332,28 @@ def _cma_evolution_strategy(
         if land is not None and penalty > 0:
             cost += land.penalization(curve, penalty=penalty)
 
+        # Replace the worst solutions with the best found so far
+        if keep_top > 0 and es.countiter > 1:
+            num_replace = min(keep_top, len(X))
+            idx_sorted = jnp.argsort(cost)
+            # Indices of the worst solutions in the current batch
+            idx_worst = idx_sorted[-num_replace:]
+            # Replace them with the top solutions found so far
+            # only if they are better
+            for i in range(num_replace):
+                if top_costs[i] < cost[idx_worst[i]]:
+                    cost = cost.at[idx_worst[i]].set(top_costs[i])
+                    curve = curve.at[idx_worst[i], ...].set(top_curves[i, ...])
+
         es.tell(X, cost.tolist())  # update the optimizer
         if verbose:
             es.disp()
+
+        # Save the top solutions (use cost as fitness)
+        if keep_top > 0:
+            idx_sorted = jnp.argsort(cost)
+            top_curves = curve[idx_sorted[:keep_top], ...]
+            top_costs = cost[idx_sorted[:keep_top]]
 
     return es
 
