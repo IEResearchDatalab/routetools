@@ -172,11 +172,11 @@ def speed_loss_involuntary(
     Parameters
     ----------
     angle : jnp.ndarray
-        Ship's heading angle with respect to North in degrees
+        Ship's heading angle with respect to true North in degrees
     wave_height : jnp.ndarray
         Wave heights in meters
     wave_incidence_angle : jnp.ndarray
-        Angle of the waves with respect to North in degrees
+        Angle of the waves with respect to true North in degrees
     vel_ship : float
         Ship velocity over water
     coef_block : float, optional

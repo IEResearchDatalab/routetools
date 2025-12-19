@@ -107,7 +107,8 @@ def get_waves_to_wavefield(
     Callable[[jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray
     , jnp.ndarray]]
         A function that takes latitude, longitude, and time arrays as input,
-        and returns the corresponding wave vectors (height, direction).
+        and returns the corresponding wave vectors (height,
+        direction with respect to true North).
     """
     interpolator = ocean.waves_interpolator
     begin = jnp.array(interpolator.begin, dtype=jnp.float32)[None, :]
