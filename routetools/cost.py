@@ -13,6 +13,26 @@ from routetools._cost.haversine import haversine_meters_components
 from routetools._cost.waves import speed_loss_involuntary
 
 
+def angle_wrt_true_north(dx: jnp.ndarray, dy: jnp.ndarray) -> jnp.ndarray:
+    """Compute the angle with respect to true North in degrees.
+
+    Parameters
+    ----------
+    dx : jnp.ndarray
+        Displacement in the x direction.
+    dy : jnp.ndarray
+        Displacement in the y direction.
+
+    Returns
+    -------
+    jnp.ndarray
+        Angle with respect to true North in degrees.
+    """
+    # The arctan2 computes angles between -180 and 180 degrees
+    angle_wrt_north = jnp.degrees(jnp.arctan2(dx, dy))
+    return jnp.mod(angle_wrt_north, 360)
+
+
 @partial(
     jit,
     static_argnames=(
@@ -173,7 +193,7 @@ def cost_function_constant_speed_time_invariant(
     d2 = jnp.power(dx, 2) + jnp.power(dy, 2)
     if wavefield is not None:
         # Ship's angle with respect to true North in degrees
-        angle = 90 - jnp.degrees(jnp.arctan2(dy, dx))
+        angle = angle_wrt_true_north(dx, dy)
         wave_height, wave_direction = wavefield(curvex, curvey, curvet)
         # TODO: Problem with dimensions of time
         travel_stw_mod = speed_loss_involuntary(
@@ -258,7 +278,7 @@ def cost_function_constant_speed_time_variant(
         # Apply reduction of speed due to waves if wavefield is provided
         if wavefield is not None:
             # Ship's angle with respect to true North in degrees
-            angle = 90 - jnp.degrees(jnp.arctan2(dy_step, dx_step))
+            angle = angle_wrt_true_north(dx_step, dy_step)
             wave_height, wave_direction = wavefield(x, y, t)
             travel_stw_mod = speed_loss_involuntary(
                 angle=angle,
