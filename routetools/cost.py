@@ -7,6 +7,7 @@ import jax.numpy as jnp
 from jax import jit, lax
 
 from routetools._cost.haversine import haversine_meters_components
+from routetools._cost.waves import speed_loss_involuntary
 
 
 @partial(
@@ -72,11 +73,19 @@ def cost_function(
     # Choose which cost function to use
     if (travel_stw is not None) and is_time_variant:
         cost = cost_function_constant_speed_time_variant(
-            vectorfield, curve, travel_stw, spherical_correction=spherical_correction
+            vectorfield,
+            curve,
+            travel_stw,
+            wavefield=wavefield,
+            spherical_correction=spherical_correction,
         )
     elif (travel_stw is not None) and (not is_time_variant):
         cost = cost_function_constant_speed_time_invariant(
-            vectorfield, curve, travel_stw, spherical_correction=spherical_correction
+            vectorfield,
+            curve,
+            travel_stw,
+            wavefield=wavefield,
+            spherical_correction=spherical_correction,
         )
     elif (travel_time is not None) and is_time_variant:
         # Not supported
@@ -85,7 +94,11 @@ def cost_function(
         )
     elif (travel_time is not None) and (not is_time_variant):
         cost = cost_function_constant_cost_time_invariant(
-            vectorfield, curve, travel_time, spherical_correction=spherical_correction
+            vectorfield,
+            curve,
+            travel_time,
+            wavefield=wavefield,
+            spherical_correction=spherical_correction,
         )
     else:
         # Arguments missing
@@ -107,6 +120,10 @@ def cost_function_constant_speed_time_invariant(
     ],
     curve: jnp.ndarray,
     travel_stw: float,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     spherical_correction: bool = False,
 ) -> jnp.ndarray:
     """
@@ -145,8 +162,15 @@ def cost_function_constant_speed_time_invariant(
         dy = jnp.diff(curve[:, :, 1], axis=1)
     # Power of the distance (segment lengths)
     d2 = jnp.power(dx, 2) + jnp.power(dy, 2)
+    if wavefield is not None:
+        wave_height, wave_direction = wavefield(curvex, curvey, jnp.array([0.0]))
+        travel_stw_mod = speed_loss_involuntary(
+            wave_height=wave_height, wave_direction=wave_direction, vel_ship=travel_stw
+        )
+    else:
+        travel_stw_mod = travel_stw
     # Power of the speed through water
-    v2 = travel_stw**2
+    v2 = travel_stw_mod**2
     # Power of the current speed
     w2 = uinterp**2 + vinterp**2
     dw = dx * uinterp + dy * vinterp
@@ -164,6 +188,10 @@ def cost_function_constant_speed_time_variant(
     ],
     curve: jnp.ndarray,
     travel_stw: float,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     spherical_correction: bool = False,
 ) -> jnp.ndarray:
     """
@@ -201,8 +229,6 @@ def cost_function_constant_speed_time_variant(
         dy = jnp.diff(curve[:, :, 1], axis=1)
     # Power of the distance (segment lengths)
     d2 = jnp.power(dx, 2) + jnp.power(dy, 2)
-    # Power of the speed through water
-    v2 = travel_stw**2
 
     def step(
         t: jnp.ndarray,
@@ -211,9 +237,21 @@ def cost_function_constant_speed_time_variant(
         x, y, dx_step, dy_step, d2_step = inputs
         # When sailing from i-1 to i, we interpolate the vector field at the midpoint
         uinterp, vinterp = vectorfield(x, y, t)
+        # Apply reduction of speed due to waves if wavefield is provided
+        if wavefield is not None:
+            wave_height, wave_direction = wavefield(x, y, t)
+            travel_stw_mod = speed_loss_involuntary(
+                wave_height=wave_height,
+                wave_direction=wave_direction,
+                vel_ship=travel_stw,
+            )
+        else:
+            travel_stw_mod = travel_stw
         # Power of the current speed
         w2 = uinterp**2 + vinterp**2
         dw = dx_step * uinterp + dy_step * vinterp
+        # Power of the speed through water
+        v2 = travel_stw_mod**2
         # Cost is the time to travel the segment
         dt = jnp.sqrt(d2_step / (v2 - w2) + dw**2 / (v2 - w2) ** 2) - dw / (v2 - w2)
         # Current > speed -> infeasible path
@@ -238,6 +276,10 @@ def cost_function_constant_cost_time_invariant(
     ],
     curve: jnp.ndarray,
     travel_time: float,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     spherical_correction: bool = False,
 ) -> jnp.ndarray:
     """
