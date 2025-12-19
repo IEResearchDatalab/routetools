@@ -283,7 +283,7 @@ def _cma_evolution_strategy(
     seed: float = jnp.nan,
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
-    keep_top: int = 10,
+    keep_top: float = 0.05,
     spherical_correction: bool = False,
     verbose: bool = True,
     **kwargs: dict[str, Any],
@@ -309,6 +309,8 @@ def _cma_evolution_strategy(
     # Initialize storage for the top solutions
     top_curves: jnp.ndarray = jnp.zeros((keep_top, L, 2))
     top_costs: jnp.ndarray = jnp.full((keep_top,), jnp.inf)
+    # Turn the percentage into a number
+    num_top = int(keep_top * popsize)
 
     # Optimization loop
     while not es.stop():
@@ -334,7 +336,7 @@ def _cma_evolution_strategy(
 
         # Replace the worst solutions with the best found so far
         if keep_top > 0 and es.countiter > 1:
-            num_replace = min(keep_top, len(X))
+            num_replace = min(num_top, len(X))
             idx_sorted = jnp.argsort(cost)
             # Indices of the worst solutions in the current batch
             idx_worst = idx_sorted[-num_replace:]
@@ -352,8 +354,8 @@ def _cma_evolution_strategy(
         # Save the top solutions (use cost as fitness)
         if keep_top > 0:
             idx_sorted = jnp.argsort(cost)
-            top_curves = curve[idx_sorted[:keep_top], ...]
-            top_costs = cost[idx_sorted[:keep_top]]
+            top_curves = curve[idx_sorted[:num_top], ...]
+            top_costs = cost[idx_sorted[:num_top]]
 
     return es
 
