@@ -181,7 +181,7 @@ def test_cmaes_constant_speed_piecewise(
     assert cost <= expected, f"cost: {cost} > expected: {expected}"
 
 
-def test_curve_to_control(L: int = 64, K: int = 8):
+def test_curve_to_control_onepiece(L: int = 64, K: int = 8):
     """Test the curve_to_control function."""
     t = jnp.linspace(0, 1, L)
     curve = jnp.stack((t, t**2), axis=1)  # A simple quadratic curve
@@ -200,6 +200,39 @@ def test_curve_to_control(L: int = 64, K: int = 8):
         dst=curve[-1],
         L=L,
         num_pieces=1,
+    )
+    assert reconstructed_curve.shape == (
+        1,
+        L,
+        2,
+    ), f"Expected shape (1, {L}, 2), got {reconstructed_curve.shape}"
+    # The reconstructed curve should be close to the original curve
+    assert jnp.allclose(
+        reconstructed_curve[0], curve, atol=1e-1
+    ), "Reconstructed curve does not match original curve"
+
+
+def test_curve_to_control_piecewise(L: int = 127, K: int = 10, num_pieces: int = 3):
+    """Test the curve_to_control function."""
+    t = jnp.linspace(0, 1, L)
+    curve = jnp.stack((t, t**2), axis=1)  # A simple quadratic curve
+    control_points = curve_to_control(
+        curve, K=K, num_pieces=num_pieces, match_endpoints=True
+    )
+    assert control_points.shape == (
+        2 * K - 4,
+    ), f"Expected shape (2*{K - 2},), got {control_points.shape}"
+
+    # Test if we can reconstruct the curve from control points
+    # We need to add an extra axis [1, 2K-4]
+    # because control_to_curve expects a batch dimension
+    control_points = control_points[jnp.newaxis, :]
+    reconstructed_curve = control_to_curve(
+        control_points,
+        src=curve[0],
+        dst=curve[-1],
+        L=L,
+        num_pieces=num_pieces,
     )
     assert reconstructed_curve.shape == (
         1,

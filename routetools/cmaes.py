@@ -114,10 +114,10 @@ def control_to_curve(
     return result
 
 
-def curve_to_control(
-    curve: jnp.ndarray, K: int = 6, num_pieces: int = 1, match_endpoints: bool = True
+def _single_piece_to_control(
+    curve: jnp.ndarray, K: int = 6, match_endpoints: bool = True
 ) -> jnp.ndarray:
-    """Fit Bézier control points from a sampled curve.
+    """Fit Bézier control points from a sampled piece.
 
     Returns an array of control points with shape (2K), compatible with CMA-ES.
 
@@ -128,8 +128,6 @@ def curve_to_control(
     K : int, optional
         Number of free Bézier control points, accounting for source and destination
         that will not be included in the output. By default 6
-    num_pieces : int, optional
-        Number of Bézier curves, by default 1
     match_endpoints : bool, optional
         Whether to enforce the endpoints of the curve to match the endpoints of the
         Bézier curve, by default True
@@ -137,11 +135,8 @@ def curve_to_control(
     Returns
     -------
     jnp.ndarray
-        The fitted control points, with shape (2K)
+        The fitted control points, with shape (2K) or (2K-4) if match_endpoints is True
     """
-    if num_pieces != 1:
-        raise NotImplementedError("curve_to_control supports only num_pieces==1")
-
     if curve.ndim != 2 or curve.shape[1] != 2:
         raise ValueError("curve must be shape (L,2)")
 
@@ -191,6 +186,76 @@ def curve_to_control(
     # Take the interior control points only
     # Return as a flattened array for compatibility with CMA-ES (x0)
     return control[1:-1].flatten()
+
+
+def curve_to_control(
+    curve: jnp.ndarray, K: int = 6, num_pieces: int = 1, match_endpoints: bool = True
+) -> jnp.ndarray:
+    """Fit Bézier control points from a sampled curve.
+
+    Returns an array of control points with shape (2K), compatible with CMA-ES.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        The sampled curve, with shape (L, 2)
+    K : int, optional
+        Number of free Bézier control points, accounting for source and destination
+        that will not be included in the output. By default 6
+    match_endpoints : bool, optional
+        Whether to enforce the endpoints of the curve to match the endpoints of the
+        Bézier curve, by default True
+
+    Returns
+    -------
+    jnp.ndarray
+        The fitted control points, with shape (2K) or (2K-4) if match_endpoints is True
+    """
+    if num_pieces == 1:
+        return _single_piece_to_control(curve, K=K, match_endpoints=match_endpoints)
+    else:
+        # Ensure that the number of control points is divisible by the number of pieces
+        control_per_piece = (K - 1) / num_pieces
+        if control_per_piece < 2:
+            raise ValueError(
+                "The number of control points - 1 must be at least 3 per piece. "
+                f"Got {K} control points and {num_pieces} pieces."
+            )
+        elif int(control_per_piece) != control_per_piece:
+            control_rec = int(control_per_piece) * num_pieces + 1
+            raise ValueError(
+                "The number of control points must be divisible by num_pieces. "
+                f"Got {K} control points and {num_pieces} pieces."
+                f"Consider using {control_rec} control points."
+            )
+        else:
+            control_per_piece = int(control_per_piece) + 1
+        # Distribute the number of waypoints per piece (may be uneven)
+        L = curve.shape[0]
+        waypoints_per_piece = L // num_pieces
+        remainder = L % num_pieces
+        # Fit each piece separately
+        ls_control: list[jnp.ndarray] = []
+        start_idx = 0
+        for i in range(num_pieces):
+            end_idx = start_idx + waypoints_per_piece
+            if i < remainder:
+                end_idx += 1
+            piece = curve[start_idx:end_idx, :]
+            control_piece = _single_piece_to_control(
+                piece, K=control_per_piece + 2, match_endpoints=True
+            )
+            # Reshape to (control_per_piece, 2)
+            control_piece = control_piece.reshape(-1, 2)
+            # Keep the first control point. But not the last (will be repeated)
+            # unless it is the final piece
+            if i < num_pieces - 1:
+                control_piece = control_piece[:-1, :]
+            ls_control.append(control_piece)
+            start_idx = end_idx
+        # Concatenate the control points from all pieces and flatten
+        control = jnp.vstack(ls_control)
+        return control[1:-1].flatten()
 
 
 def _cma_evolution_strategy(
@@ -376,7 +441,7 @@ def optimize(
                 f"curve0[-1,:]={curve0[-1, :]}, dst={dst}"
             )
         # Initial solution from provided curve
-        x0 = curve_to_control(curve0, K=K, num_pieces=1)
+        x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
         # Requires a single piece to generate control points
 
     # Initial standard deviation to sample new solutions
