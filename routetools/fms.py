@@ -118,6 +118,10 @@ def optimize_fms(
     dst: jnp.ndarray | None = None,
     curve: jnp.ndarray | None = None,
     land: Land | None = None,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty: float = 1e8,
     num_curves: int = 10,
     num_points: int = 200,
@@ -208,6 +212,7 @@ def optimize_fms(
             lag = cost_function(
                 vectorfield=vectorfield,
                 curve=q,
+                wavefield=wavefield,
                 travel_stw=travel_stw,
                 weight_l1=weight_l1,
                 weight_l2=weight_l2,
@@ -229,6 +234,7 @@ def optimize_fms(
             lag = cost_function(
                 vectorfield=vectorfield,
                 curve=q,
+                wavefield=wavefield,
                 travel_time=h,
                 weight_l1=weight_l1,
                 weight_l2=weight_l2,
@@ -270,6 +276,7 @@ def optimize_fms(
     cost_now = cost_function(
         vectorfield=vectorfield,
         curve=curve,
+        wavefield=wavefield,
         travel_stw=travel_stw,
         travel_time=travel_time,
         weight_l1=weight_l1,
@@ -292,6 +299,7 @@ def optimize_fms(
         cost_now = cost_function(
             vectorfield=vectorfield,
             curve=curve,
+            wavefield=wavefield,
             travel_stw=travel_stw,
             travel_time=travel_time,
             weight_l1=weight_l1,

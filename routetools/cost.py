@@ -26,6 +26,10 @@ def cost_function(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ],
     curve: jnp.ndarray,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     weight_l1: float = 1.0,

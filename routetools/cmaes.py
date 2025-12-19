@@ -201,6 +201,10 @@ def _cma_evolution_strategy(
     dst: jnp.ndarray,
     x0: jnp.ndarray,
     land: Land | None = None,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty: float = 10,
     travel_stw: float | None = None,
     travel_time: float | None = None,
@@ -246,6 +250,7 @@ def _cma_evolution_strategy(
         cost: jnp.ndarray = cost_function(
             vectorfield=vectorfield,
             curve=curve,
+            wavefield=wavefield,
             travel_stw=travel_stw,
             travel_time=travel_time,
             weight_l1=weight_l1,
@@ -272,6 +277,10 @@ def optimize(
     dst: jnp.ndarray,
     curve0: jnp.ndarray | None = None,
     land: Land | None = None,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty: float = 10,
     travel_stw: float | None = None,
     travel_time: float | None = None,
@@ -310,8 +319,11 @@ def optimize(
     curve0 : jnp.ndarray | None, optional
         Initial curve to start the optimization from, with shape (L,2).
         If None, a straight line is used, by default None
-    land_function : callable, optional
+    land : callable, optional
         A function that checks if points on a curve are on land, by default None
+    wavefield : callable, optional
+        A function that returns the height and direction of the wave field,
+        by default None
     penalty : float, optional
         Penalty for land points, by default 10
     travel_stw : float, optional
@@ -378,6 +390,7 @@ def optimize(
         dst=dst,
         x0=x0,
         land=land,
+        wavefield=wavefield,
         penalty=penalty,
         travel_stw=travel_stw,
         travel_time=travel_time,
@@ -416,6 +429,10 @@ def optimize_with_increasing_penalization(
     src: jnp.ndarray,
     dst: jnp.ndarray,
     land: Land,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty_init: float = 0,
     penalty_increment: float = 10,
     maxiter: int = 10,
@@ -453,8 +470,11 @@ def optimize_with_increasing_penalization(
         Source point (2D)
     dst : jnp.ndarray
         Destination point (2D)
-    land_function : callable
+    land : callable, optional
         A function that checks if points on a curve are on land
+    wavefield : callable, optional
+        A function that returns the height and direction of the wave field,
+        by default None
     penalty_init : float, optional
         Initial penalty for land points, by default 0
     penalty_increment : float, optional
@@ -516,6 +536,7 @@ def optimize_with_increasing_penalization(
             dst=dst,
             x0=x0,
             land=land,
+            wavefield=wavefield,
             penalty=penalty,
             travel_stw=travel_stw,
             travel_time=travel_time,

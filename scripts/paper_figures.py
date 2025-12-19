@@ -122,6 +122,7 @@ def plot_bers_vs_circumnavigation(df: pd.DataFrame, path_output: Path):
                 cost = cost_function(
                     vectorfield=dict_instance["vectorfield"],
                     curve=curve[jnp.newaxis, :, :],
+                    wavefield=dict_instance["wavefield"],
                     travel_stw=vel_ship,
                     travel_time=None,
                     spherical_correction=True,

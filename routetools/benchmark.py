@@ -88,6 +88,55 @@ def get_currents_to_vectorfield(
     return vectorfield
 
 
+def get_waves_to_wavefield(
+    ocean: Ocean,
+) -> Callable[[jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]:
+    """Convert an Ocean instance to a wave field function.
+
+    The returned function takes latitude, longitude, and time arrays as input,
+    and returns the corresponding wave vectors (height, direction).
+
+    Parameters
+    ----------
+    ocean : Ocean
+        An instance of the Ocean class to retrieve wave data from.
+
+    Returns
+    -------
+    Callable[[jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray
+    , jnp.ndarray]]
+        A function that takes latitude, longitude, and time arrays as input,
+        and returns the corresponding wave vectors (height, direction).
+    """
+    interpolator = ocean.waves_interpolator
+    begin = jnp.array(interpolator.begin, dtype=jnp.float32)[None, :]
+    spacing = jnp.array(interpolator.spacing, dtype=jnp.float32)[None, :]
+    hmat = jnp.array(interpolator.data[0], dtype=jnp.float32)
+    dmat = jnp.array(interpolator.data[1], dtype=jnp.float32)
+    order = interpolator.order
+
+    def wavefield(
+        lon: jnp.ndarray, lat: jnp.ndarray, ts: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        # Create the coordinates for interpolation
+        x = jnp.array([ts, lat, lon]).T
+
+        # Normalize coordinates
+        coords = (x - begin) / spacing
+
+        # Interpolate height and direction components
+        height = jax.scipy.ndimage.map_coordinates(
+            hmat, coords.T, order=order, mode="wrap"
+        )
+        direction = jax.scipy.ndimage.map_coordinates(
+            dmat, coords.T, order=order, mode="wrap"
+        )
+
+        return height, direction
+
+    return wavefield
+
+
 class LandBenchmark(Land):
     """Land penalization for benchmark instances."""
 
@@ -176,6 +225,7 @@ def load_benchmark_instance(
     # Load ocean and land data
     ocean: Ocean = dict_instance["data"]
     vectorfield = get_currents_to_vectorfield(ocean)
+    wavefield = get_waves_to_wavefield(ocean)
     land = LandBenchmark(ocean, outbounds_is_land=True, penalize_segments=False)
 
     # jnp arrays for src and dst
@@ -197,6 +247,7 @@ def load_benchmark_instance(
         "dst": dst,
         "data": ocean,
         "vectorfield": vectorfield,
+        "wavefield": wavefield,
         "land": land,
         "travel_stw": dict_instance.get("vel_ship", None),
     }
@@ -432,6 +483,7 @@ def optimize_benchmark_instance(
             dst=dict_instance["dst"],
             curve0=curve0,
             land=dict_instance["land"],
+            wavefield=dict_instance["wavefield"],
             travel_stw=dict_instance["travel_stw"],
             travel_time=dict_instance["travel_time"],
             penalty=penalty,

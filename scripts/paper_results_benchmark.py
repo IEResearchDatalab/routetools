@@ -157,6 +157,7 @@ def single_run(
     cost_circ = cost_function(
         vectorfield=dict_instance["vectorfield"],
         curve=curve_circ[jnp.newaxis, :, :],
+        wavefield=dict_instance["wavefield"],
         travel_stw=vel_ship,
         travel_time=None,
         spherical_correction=True,
