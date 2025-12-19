@@ -15,7 +15,7 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "typer-slim",
-    "jax==0.8.1",
+    "jax[cuda]==0.8.1",
     "jaxlib==0.8.1",
     "matplotlib>=3.9.2",
     "cma>=4.0.0",
