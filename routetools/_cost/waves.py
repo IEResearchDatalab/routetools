@@ -194,6 +194,10 @@ def speed_loss_involuntary(
     # Compute wave incidence angle
     wia = jnp.mod(jnp.abs(angle - wave_angle), 360)
     wave_incidence_angle = jnp.minimum(wia, 360 - wia)
+    # Expectation:
+    # 0 degrees -> waves in the bow, highest speed loss
+    # 90 degrees -> waves in the beam, medium speed loss
+    # 180 degrees -> waves in the stern, lowest speed loss
 
     beaufort = beaufort_scale(wave_height=wave_height, asfloat=True)
 
