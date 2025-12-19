@@ -13,7 +13,7 @@ from wrr_utils.route import Route
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
-from routetools.vectorfield import vectorfield_zero
+from routetools.vectorfield import time_variant, vectorfield_zero
 
 
 def get_currents_to_vectorfield(
@@ -46,6 +46,7 @@ def get_currents_to_vectorfield(
     # Get currents requires len(ts) == len(lat) == len(lon)
     # But our code handles len(ts) < len(lat)
     # So we create a wrapper function
+    @time_variant
     def vectorfield(
         lon: jnp.ndarray, lat: jnp.ndarray, ts: jnp.ndarray | int | float
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
