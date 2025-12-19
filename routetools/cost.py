@@ -17,6 +17,7 @@ from routetools._cost.waves import speed_loss_involuntary
     jit,
     static_argnames=(
         "vectorfield",
+        "wavefield",
         "travel_stw",
         "travel_time",
         "weight_l1",
@@ -116,7 +117,10 @@ def cost_function(
     return weight_l1 * l1 + weight_l2 * l2
 
 
-@partial(jit, static_argnames=("vectorfield", "travel_stw", "spherical_correction"))
+@partial(
+    jit,
+    static_argnames=("vectorfield", "travel_stw", "wavefield", "spherical_correction"),
+)
 def cost_function_constant_speed_time_invariant(
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
@@ -184,7 +188,10 @@ def cost_function_constant_speed_time_invariant(
     return dt
 
 
-@partial(jit, static_argnames=("vectorfield", "travel_stw", "spherical_correction"))
+@partial(
+    jit,
+    static_argnames=("vectorfield", "travel_stw", "wavefield", "spherical_correction"),
+)
 def cost_function_constant_speed_time_variant(
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
@@ -272,7 +279,10 @@ def cost_function_constant_speed_time_variant(
     return dt_array.T
 
 
-@partial(jit, static_argnames=("vectorfield", "travel_time", "spherical_correction"))
+@partial(
+    jit,
+    static_argnames=("vectorfield", "travel_time", "wavefield", "spherical_correction"),
+)
 def cost_function_constant_cost_time_invariant(
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
