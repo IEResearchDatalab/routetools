@@ -449,8 +449,20 @@ def optimize(
                 "The ending point of curve0 does not match dst. "
                 f"curve0[-1,:]={curve0[-1, :]}, dst={dst}"
             )
+        # Validate the given curve does not cross land if a land function is provided
+        if land is not None and land(curve0).any():
+            raise ValueError("[ERROR] The provided initial curve0 crosses land.")
         # Initial solution from provided curve
         x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
+        # Validate that, after conversion, it still does not cross land
+        curve_check = control_to_curve(
+            x0[None, :], src, dst, L=L, num_pieces=num_pieces
+        )[0, ...]
+        if land is not None and land(curve_check).any():
+            raise ValueError(
+                "[ERROR] The provided initial curve0 crosses land "
+                "after conversion to control points."
+            )
 
     # Initial standard deviation to sample new solutions
     # One sigma is half the distance between src and dst
