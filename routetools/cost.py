@@ -154,7 +154,9 @@ def cost_function_constant_speed_time_invariant(
     # Interpolate the vector field at the midpoints
     curvex = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
     curvey = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
-    uinterp, vinterp = vectorfield(curvex, curvey, jnp.array([0.0]))
+    curvet = jnp.zeros_like(curvex)
+
+    uinterp, vinterp = vectorfield(curvex, curvey, curvet)
 
     # Distances between points in X and Y
     if spherical_correction:
@@ -170,7 +172,8 @@ def cost_function_constant_speed_time_invariant(
     # Power of the distance (segment lengths)
     d2 = jnp.power(dx, 2) + jnp.power(dy, 2)
     if wavefield is not None:
-        wave_height, wave_direction = wavefield(curvex, curvey, jnp.array([0.0]))
+        wave_height, wave_direction = wavefield(curvex, curvey, curvet)
+        # TODO: Problem with dimensions of time
         travel_stw_mod = speed_loss_involuntary(
             wave_height=wave_height, wave_direction=wave_direction, vel_ship=travel_stw
         )
@@ -252,7 +255,7 @@ def cost_function_constant_speed_time_variant(
             wave_height, wave_direction = wavefield(x, y, t)
             travel_stw_mod = speed_loss_involuntary(
                 wave_height=wave_height,
-                wave_direction=wave_direction,
+                wave_incidence_angle=wave_direction,
                 vel_ship=travel_stw,
             )
         else:
@@ -313,6 +316,8 @@ def cost_function_constant_cost_time_invariant(
     jnp.ndarray
         A batch of scalars (B x L-1)
     """
+    # TODO: Implement wavefield effects in this cost function
+
     # Interpolate the vector field at the midpoints
     curvex = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
     curvey = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
