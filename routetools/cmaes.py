@@ -468,7 +468,6 @@ def optimize(
             )
         # Initial solution from provided curve
         x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
-        # Requires a single piece to generate control points
 
     # Initial standard deviation to sample new solutions
     # One sigma is half the distance between src and dst
