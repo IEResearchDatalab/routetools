@@ -6,6 +6,9 @@ from functools import partial
 import jax.numpy as jnp
 from jax import jit, lax
 
+from routetools._cost.haversine import (
+    haversine_distance_from_curve as haversine_distance_from_curve,
+)
 from routetools._cost.haversine import haversine_meters_components
 from routetools._cost.waves import speed_loss_involuntary
 
