@@ -41,7 +41,7 @@ def single_run(
     num_pieces: int = 3,
     popsize: int = 5000,
     sigma0: int = 2,
-    keep_top: float = 0.05,
+    keep_top: float = 0.02,
     tolfun_cmaes: float = 60,
     damping_cmaes: float = 1,
     maxfevals_cmaes: int = int(1e8),
