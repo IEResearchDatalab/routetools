@@ -29,7 +29,7 @@ def angle_wrt_true_north(dx: jnp.ndarray, dy: jnp.ndarray) -> jnp.ndarray:
         Angle with respect to true North in degrees.
     """
     # The arctan2 computes angles between -180 and 180 degrees
-    angle_wrt_north = jnp.degrees(jnp.arctan2(dx, dy))
+    angle_wrt_north = jnp.degrees(jnp.arctan2(dy, dx))
     return jnp.mod(angle_wrt_north, 360)
 
 
