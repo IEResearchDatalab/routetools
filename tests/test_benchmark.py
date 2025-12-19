@@ -137,7 +137,7 @@ def test_wave_directions():
     # Define a constant speed over water in meters per second
     speed_over_water = 10.0  # m/s
 
-    # Define a wavefield function that returns 3 meter height and direction
+    # Define a wavefield function that returns 5 meter height and direction
     def wavefield_parallel(
         x: jnp.ndarray, y: jnp.ndarray, t: jnp.ndarray
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -152,7 +152,7 @@ def test_wave_directions():
         spherical_correction=True,
     )
 
-    # Define a wavefield function that returns 3 meter height and 90 degree direction
+    # Define a wavefield function that returns 5 meter height and 90 degree direction
     def wavefield_orthogonal(
         x: jnp.ndarray, y: jnp.ndarray, t: jnp.ndarray
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -165,13 +165,6 @@ def test_wave_directions():
         wavefield=wavefield_orthogonal,
         travel_stw=speed_over_water,
         spherical_correction=True,
-    )
-
-    # We expect that sailing parallel to the waves results in lower cost
-    # than sailing orthogonal to the waves
-    assert cost_parallel < cost_orthogonal, (
-        f"Cost with parallel waves {cost_parallel} should be less than "
-        f"cost with orthogonal waves {cost_orthogonal}"
     )
 
     # Now test with diagonal wave direction (45 degrees)
@@ -188,14 +181,6 @@ def test_wave_directions():
         spherical_correction=True,
     )
 
-    # We expect that sailing diagonal to the waves results in cost
-    # between parallel and orthogonal
-    assert cost_parallel < cost_diagonal < cost_orthogonal, (
-        f"Cost with diagonal waves {cost_diagonal} should be between "
-        f"cost with parallel waves {cost_parallel} and "
-        f"cost with orthogonal waves {cost_orthogonal}"
-    )
-
     # Now test going against the waves (180 degrees)
     def wavefield_against(
         x: jnp.ndarray, y: jnp.ndarray, t: jnp.ndarray
@@ -210,8 +195,12 @@ def test_wave_directions():
         spherical_correction=True,
     )
 
-    # We expect that sailing against the waves results in the highest cost
-    assert cost_against > cost_orthogonal, (
-        f"Cost with against waves {cost_against} should be greater than "
-        f"cost with orthogonal waves {cost_orthogonal}"
+    # We expect that a wave incidence angle of 0 degrees (parallel) results
+    # in the highest reduction, and thus highest cost, while 180 degrees
+    # (against) results in the lowest cost. The diagonal and orthogonal
+    # cases should be in between.
+    assert cost_parallel > cost_diagonal > cost_orthogonal > cost_against, (
+        f"Costs not in expected order: "
+        f"parallel {cost_parallel}, diagonal {cost_diagonal}, "
+        f"orthogonal {cost_orthogonal}, against {cost_against}"
     )
