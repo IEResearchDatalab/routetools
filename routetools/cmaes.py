@@ -22,9 +22,17 @@ def batch_bezier(t: jnp.ndarray, control: jnp.ndarray) -> jnp.ndarray:
     """
     Evaluate a batch of Bézier curves (using de Casteljau's algorithm).
 
-    :param t: evaluation points (vector of shape K), all between 0 and 1
-    :param control: batched matrix of control points, with shape B x P x N
-    :return: batch of curves (matrix of shape B x K x N)
+    Parameters
+    ----------
+    t : jnp.ndarray
+        Evaluation points (vector of shape K), all between 0 and 1
+    control : jnp.ndarray
+        Batched matrix of control points, with shape B x P x N
+
+    Returns
+    -------
+    jnp.ndarray
+        Batch of curves (matrix of shape B x K x N)
     """
     control = jnp.tile(control[:, :, None, :], [1, 1, len(t), 1])
     while control.shape[1] > 1:
