@@ -1,4 +1,5 @@
 import time
+import warnings
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -484,10 +485,12 @@ def optimize(
         is_land = land(curve_check)
         if land is not None and is_land.any():
             ls_idx = jnp.where(is_land)[0].tolist()
-            raise ValueError(
-                "[ERROR] The provided initial curve0 crosses land "
+            warnings.warn(
+                "[WARNING] The provided initial curve0 crosses land "
                 "after conversion to control points. "
-                f"Indices on land (out of {is_land.size}): {ls_idx}"
+                f"Indices on land (out of {is_land.size}): {ls_idx}",
+                category=UserWarning,
+                stacklevel=2,
             )
 
     # Initial standard deviation to sample new solutions
