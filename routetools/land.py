@@ -340,4 +340,13 @@ class Land:
         distance = jnp.clip(distance, a_min=0.0, a_max=max_distance)
         # Cost is inverse of distance
         cost = max_distance / (distance + 1e-6)
-        return jnp.sum(cost, axis=1)
+
+        # Also penalize distance between points (in km)
+        lats = curve[:, :, 1]
+        lons = curve[:, :, 0]
+        dx, dy = haversine_meters_components(
+            lats[:, 1:], lons[:, 1:], lats[:, :-1], lons[:, :-1]
+        )
+        dist = jnp.sqrt(dx**2 + dy**2) / max_distance
+
+        return jnp.sum(cost, axis=1) + jnp.sum(dist, axis=1)
