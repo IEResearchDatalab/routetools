@@ -17,7 +17,7 @@ def main(
     name: str = "DEHAM-USNYC",
     maxfevals: int = 1,
     damping: float = 0.9,
-    frames: int = 20,
+    frames: int = 50,
 ):
     """Draw the FMS optimization.
 
@@ -35,7 +35,7 @@ def main(
     if os.path.exists(path_json_circ):
         with open(path_json_circ) as f:
             data = json.load(f)
-            route = jnp.asarray(data["curve"])
+            route = jnp.asarray(data["curve"])  # (N, 2)
 
     # Extract relevant information from the problem instance
     dict_instance = load_benchmark_instance(name)
@@ -87,9 +87,9 @@ def main(
             maxfevals=maxfevals,
             costfun=land.cost_function,
             verbose=False,
-        )
+        )  # (1, N, 2)
         costs = float(dict_fms["cost"][0])
-        line.set_data(route[:, 0], route[:, 1])
+        line.set_data(route[0, :, 0], route[0, :, 1])
         txt_iter.set_text(f"Iteration: {frame * maxfevals}")
         txt_cost.set_text(f"Cost: {costs:.2f}")
         print(f"Frame {frame}: Cost = {costs:.2f}")
