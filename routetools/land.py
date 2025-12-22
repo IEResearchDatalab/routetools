@@ -103,8 +103,8 @@ class Land:
         self.penalize_segments = penalize_segments
 
         land_indices = jnp.argwhere(self._array)
-        self._lats = self.x[land_indices[:, 1]]
-        self._lons = self.y[land_indices[:, 0]]
+        self._lats = self.y[land_indices[:, 1]]
+        self._lons = self.x[land_indices[:, 0]]
 
     @property
     def array(self) -> jnp.ndarray:
@@ -298,9 +298,11 @@ class Land:
                 dx = self._lats - point[1]
                 dy = self._lons - point[0]
             dists = jnp.sqrt(dx**2 + dy**2)
+            # Find the minimum distance
+            dist = jnp.min(dists)
             # Check inside land
             is_in = self(point)
-            dists = jnp.where(is_in, 0.0, dists)
+            dist = jnp.where(is_in, 0.0, dist)
             # Check out of bounds
             if self.outbounds_is_land:
                 is_out = (
@@ -309,9 +311,9 @@ class Land:
                     | (point[1] < self.ymin)
                     | (point[1] > self.ymax)
                 )
-                dists = jnp.where(is_out, 0.0, dists)
+                dist = jnp.where(is_out, 0.0, dist)
             # Return the minimum distance
-            return jnp.min(dists)
+            return dist
 
         # Vectorize the function over the curve points
         vectorized_distance = jax.vmap(
@@ -331,8 +333,8 @@ class Land:
         # Compute distance to land
         distance = self.distance_to_land(curve, haversine=True)
         # Set a maximum distance for cost calculation
-        max_distance = 50000  # 50 km
+        max_distance = 10000  # 10 km
         distance = jnp.clip(distance, a_min=0.0, a_max=max_distance)
         # Cost is inverse of distance
-        cost = 1.0 / (distance + 1e-6)
+        cost = max_distance / (distance + 1e-6)
         return jnp.sum(cost, axis=1)
