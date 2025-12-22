@@ -16,7 +16,7 @@ from routetools.vectorfield import vectorfield_zero
 def main(
     name: str = "DEHAM-USNYC",
     maxfevals: int = 1,
-    damping: float = 0.99,
+    damping: float = 0.9,
     frames: int = 100,
     max_distance: int = 100000,  # meters
 ):

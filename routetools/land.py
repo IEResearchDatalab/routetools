@@ -349,4 +349,4 @@ class Land:
         )
         dist = jnp.sqrt(dx**2 + dy**2) / max_distance
 
-        return jnp.sum(cost, axis=1) + jnp.sum(dist, axis=1)
+        return jnp.sum(cost, axis=1) + 0 * jnp.sum(dist, axis=1)
