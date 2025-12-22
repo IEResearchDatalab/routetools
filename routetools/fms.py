@@ -133,6 +133,7 @@ def optimize_fms(
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
     spherical_correction: bool = False,
+    costfun: Callable | None = None,
     seed: int = 0,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
@@ -174,6 +175,10 @@ def optimize_fms(
         Weight for the L1 norm in the combined cost. Default is 1.0.
     weight_l2 : float, optional
         Weight for the L2 norm in the combined cost. Default is 0.0.
+    spherical_correction : bool, optional
+        Whether to apply spherical correction, by default False
+    costfun : Callable | None, optional
+        Custom cost function, by default None
     seed : int, optional
         Random seed for reproducibility, by default 0
     verbose : bool, optional
@@ -209,6 +214,10 @@ def optimize_fms(
                 "Please provide a valid curve for FMS."
             )
 
+    # Define cost function
+    if costfun is None:
+        costfun = cost_function
+
     # Initialize lagrangians
     if travel_stw is not None:
         # Average distance between points
@@ -218,7 +227,7 @@ def optimize_fms(
         def lagrangian(q0: jnp.ndarray, q1: jnp.ndarray) -> jnp.ndarray:
             # Stack q0 and q1 to form array of shape (1, 2, 2)
             q = jnp.vstack([q0, q1])[None, ...]
-            lag = cost_function(
+            lag = costfun(
                 vectorfield=vectorfield,
                 curve=q,
                 wavefield=wavefield,
@@ -240,7 +249,7 @@ def optimize_fms(
         def lagrangian(q0: jnp.ndarray, q1: jnp.ndarray) -> jnp.ndarray:
             # Stack q0 and q1 to form array of shape (1, 2, 2)
             q = jnp.vstack([q0, q1])[None, ...]
-            lag = cost_function(
+            lag = costfun(
                 vectorfield=vectorfield,
                 curve=q,
                 wavefield=wavefield,
@@ -282,7 +291,7 @@ def optimize_fms(
         solve_equation, in_axes=(0), out_axes=(0)
     )
 
-    cost_now = cost_function(
+    cost_now = costfun(
         vectorfield=vectorfield,
         curve=curve,
         wavefield=wavefield,
@@ -305,7 +314,7 @@ def optimize_fms(
         if land is not None and penalty > 0:
             is_land = land(curve) > 0
             curve = jnp.where(is_land[..., None], curve_old, curve)
-        cost_now = cost_function(
+        cost_now = costfun(
             vectorfield=vectorfield,
             curve=curve,
             wavefield=wavefield,
