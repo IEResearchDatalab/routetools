@@ -17,7 +17,7 @@ def main(
     name: str = "DEHAM-USNYC",
     maxfevals: int = 1,
     damping: float = 0.99,
-    frames: int = 500,
+    frames: int = 100,
     max_distance: int = 100000,  # meters
 ):
     """Draw the FMS optimization.
@@ -91,9 +91,6 @@ def main(
         ha="center",
     )
 
-    # Initialize an old cost
-    cost_old = jnp.inf
-
     def animate(frame: int) -> list[Line2D]:
         """Animate the FMS optimization.
 
@@ -122,12 +119,6 @@ def main(
         line.set_data(route[0, :, 0], route[0, :, 1])
         txt_iter.set_text(f"Iteration: {frame * maxfevals}")
         print(f"Frame {frame}: Cost = {costs:.2f}")
-        # If the cost did not improve, stop the animation
-        nonlocal cost_old
-        if costs >= cost_old - 1e-3:
-            print("Cost did not improve, stopping animation.")
-            anim.event_source.stop()
-        cost_old = costs
         return [line, txt_iter]
 
     # Disable blitting to ensure full redraw when saving with Pillow
