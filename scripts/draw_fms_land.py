@@ -44,8 +44,25 @@ def main(
     fig, ax = plt.subplots(figsize=(6, 6))
 
     (line,) = ax.plot(route[:, 0], route[:, 1], "r-", marker="o")
-    txt_iter = ax.text(0.5, 5.5, "Iteration: 0", fontsize=12, color="black")
-    txt_cost = ax.text(0.5, 5.0, "Cost: ?", fontsize=12, color="black")
+    # Place texts in axes-relative coordinates so they're always visible
+    txt_iter = ax.text(
+        0.5,
+        0.95,
+        "Iteration: 0",
+        fontsize=12,
+        color="black",
+        transform=ax.transAxes,
+        ha="center",
+    )
+    txt_cost = ax.text(
+        0.5,
+        0.90,
+        "Cost: ?",
+        fontsize=12,
+        color="black",
+        transform=ax.transAxes,
+        ha="center",
+    )
 
     def animate(frame: int) -> list[Line2D]:
         """Animate the FMS optimization.
@@ -78,7 +95,8 @@ def main(
         print(f"Frame {frame}: Cost = {costs:.2f}")
         return [line, txt_iter, txt_cost]
 
-    anim = animation.FuncAnimation(fig, animate, frames=frames, blit=True)
+    # Disable blitting to ensure full redraw when saving with Pillow
+    anim = animation.FuncAnimation(fig, animate, frames=frames, blit=False)
 
     # Save the animation
     anim.save("output/fms.gif", writer="pillow", fps=10)
