@@ -333,7 +333,7 @@ class Land:
         # Compute distance to land
         distance = self.distance_to_land(curve, haversine=True)
         # Set a maximum distance for cost calculation
-        max_distance = 10000  # 10 km
+        max_distance = 50000  # 50 km
         distance = jnp.clip(distance, a_min=0.0, a_max=max_distance)
         # Cost is inverse of distance
         cost = max_distance / (distance + 1e-6)
