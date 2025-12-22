@@ -102,6 +102,10 @@ class Land:
         self.outbounds_is_land = outbounds_is_land
         self.penalize_segments = penalize_segments
 
+        land_indices = jnp.argwhere(self._array)
+        self._lats = self.x[land_indices[:, 1]]
+        self._lons = self.y[land_indices[:, 0]]
+
     @property
     def array(self) -> jnp.ndarray:
         """Return a boolean array indicating land presence."""
@@ -286,19 +290,16 @@ class Land:
         # Define a function to compute the distance of a single point to land
         def point_distance_to_land(point: jnp.ndarray) -> jnp.ndarray:
             # Compute the haversine distance from the point to all land points
-            land_indices = jnp.argwhere(self.array)
-            land_lats = self.x[land_indices[:, 1]]
-            land_lons = self.y[land_indices[:, 0]]
             if haversine:
                 dx, dy = haversine_meters_components(
-                    point[1], point[0], land_lats, land_lons
+                    point[1], point[0], self._lats, self._lons
                 )
             else:
-                dx = land_lats - point[1]
-                dy = land_lons - point[0]
+                dx = self._lats - point[1]
+                dy = self._lons - point[0]
             dists = jnp.sqrt(dx**2 + dy**2)
             # Check inside land
-            is_in = self(point[None, :])[0]
+            is_in = self(point)
             dists = jnp.where(is_in, 0.0, dists)
             # Check out of bounds
             if self.outbounds_is_land:
@@ -322,3 +323,16 @@ class Land:
             return vectorized_distance(curve)[0]
         else:
             return vectorized_distance(curve)
+
+    def cost_function(
+        self, vectorfield: None, curve: jnp.ndarray, **kwargs
+    ) -> jnp.ndarray:
+        """Penalizes being close to land."""
+        # Compute distance to land
+        distance = self.distance_to_land(curve, haversine=True)
+        # Set a maximum distance for cost calculation
+        max_distance = 50000  # 50 km
+        distance = jnp.clip(distance, a_min=0.0, a_max=max_distance)
+        # Cost is inverse of distance
+        cost = 1.0 / (distance + 1e-6)
+        return jnp.sum(cost, axis=1)
