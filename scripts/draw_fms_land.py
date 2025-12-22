@@ -37,12 +37,38 @@ def main(
             data = json.load(f)
             route = jnp.asarray(data["curve"])  # (N, 2)
 
+    # Define X-Y limits as +-2 degrees around the route
+    min_x = jnp.min(route[:, 0]) - 2.0
+    max_x = jnp.max(route[:, 0]) + 2.0
+    min_y = jnp.min(route[:, 1]) - 2.0
+    max_y = jnp.max(route[:, 1]) + 2.0
+
     # Extract relevant information from the problem instance
     dict_instance = load_benchmark_instance(name)
     land: Land = dict_instance["land"]
 
     fig, ax = plt.subplots(figsize=(6, 6))
 
+    # Land is a boolean array, so we need to use contourf
+    ax.contourf(
+        land.x,
+        land.y,
+        land.array.T,
+        levels=[0, 0.5, 1],
+        colors=["white", "black", "black"],
+        origin="lower",
+        zorder=0,
+    )
+
+    ax.set_xlim(min_x, max_x)
+    ax.set_ylim(min_y, max_y)
+    ax.set_xlabel("Longitude [deg]")
+    ax.set_ylabel("Latitude [deg]")
+
+    # Set the aspect ratio to be 1:1
+    ax.set_aspect("equal", adjustable="box")
+
+    # Plot the initial route
     (line,) = ax.plot(route[:, 0], route[:, 1], "r-", marker="o")
     # Place texts in axes-relative coordinates so they're always visible
     txt_iter = ax.text(
