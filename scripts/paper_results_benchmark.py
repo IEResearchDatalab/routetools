@@ -300,9 +300,7 @@ def main(path_jsons: str = "output/json_benchmark"):
                         path_jsons=path_jsons,
                     )
 
-                except IndexError as e:
-                    print(f"[ERROR] Benchmark for instance {instance} failed: {e}")
-                except FileNotFoundError as e:
+                except Exception as e:
                     print(f"[ERROR] Benchmark for instance {instance} failed: {e}")
 
 
