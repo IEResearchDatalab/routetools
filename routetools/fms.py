@@ -200,6 +200,15 @@ def optimize_fms(
         raise ValueError("Input curve must be 2D (L x 2) or 3D (B x L x 2)")
     assert curve.shape[-1] == 2, "Last dimension must be 2 (X, Y)"
 
+    # If land is provided, ensure that no points are on land at initialization
+    if land is not None and penalty > 0:
+        is_land = land(curve) > 0
+        if is_land.any():
+            raise ValueError(
+                "[ERROR] Initial curve has points on land. "
+                "Please provide a valid curve for FMS."
+            )
+
     # Initialize lagrangians
     if travel_stw is not None:
         # Average distance between points
