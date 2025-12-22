@@ -48,13 +48,26 @@ def control_to_curve(
     Parameters
     ----------
     control : jnp.ndarray
-        A B x 2K matrix. The first K columns are the x positions of the Bézier
+        A B x 2K matrix, or a 2K vector.
+        The first K columns are the x positions of the Bézier
         control points, and the last K are the y positions
     L : int, optional
         Number of points evaluated in each Bézier curve, by default 64
     num_pieces : int, optional
         Number of Bézier curves, by default 1
+
+    Returns
+    -------
+    jnp.ndarray
+        A B x L x 2 matrix with the batch of Bézier curves,
+        or a L x 2 matrix if control is 1D.
     """
+    # If control is 1D, add a batch dimension
+    if control.ndim == 1:
+        control = control[jnp.newaxis, :]
+        one_dim = True
+    else:
+        one_dim = False
     # Reshape the control points
     control = control.reshape(control.shape[0], -1, 2)
 
@@ -111,7 +124,11 @@ def control_to_curve(
         result = jnp.hstack([result, last_point])
     else:
         result = batch_bezier(t=jnp.linspace(0, 1, L), control=control)
-    return result
+
+    if one_dim:
+        return result[0]
+    else:
+        return result
 
 
 def _single_piece_to_control(curve: jnp.ndarray, K: int = 6) -> jnp.ndarray:
@@ -455,9 +472,7 @@ def optimize(
         # Initial solution from provided curve
         x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
         # Validate that, after conversion, it still does not cross land
-        curve_check = control_to_curve(
-            x0[None, :], src, dst, L=L, num_pieces=num_pieces
-        )[0, ...]
+        curve_check = control_to_curve(x0, src, dst, L=L, num_pieces=num_pieces)
         if land is not None and land(curve_check).any():
             raise ValueError(
                 "[ERROR] The provided initial curve0 crosses land "
@@ -497,8 +512,9 @@ def optimize(
         print("Optimization time:", time.time() - start)
         print("Fuel cost:", es.best.f)
 
-    Xbest = jnp.asarray(es.best.x)[None, :]
-    curve_best = control_to_curve(Xbest, src, dst, L=L, num_pieces=num_pieces)[0, ...]
+    curve_best = control_to_curve(
+        jnp.asarray(es.best.x), src, dst, L=L, num_pieces=num_pieces
+    )
 
     dict_cmaes = {
         "cost": es.best.f,
@@ -643,10 +659,9 @@ def optimize_with_increasing_penalization(
             print("Optimization time:", time.time() - start)
             print("Fuel cost:", es.best.f)
 
-        Xbest = es.best.x[None, :]
         curve: jnp.ndarray = control_to_curve(
-            Xbest, src, dst, L=L, num_pieces=num_pieces
-        )[0, ...]
+            es.best.x, src, dst, L=L, num_pieces=num_pieces
+        )
         # sigma0 = es.sigma0
         if land(curve).any():
             penalty += penalty_increment
