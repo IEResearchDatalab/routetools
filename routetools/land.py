@@ -331,6 +331,7 @@ class Land:
         vectorfield: None,
         curve: jnp.ndarray,
         max_distance: float = 50000,  # meters
+        neighbor_penalty: float = 0.0,
         **kwargs,
     ) -> jnp.ndarray:
         """Penalizes being close to land."""
@@ -349,4 +350,4 @@ class Land:
         )
         dist = jnp.sqrt(dx**2 + dy**2) / max_distance
 
-        return jnp.sum(cost, axis=1) + 0 * jnp.sum(dist, axis=1)
+        return jnp.sum(cost, axis=1) + neighbor_penalty * jnp.sum(dist, axis=1)
