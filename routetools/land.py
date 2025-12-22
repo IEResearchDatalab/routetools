@@ -327,13 +327,16 @@ class Land:
             return vectorized_distance(curve)
 
     def cost_function(
-        self, vectorfield: None, curve: jnp.ndarray, **kwargs
+        self,
+        vectorfield: None,
+        curve: jnp.ndarray,
+        max_distance: float = 50000,  # meters
+        **kwargs,
     ) -> jnp.ndarray:
         """Penalizes being close to land."""
         # Compute distance to land
         distance = self.distance_to_land(curve, haversine=True)
         # Set a maximum distance for cost calculation
-        max_distance = 50000  # 50 km
         distance = jnp.clip(distance, a_min=0.0, a_max=max_distance)
         # Cost is inverse of distance
         cost = max_distance / (distance + 1e-6)

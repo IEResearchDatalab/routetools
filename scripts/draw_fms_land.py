@@ -18,6 +18,7 @@ def main(
     maxfevals: int = 1,
     damping: float = 0.9,
     frames: int = 50,
+    max_distance: int = 100000,  # meters
 ):
     """Draw the FMS optimization.
 
@@ -37,17 +38,25 @@ def main(
             data = json.load(f)
             route = jnp.asarray(data["curve"])  # (N, 2)
 
+    # Extract relevant information from the problem instance
+    dict_instance = load_benchmark_instance(name)
+    land: Land = dict_instance["land"]
+
+    # Define the cost function
+    def cost_function(vectorfield: None, curve: jnp.ndarray, **kwargs) -> jnp.ndarray:
+        return land.cost_function(
+            vectorfield, curve, max_distance=max_distance, **kwargs
+        )
+
     # Define X-Y limits as +-2 degrees around the route
     min_x = jnp.min(route[:, 0]) - 2.0
     max_x = jnp.max(route[:, 0]) + 2.0
     min_y = jnp.min(route[:, 1]) - 2.0
     max_y = jnp.max(route[:, 1]) + 2.0
 
-    # Extract relevant information from the problem instance
-    dict_instance = load_benchmark_instance(name)
-    land: Land = dict_instance["land"]
-
-    fig, ax = plt.subplots(figsize=(6, 6))
+    # Compute figure size to keep proportions
+    aspect_ratio = (max_y - min_y) / (max_x - min_x)
+    fig, ax = plt.subplots(figsize=(12, 12 * aspect_ratio))
 
     # Land is a boolean array, so we need to use contourf
     ax.contourf(
@@ -60,6 +69,7 @@ def main(
         zorder=0,
     )
 
+    # Set axis limits and labels
     ax.set_xlim(min_x, max_x)
     ax.set_ylim(min_y, max_y)
     ax.set_xlabel("Longitude [deg]")
@@ -75,15 +85,6 @@ def main(
         0.5,
         0.95,
         "Iteration: 0",
-        fontsize=12,
-        color="black",
-        transform=ax.transAxes,
-        ha="center",
-    )
-    txt_cost = ax.text(
-        0.5,
-        0.90,
-        "Cost: ?",
         fontsize=12,
         color="black",
         transform=ax.transAxes,
@@ -111,15 +112,14 @@ def main(
             damping=damping,
             travel_stw=1,
             maxfevals=maxfevals,
-            costfun=land.cost_function,
+            costfun=cost_function,
             verbose=False,
         )  # (1, N, 2)
         costs = float(dict_fms["cost"][0])
         line.set_data(route[0, :, 0], route[0, :, 1])
         txt_iter.set_text(f"Iteration: {frame * maxfevals}")
-        txt_cost.set_text(f"Cost: {costs:.2f}")
         print(f"Frame {frame}: Cost = {costs:.2f}")
-        return [line, txt_iter, txt_cost]
+        return [line, txt_iter]
 
     # Disable blitting to ensure full redraw when saving with Pillow
     anim = animation.FuncAnimation(fig, animate, frames=frames, blit=False)
