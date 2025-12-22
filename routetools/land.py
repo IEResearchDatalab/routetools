@@ -8,6 +8,8 @@ from jax import jit
 from jax.scipy.ndimage import map_coordinates
 from perlin_numpy import generate_perlin_noise_2d as pn2d
 
+from routetools._cost.haversine import haversine_meters_components
+
 
 class Land:
     """Class to check if points on a curve are on land."""
@@ -261,3 +263,62 @@ class Land:
 
         # Return the sum of the number of land intersections times the penalty
         return jnp.sum(is_land, axis=1) * penalty
+
+    def distance_to_land(
+        self, curve: jnp.ndarray, haversine: bool = False
+    ) -> jnp.ndarray:
+        """
+        Compute the distance from each point on the curve to the nearest land point.
+
+        Parameters
+        ----------
+        curve : jnp.ndarray
+            A batch of curves (an array of shape W x L x 2)
+        haversine : bool, optional
+            If True, compute distances using the haversine formula, by default False
+
+        Returns
+        -------
+        jnp.ndarray
+            An array of shape (W, L) with the distance to the nearest land point.
+        """
+
+        # Define a function to compute the distance of a single point to land
+        def point_distance_to_land(point: jnp.ndarray) -> jnp.ndarray:
+            # Compute the haversine distance from the point to all land points
+            land_indices = jnp.argwhere(self.array)
+            land_lats = self.x[land_indices[:, 1]]
+            land_lons = self.y[land_indices[:, 0]]
+            if haversine:
+                dx, dy = haversine_meters_components(
+                    point[1], point[0], land_lats, land_lons
+                )
+            else:
+                dx = land_lats - point[1]
+                dy = land_lons - point[0]
+            dists = jnp.sqrt(dx**2 + dy**2)
+            # Check inside land
+            is_in = self(point[None, :])[0]
+            dists = jnp.where(is_in, 0.0, dists)
+            # Check out of bounds
+            if self.outbounds_is_land:
+                is_out = (
+                    (point[0] < self.xmin)
+                    | (point[0] > self.xmax)
+                    | (point[1] < self.ymin)
+                    | (point[1] > self.ymax)
+                )
+                dists = jnp.where(is_out, 0.0, dists)
+            # Return the minimum distance
+            return jnp.min(dists)
+
+        # Vectorize the function over the curve points
+        vectorized_distance = jax.vmap(
+            jax.vmap(point_distance_to_land, in_axes=0), in_axes=0
+        )
+        # If curve has shape (L, 2), add a batch dimension
+        if curve.ndim == 2:
+            curve = curve[None, :, :]
+            return vectorized_distance(curve)[0]
+        else:
+            return vectorized_distance(curve)

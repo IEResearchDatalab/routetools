@@ -48,3 +48,44 @@ def test_land_outbounds():
     out = land(jnp.array([[6], [5]]))
     expected = land.array[-1, -1]
     assert jnp.allclose(out, expected)
+
+
+def test_distance_to_land():
+    xlim = [-5, 5]
+    land = Land(
+        xlim,
+        xlim,
+        water_level=0.5,
+        random_seed=1,
+        resolution=10,
+        interpolate=0,
+        outbounds_is_land=True,
+    )
+    # First turn all into water
+    land._array = land._array.at[:, :].set(0)
+    # Add a land patch in the center
+    land._array = land._array.at[45:55, 45:55].set(1)
+    # Get distance to land for a set of points
+    curve = jnp.array(
+        [
+            [-4, -4],
+            [0, 0],
+            [4, 4],
+            [-6, 0],  # Out of bounds
+            [0, 6],  # Out of bounds
+        ]
+    )
+    dists = land.distance_to_land(curve)
+    assert dists.shape == (curve.shape[0],)
+    assert jnp.all(dists >= 0)
+    # We know the expected distances
+    expected_dists = jnp.array(
+        [
+            5,  # From (-4,-4) to land patch
+            0,  # From (0,0) to land patch
+            5,  # From (4,4) to land patch
+            0,  # When out of bounds, distance is 0
+            0,  # When out of bounds, distance is 0
+        ]
+    )
+    assert jnp.allclose(dists, expected_dists, atol=1e3)
