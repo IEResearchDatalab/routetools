@@ -555,7 +555,8 @@ def optimize(
         if cost_initial < cost_best:
             warnings.warn(
                 "[WARNING] The optimized curve has a higher cost "
-                "than the initial curve0 provided.",
+                f"than the initial curve0 provided "
+                f"({cost_initial:.0f} < {cost_best:.0f}).",
                 category=UserWarning,
                 stacklevel=2,
             )
