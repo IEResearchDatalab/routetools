@@ -477,7 +477,11 @@ def optimize(
             )
         # Validate the given curve does not cross land if a land function is provided
         if land is not None and land(curve0).any():
-            raise ValueError("[ERROR] The provided initial curve0 crosses land.")
+            warnings.warn(
+                "[WARNING] The provided initial curve0 crosses land.",
+                category=UserWarning,
+                stacklevel=2,
+            )
         # Initial solution from provided curve
         x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
         # Validate that, after conversion, it still does not cross land
@@ -497,7 +501,7 @@ def optimize(
     # One sigma is half the distance between src and dst
     sigma0 = float(jnp.linalg.norm(dst - src) * sigma0 / 2)
 
-    start = time.time()
+    time_start = time.time()
     es = _cma_evolution_strategy(
         vectorfield=vectorfield,
         src=src,
@@ -522,18 +526,47 @@ def optimize(
         spherical_correction=spherical_correction,
         verbose=verbose,
     )
+    time_end = time.time()
     if verbose:
-        print("Optimization time:", time.time() - start)
+        print("Optimization time:", time_end - time_start)
         print("Fuel cost:", es.best.f)
 
     curve_best = control_to_curve(
         jnp.asarray(es.best.x), src, dst, L=L, num_pieces=num_pieces
     )
+    cost_best: float = es.best.f
+
+    # Compare the best curve with the initial one if provided
+    if curve0 is not None:
+        cost_initial: float = cost_function(
+            vectorfield=vectorfield,
+            curve=curve0[jnp.newaxis, :, :],
+            wavefield=wavefield,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
+        ).item()
+        if land is not None and penalty > 0:
+            cost_initial += land.penalization(
+                curve0[jnp.newaxis, :, :], penalty=penalty
+            ).item()
+        if cost_initial < cost_best:
+            warnings.warn(
+                "[WARNING] The optimized curve has a higher cost "
+                "than the initial curve0 provided.",
+                category=UserWarning,
+                stacklevel=2,
+            )
+            # Then, take the initial curve as the best
+            curve_best = curve0
+            cost_best = cost_initial
 
     dict_cmaes = {
-        "cost": es.best.f,
+        "cost": cost_best,
         "niter": es.countiter,
-        "comp_time": int(round(time.time() - start)),
+        "comp_time": int(round(time_end - time_start)),  # in seconds
     }
     return curve_best, dict_cmaes
 
