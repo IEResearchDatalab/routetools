@@ -255,6 +255,10 @@ def fullyear_savings_odp(df: pd.DataFrame, path_output: Path):
             # Plot the time as a bar
             ax.bar(x, y1, color=color, label="Orthodromic Time w.r.t. Average")
             # ax.plot(x, y3, color="darkgreen", label=f"{MODEL} Extra Distance")
+            # Sort the x and y2 based on x to have a proper line plot
+            sorted_indices = np.argsort(x)
+            x = x.iloc[sorted_indices]
+            y2 = y2.iloc[sorted_indices]
             ax.plot(x, y2, color="red", label=f"{MODEL} Savings")
             ax.axhline(0, color="black", linestyle="--")
             ax.set_xlabel("Week")
