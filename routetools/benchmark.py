@@ -268,6 +268,7 @@ def circumnavigate(
     grid_resolution: int = 4,
     neighbour_disk_size: int = 3,
     land_dilation: int = 0,
+    num_points: int = 64,
     fms_patience: int = 100,
     fms_damping: float = 0.9,
     fms_maxfevals: int = int(1e6),
@@ -345,18 +346,15 @@ def circumnavigate(
         curve.ndim == 2 and curve.shape[1] == 2
     ), f"Curve must have shape (L, 2), but got {curve.shape}"
 
-    # Include x10 points in the middle of each segment for better FMS refinement
-    curve_fine = []
-    for i in range(len(curve) - 1):
-        p0 = curve[i]
-        p1 = curve[i + 1]
-        curve_fine.append(p0)
-        for j in range(1, 10):
-            t = j / 10.0
-            p = (1 - t) * p0 + t * p1
-            curve_fine.append(p)
-    curve_fine.append(curve[-1])
-    curve = jnp.array(curve_fine)
+    # Interpolate the number of points to target num_points
+    if curve.shape[0] != num_points:
+        curve = jnp.array(
+            jax.image.resize(
+                curve,
+                shape=(num_points, 2),
+                method="linear",
+            )
+        )
 
     # Refine the route using FMS optimization
     curves, _ = optimize_fms(
@@ -467,6 +465,7 @@ def optimize_benchmark_instance(
             grid_resolution=4,
             neighbour_disk_size=3,
             land_dilation=0,
+            num_points=L,
             fms_maxfevals=10000,
             fms_damping=0.0,
             verbose=verbose,

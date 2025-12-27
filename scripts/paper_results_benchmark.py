@@ -140,6 +140,7 @@ def single_run(
             grid_resolution=4,
             neighbour_disk_size=3,
             land_dilation=1,
+            num_points=L,
             fms_damping=0.0,
             verbose=verbose,
         )
