@@ -209,8 +209,11 @@ def optimize_fms(
     if land is not None and penalty > 0:
         is_land = land(curve) > 0
         if is_land.any():
+            # List the indices in land
+            indices_in_land = jnp.argwhere(is_land).tolist()
             raise ValueError(
-                "[ERROR] Initial curve has points on land. "
+                "[ERROR] Initial curve has points on land at indices: "
+                f"{indices_in_land} "
                 "Please provide a valid curve for FMS."
             )
 
