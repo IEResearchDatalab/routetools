@@ -113,6 +113,8 @@ def plot_curve(
         U, V = vectorfield(X, Y, t)
         # Compute the magnitude
         mag = jnp.sqrt(U**2 + V**2)
+        # Change it to knots
+        mag = mag * 1.94384
         # When currents are zero, set them to NaN to avoid plotting
         mag = jnp.where(mag == 0, jnp.nan, mag)
         # Plot the magnitude as a colormap (ensure array orientation matches X,Y)
@@ -132,8 +134,7 @@ def plot_curve(
             orientation = "vertical"
         # Plot colorbar horizontally below the plot
         cbar = fig.colorbar(pcm, ax=ax, orientation=orientation)
-        # Set it to knots (1 m/s = 1.94384 knots)
-        cbar.set_label("Current magnitude (m/s)")
+        cbar.set_label("Current magnitude (knots)")
     else:
         # Plot the vectorfield
         xvf = jnp.arange(xlim[0] - gridstep * 2, xlim[1] + gridstep * 2, gridstep)
