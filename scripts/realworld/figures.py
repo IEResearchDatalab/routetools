@@ -145,10 +145,11 @@ def plot_bers_vs_circumnavigation(df: pd.DataFrame, path_output: Path):
                     f"FMS ({dict_costs['FMS']} hrs)",
                 ],
                 land=land,
-                gridstep=0.5,
+                gridstep=1 / 12,
                 figsize=(6, 6),
                 xlim=(land.xmin, land.xmax),
                 ylim=(land.ymin, land.ymax),
+                color_currents=True,
             )
             # Include date and velocity in the title
             ax.set_title(

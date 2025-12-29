@@ -44,6 +44,7 @@ def plot_curve(
     figsize: tuple[float, float] = (4, 4),
     cost: str = "cost",
     legend_outside: bool = False,
+    color_currents: bool = False,
 ) -> tuple[Figure, Axes]:
     """Plot the vectorfield and the curves.
 
@@ -103,6 +104,50 @@ def plot_curve(
             zorder=0,
         )
 
+    if color_currents:
+        # Plot the vectorfield as a background color map
+        xvf = jnp.arange(xlim[0] - gridstep * 2, xlim[1] + gridstep * 2, gridstep)
+        yvf = jnp.arange(ylim[0] - gridstep * 2, ylim[1] + gridstep * 2, gridstep)
+        t = 0
+        X, Y = jnp.meshgrid(xvf, yvf)
+        U, V = vectorfield(X, Y, t)
+        # Compute the magnitude
+        mag = jnp.sqrt(U**2 + V**2)
+        # When currents are zero, set them to NaN to avoid plotting
+        mag = jnp.where(mag == 0, jnp.nan, mag)
+        # Plot the magnitude as a colormap (ensure array orientation matches X,Y)
+        pcm = ax.pcolormesh(
+            X,
+            Y,
+            mag,
+            shading="auto",
+            cmap="Reds",
+            alpha=1.0,
+            zorder=0,
+        )
+        # Check if vectorfield is more horizontal or vertical for colorbar orientation
+        if (xlim[1] - xlim[0]) >= (ylim[1] - ylim[0]):
+            orientation = "horizontal"
+        else:
+            orientation = "vertical"
+        # Plot colorbar horizontally below the plot
+        cbar = fig.colorbar(pcm, ax=ax, orientation=orientation)
+        # Set it to knots (1 m/s = 1.94384 knots)
+        cbar.set_label("Current magnitude (m/s)")
+    else:
+        # Plot the vectorfield
+        xvf = jnp.arange(xlim[0] - gridstep * 2, xlim[1] + gridstep * 2, gridstep)
+        yvf = jnp.arange(ylim[0] - gridstep * 2, ylim[1] + gridstep * 2, gridstep)
+        t = 0
+        X, Y = jnp.meshgrid(xvf, yvf)
+        U, V = vectorfield(X, Y, t)
+        # Scale U and V for better visualization
+        mag = jnp.sqrt(U**2 + V**2)
+        U, V = U / mag, V / mag
+        # Skip if all is 0
+        if not jnp.all(U == 0) or not jnp.all(V == 0):
+            ax.quiver(X, Y, U, V, zorder=1)
+
     # Plot the curves
     for idx, curve in enumerate(ls_curve):
         label = ""
@@ -142,19 +187,6 @@ def plot_curve(
     ax.plot(src[0], src[1], "o", color="blue", zorder=3)
     ax.plot(dst[0], dst[1], "o", color="green", zorder=3)
 
-    # Plot the vectorfield
-    xvf = jnp.arange(xlim[0] - gridstep * 2, xlim[1] + gridstep * 2, gridstep)
-    yvf = jnp.arange(ylim[0] - gridstep * 2, ylim[1] + gridstep * 2, gridstep)
-    t = 0
-    X, Y = jnp.meshgrid(xvf, yvf)
-    U, V = vectorfield(X, Y, t)
-    # Scale U and V for better visualization
-    mag = jnp.sqrt(U**2 + V**2)
-    U, V = U / mag, V / mag
-    # Skip if all is 0
-    if not jnp.all(U == 0) or not jnp.all(V == 0):
-        ax.quiver(X, Y, U, V, zorder=1)
-
     if legend_outside:
         ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
     else:
@@ -165,7 +197,7 @@ def plot_curve(
     ax.set_aspect("equal", adjustable="box")
 
     # Adjust the layout
-    fig.tight_layout(pad=2.5)
+    fig.tight_layout()
 
     return fig, ax
 
