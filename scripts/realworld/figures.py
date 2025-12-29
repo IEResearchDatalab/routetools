@@ -388,7 +388,7 @@ def main(path_output: str = "output/json_benchmark"):
     - scripts/realworld/results.py
     """
     try:
-        df = pd.read_csv(Path(path_output) / "dataframe.csv")
+        df = generate_dataframe(Path(path_output))
     except FileNotFoundError as exc:
         raise FileNotFoundError(
             "Results not found. Please run first scripts/realworld/results.py"
