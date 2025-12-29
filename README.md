@@ -157,6 +157,35 @@ If your computer does not have a GPU, you can force JAX to use the CPU with `JAX
 JAX_PLATFORMS=cpu uv run scripts/single_run.py
 ```
 
+## Reproduce the results (paper)
+
+To reproduce the results from the paper, run the following command:
+
+```bash
+uv run scripts/paper_results.py
+```
+
+This will run BERS across all instance for the synthetic scenarios and output the results to `output/` folder.
+
+Next, to generate the plots and tables related to the synthetic scenarios, run:
+
+```bash
+uv run scripts/paper_plots.py
+uv run scripts/paper_tables.py
+```
+
+In order to generate the results for the real-world scenarios, make sure you have downloaded the benchmark data as described in the [Benchmark data](#benchmark-data) section. Then run:
+
+```bash
+uv run scripts/paper_results_benchmark.py
+```
+
+Finally, to generate the plots and tables for the paper, run:
+
+```bash
+uv run scripts/paper_figures.py
+```
+
 ## Using GPU with JAX
 
 ### Quick start (session)
