@@ -54,8 +54,6 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
             ls_data.append(data)
     # Create a DataFrame from the list of dictionaries
     df = pd.DataFrame(ls_data)
-    # Save the DataFrame to a CSV file for future use
-    df.to_csv(pth_df, index=False)
     # Calculate the time savings as a percentage
     df["gain"] = 100 * (df["cost_circ"] - df["cost_fms"]) / df["cost_circ"]
     # Calculate relative distance increase
@@ -69,6 +67,8 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
     df["season"] = df["week"].apply(season)
     # Sort by: instance_name, vel_ship, date_start
     df = df.sort_values(by=["instance_name", "vel_ship", "date_start"])
+    # Save the DataFrame to a CSV file for future use
+    df.to_csv(pth_df, index=False)
     return df
 
 
