@@ -3051,7 +3051,7 @@ wheels = [
 [[package]]
 name = "wrr-bench"
 version = "0.0.0"
-source = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routing-benchmarks.git?branch=main#99a34b8dc0686ea54d5f24a2b85e4bef04350c52" }
+source = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routing-benchmarks.git?branch=main#ee7497f45591734494981b667688d301e5425d87" }
 dependencies = [
     { name = "bottleneck" },
     { name = "dask" },
