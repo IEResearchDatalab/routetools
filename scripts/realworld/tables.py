@@ -51,6 +51,26 @@ def table_gains_per_season(df: pd.DataFrame, path_output: Path):
         f.write(latex_code)
 
 
+def print_median_savings(df: pd.DataFrame):
+    """Print the median savings from the DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing benchmark results.
+    """
+    # Filter by speed corresponding to 3 meters per second
+    df = df[df["vel_ship"] == 3]
+    # Compute median savings per instance_name
+    median_savings = df.groupby("instance_name")["gain"].median()
+    # Print median savings sorted in descending order
+    print("Median Savings per Instance:")
+    for instance_name, median_gain in median_savings.sort_values(
+        ascending=False
+    ).items():
+        print(f"{instance_name}: {median_gain:.2f}%")
+
+
 def main(path_output: str = "output/json_benchmark"):
     """Generate the figures for the paper from benchmark results.
 
@@ -67,6 +87,7 @@ def main(path_output: str = "output/json_benchmark"):
         )
         return
     table_gains_per_season(df, Path("output"))
+    print_median_savings(df)
 
 
 if __name__ == "__main__":
