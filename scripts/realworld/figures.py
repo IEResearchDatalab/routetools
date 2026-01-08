@@ -72,7 +72,9 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
     return df
 
 
-def plot_bers_vs_circumnavigation(df: pd.DataFrame, path_output: Path):
+def plot_bers_vs_circumnavigation(
+    df: pd.DataFrame, path_output: Path, data_path: Path = Path("data")
+):
     """Plot BERS vs Orthodromic travel times for all benchmark instances.
 
     Parameters
@@ -109,7 +111,10 @@ def plot_bers_vs_circumnavigation(df: pd.DataFrame, path_output: Path):
             curve_circ = jnp.array(data_bers["curve_circ"])
             # Extract the vectorfield and land data
             dict_instance = load_benchmark_instance(
-                instance_name, date_start=data_bers["date_start"], vel_ship=vel_ship
+                instance_name,
+                date_start=data_bers["date_start"],
+                vel_ship=vel_ship,
+                data_path=data_path,
             )
 
             dict_costs = {}
@@ -382,7 +387,10 @@ def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: fl
     plt.close()
 
 
-def main(path_output: str = "output/json_benchmark"):
+def main(
+    path_output: str = "output/json_benchmark",
+    data_path: str = "../weather-routing-benchmarks/data",
+):
     """Generate the figures for the paper from benchmark results.
 
     Requires to run first:
@@ -394,7 +402,9 @@ def main(path_output: str = "output/json_benchmark"):
         raise FileNotFoundError(
             "Results not found. Please run first scripts/realworld/results.py"
         ) from exc
-    plot_bers_vs_circumnavigation(df, path_output=Path("output"))
+    plot_bers_vs_circumnavigation(
+        df, path_output=Path("output"), data_path=Path(data_path)
+    )
     fullyear_savings_speed(df, Path("output"))
     fullyear_savings_odp(df, Path("output"))
     boxplot_gains_per_instance(df, Path("output"), vel_ship=3)
