@@ -221,7 +221,6 @@ def load_benchmark_instance(
         vel_ship=vel_ship,
         data_path=data_path,
         bounding_border=bounding_border,
-        use_waves=False,
     )
 
     # Load ocean and land data
