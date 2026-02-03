@@ -41,7 +41,6 @@ def single_run(
     data_path: str = "../weather-routing-benchmarks/data",
     penalty: float = 1e6,
     K: int = 10,
-    L: int = 256,
     num_pieces: int = 3,
     popsize: int = 5000,
     sigma0: int = 1,
@@ -81,7 +80,6 @@ def single_run(
         "vel_ship": vel_ship,
         "penalty": penalty,
         "K": K,
-        "L": L,
         "num_pieces": num_pieces,
         "popsize": popsize,
         "sigma0": sigma0,
@@ -144,7 +142,7 @@ def single_run(
             grid_resolution=4,
             neighbour_disk_size=3,
             land_dilation=1,
-            num_points=L,
+            num_points=320,
             fms_damping=0.0,
             verbose=verbose,
         )
@@ -201,7 +199,7 @@ def single_run(
         dict_instance,
         penalty=penalty,
         K=K,
-        L=L,
+        L=curve_circ.shape[0],  # One segment per hour approx
         num_pieces=num_pieces,
         popsize=popsize,
         sigma0=sigma0,
