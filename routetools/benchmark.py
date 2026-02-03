@@ -344,6 +344,11 @@ def circumnavigate(
     assert (
         curve.ndim == 2 and curve.shape[1] == 2
     ), f"Curve must have shape (L, 2), but got {curve.shape}"
+    # Remove the first and last points if they are duplicates
+    if jnp.allclose(curve[0], curve[1]):
+        curve = curve[1:]
+    if jnp.allclose(curve[-1], curve[-2]):
+        curve = curve[:-1]
 
     # Interpolate the number of points to target num_points
     if curve.shape[0] != num_points:
