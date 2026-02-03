@@ -25,6 +25,10 @@ def test_interpolate_to_constant_cost():
         cost_per_segment=2.0,
     )
 
+    # Ensure the first and last points are the same as the original curve
+    assert jnp.allclose(curve_interpolated[0], curve[0]), "First point mismatch"
+    assert jnp.allclose(curve_interpolated[-1], curve[-1]), "Last point mismatch"
+
     # Check that the distances between consecutive points are approximately equal
     distances = jnp.linalg.norm(
         curve_interpolated[1:] - curve_interpolated[:-1], axis=1

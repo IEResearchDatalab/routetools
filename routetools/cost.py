@@ -385,7 +385,7 @@ def interpolate_to_constant_cost(
     ]
     | None = None,
     spherical_correction: bool = False,
-    oversampling_factor: int = 100,
+    oversampling_factor: int = 1000,
 ) -> jnp.ndarray:
     """
     Reinterpolate a curve so that each segment has approximately the same cost.
@@ -407,7 +407,7 @@ def interpolate_to_constant_cost(
         Whether to apply spherical correction to distances. Default is False.
     oversampling_factor : int, optional
         Factor by which to oversample the original curve for reinterpolation.
-        Default is 100.
+        Default is 1000.
 
     Returns
     -------
@@ -426,18 +426,18 @@ def interpolate_to_constant_cost(
     # The segments with higher cost should have more points
     weight_per_segment = original_cost / jnp.sum(original_cost)
     # Scale up for oversampling
-    points_per_segment = weight_per_segment * 100 * oversampling_factor
+    points_per_segment = jnp.ceil(weight_per_segment * oversampling_factor).astype(int)
 
     # Build a fine curve by oversampling each segment
-    fine_curve = []
+    fine_curve: list[jnp.ndarray] = []
     for i in range(curve.shape[0] - 1):
-        n_points = int(jnp.ceil(points_per_segment[i])) + 1  # +1 to include endpoint
+        n_points = points_per_segment[i] + 1  # +1 to include endpoint
         segment = jnp.linspace(curve[i], curve[i + 1], n_points)
         # Exclude the last point to avoid duplicates, except for the last segment
         fine_curve.append(segment)
     fine_curve = jnp.concatenate(fine_curve, axis=0)  # Shape (L_fine, 2)
 
-    # Now, compute the current cost of each segment
+    # Compute the cost of the interpolated fine curve
     cost = cost_function_constant_speed_time_variant(
         vectorfield,
         fine_curve[jnp.newaxis, :, :],
@@ -456,29 +456,12 @@ def interpolate_to_constant_cost(
     # the desired cumulative costs
     new_indices = jnp.searchsorted(cumulative_cost, cumulative_cost_desired)
     new_indices = jnp.clip(new_indices, 0, fine_curve.shape[0] - 1)
+    # Ensure the last point is included
+    new_indices = jnp.concatenate([new_indices, jnp.array([fine_curve.shape[0] - 1])])
+    # Ensure the indices are unique and sorted
+    new_indices = jnp.sort(jnp.unique(new_indices))
 
     # Build the new curve
     new_curve = fine_curve[new_indices, :]
-
-    # Compute the final cost between the new segments
-    final_cost = cost_function_constant_speed_time_variant(
-        vectorfield,
-        new_curve[jnp.newaxis, :, :],
-        travel_stw=travel_stw,
-        wavefield=wavefield,
-        spherical_correction=spherical_correction,
-    )[0]  # Shape (L_new - 1,)
-
-    # Ensure the final cost is close to the desired cost per segment
-    if not jnp.allclose(jnp.mean(final_cost), cost_per_segment, rtol=1e-2):
-        raise ValueError(
-            "Could not reinterpolate the curve to achieve the desired constant cost."
-            f" Target cost per segment: {cost_per_segment},"
-            f" actual costs per segment: {final_cost[:5]}..."
-        )
-
-    # Include the last point of the original curve
-    if not jnp.array_equal(new_curve[-1], curve[-1]):
-        new_curve = jnp.vstack([new_curve, curve[-1]])
 
     return new_curve
