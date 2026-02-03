@@ -433,7 +433,6 @@ def interpolate_to_constant_cost(
     for i in range(curve.shape[0] - 1):
         n_points = points_per_segment[i] + 1  # +1 to include endpoint
         segment = jnp.linspace(curve[i], curve[i + 1], n_points)
-        # Exclude the last point to avoid duplicates, except for the last segment
         fine_curve.append(segment)
     fine_curve = jnp.concatenate(fine_curve, axis=0)  # Shape (L_fine, 2)
 
