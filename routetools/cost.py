@@ -371,3 +371,114 @@ def cost_function_constant_cost_time_invariant(
     # We must navigate the path in a fixed time
     cost = ((dxdt - uinterp) ** 2 + (dydt - vinterp) ** 2) / 2
     return cost * dt
+
+
+def interpolate_to_constant_cost(
+    curve: jnp.ndarray,
+    vectorfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ],
+    travel_stw: float,
+    cost_per_segment: float,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    spherical_correction: bool = False,
+    oversampling_factor: int = 100,
+) -> jnp.ndarray:
+    """
+    Reinterpolate a curve so that each segment has approximately the same cost.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        A single trajectory (an array of shape L x 2).
+        Coordinates are (lon, lat) or (x, y).
+    vectorfield : Callable
+        A function that returns the horizontal and vertical components of the vector
+    travel_stw : float
+        The boat will have this fixed speed through water (STW)
+    cost_per_segment : float
+        Desired cost per segment after reinterpolation.
+    wavefield : Callable, optional
+        A function that returns the wave height and direction.
+    spherical_correction : bool, optional
+        Whether to apply spherical correction to distances. Default is False.
+    oversampling_factor : int, optional
+        Factor by which to oversample the original curve for reinterpolation.
+        Default is 100.
+
+    Returns
+    -------
+    jnp.ndarray
+        A reinterpolated trajectory (an array of shape L' x 2).
+    """
+    # First, compute the cost between the original segments
+    original_cost = cost_function_constant_speed_time_variant(
+        vectorfield,
+        curve[jnp.newaxis, :, :],
+        travel_stw=travel_stw,
+        wavefield=wavefield,
+        spherical_correction=spherical_correction,
+    )[0]  # Shape (L_orig - 1)
+    # We are going to reinterpolate the curve, weighting by the cost
+    # The segments with higher cost should have more points
+    weight_per_segment = original_cost / jnp.sum(original_cost)
+    # Scale up for oversampling
+    points_per_segment = weight_per_segment * 100 * oversampling_factor
+
+    # Build a fine curve by oversampling each segment
+    fine_curve = []
+    for i in range(curve.shape[0] - 1):
+        n_points = int(jnp.ceil(points_per_segment[i])) + 1  # +1 to include endpoint
+        segment = jnp.linspace(curve[i], curve[i + 1], n_points)
+        # Exclude the last point to avoid duplicates, except for the last segment
+        fine_curve.append(segment)
+    fine_curve = jnp.concatenate(fine_curve, axis=0)  # Shape (L_fine, 2)
+
+    # Now, compute the current cost of each segment
+    cost = cost_function_constant_speed_time_variant(
+        vectorfield,
+        fine_curve[jnp.newaxis, :, :],
+        travel_stw=travel_stw,
+        wavefield=wavefield,
+        spherical_correction=spherical_correction,
+    )[0]  # Shape (L_fine - 1,)
+    # Compute the cumulative cost along the path
+    cumulative_cost = jnp.cumsum(cost)
+    cumulative_cost = jnp.concatenate([jnp.array([0.0]), cumulative_cost])
+    # Compute the desired cumulative cost at each segment
+    cumulative_cost_desired = jnp.arange(
+        0, cumulative_cost[-1] + cost_per_segment, cost_per_segment
+    )
+    # Find the indices in the fine curve that are closest to
+    # the desired cumulative costs
+    new_indices = jnp.searchsorted(cumulative_cost, cumulative_cost_desired)
+    new_indices = jnp.clip(new_indices, 0, fine_curve.shape[0] - 1)
+
+    # Build the new curve
+    new_curve = fine_curve[new_indices, :]
+
+    # Compute the final cost between the new segments
+    final_cost = cost_function_constant_speed_time_variant(
+        vectorfield,
+        new_curve[jnp.newaxis, :, :],
+        travel_stw=travel_stw,
+        wavefield=wavefield,
+        spherical_correction=spherical_correction,
+    )[0]  # Shape (L_new - 1,)
+
+    # Ensure the final cost is close to the desired cost per segment
+    if not jnp.allclose(jnp.mean(final_cost), cost_per_segment, rtol=1e-2):
+        raise ValueError(
+            "Could not reinterpolate the curve to achieve the desired constant cost."
+            f" Target cost per segment: {cost_per_segment},"
+            f" actual costs per segment: {final_cost[:5]}..."
+        )
+
+    # Include the last point of the original curve
+    if not jnp.array_equal(new_curve[-1], curve[-1]):
+        new_curve = jnp.vstack([new_curve, curve[-1]])
+
+    return new_curve
