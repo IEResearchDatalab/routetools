@@ -10,7 +10,11 @@ from routetools.benchmark import (
     load_benchmark_instance,
     optimize_benchmark_instance,
 )
-from routetools.cost import cost_function, haversine_distance_from_curve
+from routetools.cost import (
+    cost_function,
+    haversine_distance_from_curve,
+    interpolate_to_constant_cost,
+)
 from routetools.fms import optimize_fms
 
 YEAR = 2023
@@ -156,6 +160,17 @@ def single_run(
                 indent=4,
             )
 
+    # Interpolate the circumnavigation curve to have approximately constant
+    # cost segments of 1 hours
+    curve_circ = interpolate_to_constant_cost(
+        curve=curve_circ,
+        vectorfield=dict_instance["vectorfield"],
+        wavefield=dict_instance["wavefield"],
+        travel_stw=vel_ship,
+        cost_per_segment=3600,  # 1 hour segments
+        spherical_correction=True,
+    )
+
     cost_circ = cost_function(
         vectorfield=dict_instance["vectorfield"],
         curve=curve_circ[jnp.newaxis, :, :],
@@ -204,6 +219,16 @@ def single_run(
     # Compute distance too
     dist_cmaes_km = jnp.sum(haversine_distance_from_curve(curve_cmaes)) / 1000
 
+    # Reinterpolate to constant cost segments of 1 hour
+    curve_cmaes = interpolate_to_constant_cost(
+        curve=curve_cmaes,
+        vectorfield=dict_instance["vectorfield"],
+        wavefield=dict_instance["wavefield"],
+        travel_stw=vel_ship,
+        cost_per_segment=3600,  # 1 hour segments
+        spherical_correction=True,
+    )
+
     # Update the results dictionary with the optimization results
     results.update(
         {
@@ -240,6 +265,16 @@ def single_run(
 
     # Compute distance too
     dist_fms_km = jnp.sum(haversine_distance_from_curve(curve_fms)) / 1000
+
+    # Reinterpolate to constant cost segments of 1 hour
+    curve_fms = interpolate_to_constant_cost(
+        curve=curve_fms,
+        vectorfield=dict_instance["vectorfield"],
+        wavefield=dict_instance["wavefield"],
+        travel_stw=vel_ship,
+        cost_per_segment=3600,  # 1 hour segments
+        spherical_correction=True,
+    )
 
     # Update the results dictionary with the optimization results
     results.update(
