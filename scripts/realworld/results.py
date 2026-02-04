@@ -242,24 +242,33 @@ def single_run(
     # FMS
     # ----------------------------------------------------------------------
 
-    curve_fms, dict_fms = optimize_fms(
-        vectorfield=dict_instance["vectorfield"],
-        curve=curve_cmaes,
-        land=dict_instance["land"],
-        travel_stw=dict_instance["travel_stw"],
-        travel_time=dict_instance["travel_time"],
-        patience=patience_fms,
-        damping=damping_fms,
-        maxfevals=maxfevals_fms,
-        weight_l1=1.0,
-        weight_l2=0.0,
-        spherical_correction=True,
-        seed=seed,
-        verbose=verbose,
-    )
-    # FMS adds an extra batch dimension, remove it
-    curve_fms = curve_fms[0]
-    cost_fms = dict_fms["cost"][0]
+    try:
+        curve_fms, dict_fms = optimize_fms(
+            vectorfield=dict_instance["vectorfield"],
+            curve=curve_cmaes,
+            land=dict_instance["land"],
+            travel_stw=dict_instance["travel_stw"],
+            travel_time=dict_instance["travel_time"],
+            patience=patience_fms,
+            damping=damping_fms,
+            maxfevals=maxfevals_fms,
+            weight_l1=1.0,
+            weight_l2=0.0,
+            spherical_correction=True,
+            seed=seed,
+            verbose=verbose,
+        )
+        # FMS adds an extra batch dimension, remove it
+        curve_fms = curve_fms[0]
+        cost_fms = dict_fms["cost"][0]
+    except Exception as e:
+        print(f"[WARNING] FMS optimization failed: {e}")
+        curve_fms = curve_cmaes
+        cost_fms = cost_cmaes
+        dict_fms = {
+            "comp_time": None,
+            "niter": None,
+        }
 
     # Compute distance too
     dist_fms_km = jnp.sum(haversine_distance_from_curve(curve_fms)) / 1000
