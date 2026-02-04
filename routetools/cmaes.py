@@ -43,7 +43,7 @@ def batch_bezier(t: jnp.ndarray, control: jnp.ndarray) -> jnp.ndarray:
     return control[:, 0, ...]
 
 
-@partial(jit, static_argnums=(3, 4))
+@partial(jit, static_argnums=(3, 4, 5))
 def control_to_curve(
     control: jnp.ndarray,
     src: jnp.ndarray,
