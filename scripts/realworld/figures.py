@@ -393,7 +393,7 @@ def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: fl
     positions = np.arange(len(order_instances))
     # The length of ls_gains must be higher than 0
     if len(ls_gains) == 0:
-        print("[WARNING] No data available for the specified ship velocity.")
+        print(f"[WARNING] No data available for ship velocity: {vel_ship}")
         return
     plt.figure(figsize=(10, 5))
     ax = plt.gca()
