@@ -9,7 +9,6 @@ import pandas as pd
 import statsmodels.api as sm
 
 from routetools.benchmark import load_benchmark_instance
-from routetools.cost import cost_function
 from routetools.plot import plot_curve, plot_distance_to_end_vs_time
 
 MODEL = "BERS"
@@ -55,27 +54,6 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
     # Create a DataFrame from the list of dictionaries
     df = pd.DataFrame(ls_data)
 
-    # Sanity check: compute mean and std of cost using all columns:
-    # cost_circ, cost_cmaes, cost_fms
-    # Then drop the rows where the cost - mean is larger than 3*std
-    cost_mean = df[["cost_circ", "cost_cmaes", "cost_fms"]].values.mean()
-    cost_std = df[["cost_circ", "cost_cmaes", "cost_fms"]].values.std()
-    mask_valid = np.all(
-        np.abs(df[["cost_circ", "cost_cmaes", "cost_fms"]] - cost_mean) < 3 * cost_std,
-        axis=1,
-    )
-    # Any cost above 1e6 should also be considered invalid
-    mask_valid &= (df[["cost_circ", "cost_cmaes", "cost_fms"]] < 1e6).all(axis=1)
-    # If there was some invalid data, print how many rows were dropped
-    if mask_valid.sum() != len(df):
-        print(f"Dropped {len(df) - mask_valid.sum()} rows due to invalid costs.")
-        # Save the invalid rows to a separate CSV for inspection
-        df_invalid = df[~mask_valid]
-        path_invalid = path_output / "dataframe_invalid.csv"
-        df_invalid.to_csv(path_invalid, index=False)
-    # Keep only valid rows
-    df = df[mask_valid].copy()
-
     # Calculate the time savings as a percentage
     df["gain"] = 100 * (df["cost_circ"] - df["cost_fms"]) / df["cost_circ"]
     # Calculate relative distance increase
@@ -89,6 +67,19 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
     df["season"] = df["week"].apply(season)
     # Sort by: instance_name, vel_ship, date_start
     df = df.sort_values(by=["instance_name", "vel_ship", "date_start"])
+
+    # Sanity check: any gains above 90% or below 0% are invalid
+    mask_valid = (df["gain"] <= 90) & (df["gain"] >= 0)
+    # If there was some invalid data, print how many rows were dropped
+    if mask_valid.sum() != len(df):
+        print(f"Dropped {len(df) - mask_valid.sum()} rows due to invalid costs.")
+        # Save the invalid rows to a separate CSV for inspection
+        df_invalid = df[~mask_valid]
+        path_invalid = path_output / "dataframe_invalid.csv"
+        df_invalid.to_csv(path_invalid, index=False)
+    # Keep only valid rows
+    df = df[mask_valid].copy()
+
     # Save the DataFrame to a CSV file for future use
     df.to_csv(pth_df, index=False)
     return df
@@ -139,23 +130,11 @@ def plot_bers_vs_circumnavigation(
                 data_path=data_path,
             )
 
-            dict_costs = {}
-
-            for name, curve in [
-                ("Orthodromic", curve_circ),
-                ("CMA-ES", curve_cmaes),
-                ("FMS", curve_fms),
-            ]:
-                cost = cost_function(
-                    vectorfield=dict_instance["vectorfield"],
-                    curve=curve[jnp.newaxis, :, :],
-                    wavefield=dict_instance["wavefield"],
-                    travel_stw=vel_ship,
-                    travel_time=None,
-                    spherical_correction=True,
-                )
-                # Cost is in seconds, convert to hours
-                dict_costs[name] = int(cost[0] / 3600.0)
+            dict_costs = {
+                "Orthodromic": data_bers["cost_circ"] / 3600,
+                "CMA-ES": data_bers["cost_cmaes"] / 3600,
+                "FMS": data_bers["cost_fms"] / 3600,
+            }
 
             # ------------------------------
             # Plot the curve
@@ -167,9 +146,9 @@ def plot_bers_vs_circumnavigation(
                 vectorfield=vectorfield,
                 ls_curve=[curve_circ, curve_cmaes, curve_fms],
                 ls_name=[
-                    f"Orthodromic ({dict_costs['Orthodromic']} hrs)",
-                    f"CMA-ES ({dict_costs['CMA-ES']} hrs)",
-                    f"FMS ({dict_costs['FMS']} hrs)",
+                    f"Orthodromic ({dict_costs['Orthodromic']:.0f} hrs)",
+                    f"CMA-ES ({dict_costs['CMA-ES']:.0f} hrs)",
+                    f"FMS ({dict_costs['FMS']:.0f} hrs)",
                 ],
                 land=land,
                 gridstep=1 / 12,
