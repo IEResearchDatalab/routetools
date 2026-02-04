@@ -64,7 +64,6 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
         np.abs(df[["cost_circ", "cost_cmaes", "cost_fms"]] - cost_mean) < 3 * cost_std,
         axis=1,
     )
-    df = df[mask_valid].copy()
     # If there was some invalid data, print how many rows were dropped
     if len(mask_valid) != len(df):
         print(f"Dropped {len(mask_valid) - len(df)} rows due to invalid costs.")
@@ -72,6 +71,8 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
         df_invalid = df[~mask_valid]
         path_invalid = path_output / "dataframe_invalid.csv"
         df_invalid.to_csv(path_invalid, index=False)
+    # Keep only valid rows
+    df = df[mask_valid].copy()
 
     # Calculate the time savings as a percentage
     df["gain"] = 100 * (df["cost_circ"] - df["cost_fms"]) / df["cost_circ"]
