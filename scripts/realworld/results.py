@@ -42,7 +42,7 @@ def single_run(
     penalty: float = 1e6,
     K: int = 10,
     num_pieces: int = 3,
-    popsize: int = 5000,
+    popsize: int = 500,
     sigma0: int = 1,
     keep_top: float = 0.002,
     tolfun_cmaes: float = 60,
