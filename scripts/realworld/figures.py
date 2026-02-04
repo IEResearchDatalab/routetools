@@ -55,7 +55,7 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
     # Create a DataFrame from the list of dictionaries
     df = pd.DataFrame(ls_data)
 
-    # Sanity check: compute mean dn std of cost using all columns:
+    # Sanity check: compute mean and std of cost using all columns:
     # cost_circ, cost_cmaes, cost_fms
     # Then drop the rows where the cost - mean is larger than 3*std
     cost_mean = df[["cost_circ", "cost_cmaes", "cost_fms"]].values.mean()
@@ -64,9 +64,11 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
         np.abs(df[["cost_circ", "cost_cmaes", "cost_fms"]] - cost_mean) < 3 * cost_std,
         axis=1,
     )
+    # Any cost above 1e6 should also be considered invalid
+    mask_valid &= (df[["cost_circ", "cost_cmaes", "cost_fms"]] < 1e6).all(axis=1)
     # If there was some invalid data, print how many rows were dropped
-    if len(mask_valid) != len(df):
-        print(f"Dropped {len(mask_valid) - len(df)} rows due to invalid costs.")
+    if mask_valid.sum() != len(df):
+        print(f"Dropped {len(df) - mask_valid.sum()} rows due to invalid costs.")
         # Save the invalid rows to a separate CSV for inspection
         df_invalid = df[~mask_valid]
         path_invalid = path_output / "dataframe_invalid.csv"
@@ -384,14 +386,23 @@ def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: fl
         .sort_values(ascending=False)
         .index.tolist()
     )
+    ls_gains = []
+    for inst in order_instances:
+        gains = df_sub[df_sub["instance_name"] == inst]["gain"].values
+        ls_gains.append(gains)
+    positions = np.arange(len(order_instances))
+    # The length of ls_gains must be higher than 0
+    if len(ls_gains) == 0:
+        print("[WARNING] No data available for the specified ship velocity.")
+        return
     plt.figure(figsize=(10, 5))
     ax = plt.gca()
     # Create boxplot
     box = ax.boxplot(
-        [df_sub[df_sub["instance_name"] == inst]["gain"] for inst in order_instances],
-        positions=np.arange(len(order_instances)),
+        ls_gains,
+        positions=positions,
         patch_artist=True,
-        medianprops=dict(color="black"),
+        medianprops={"color": "black"},
     )
     # Color the boxes
     for patch in box["boxes"]:
