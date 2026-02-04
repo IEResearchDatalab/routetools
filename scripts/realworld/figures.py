@@ -54,6 +54,25 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
             ls_data.append(data)
     # Create a DataFrame from the list of dictionaries
     df = pd.DataFrame(ls_data)
+
+    # Sanity check: compute mean dn std of cost using all columns:
+    # cost_circ, cost_cmaes, cost_fms
+    # Then drop the rows where the cost - mean is larger than 3*std
+    cost_mean = df[["cost_circ", "cost_cmaes", "cost_fms"]].values.mean()
+    cost_std = df[["cost_circ", "cost_cmaes", "cost_fms"]].values.std()
+    mask_valid = np.all(
+        np.abs(df[["cost_circ", "cost_cmaes", "cost_fms"]] - cost_mean) < 3 * cost_std,
+        axis=1,
+    )
+    df = df[mask_valid].copy()
+    # If there was some invalid data, print how many rows were dropped
+    if len(mask_valid) != len(df):
+        print(f"Dropped {len(mask_valid) - len(df)} rows due to invalid costs.")
+        # Save the invalid rows to a separate CSV for inspection
+        df_invalid = df[~mask_valid]
+        path_invalid = path_output / "dataframe_invalid.csv"
+        df_invalid.to_csv(path_invalid, index=False)
+
     # Calculate the time savings as a percentage
     df["gain"] = 100 * (df["cost_circ"] - df["cost_fms"]) / df["cost_circ"]
     # Calculate relative distance increase
