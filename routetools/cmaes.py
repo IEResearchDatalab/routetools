@@ -50,6 +50,7 @@ def control_to_curve(
     dst: jnp.ndarray,
     L: int = 64,
     num_pieces: int = 1,
+    force_L_multiple_of_num_pieces: bool = False,
 ) -> jnp.ndarray:
     """
     Convert a batch of free parameters into a batch of Bézier curves.
@@ -64,6 +65,9 @@ def control_to_curve(
         Number of points evaluated in each Bézier curve, by default 64
     num_pieces : int, optional
         Number of Bézier curves, by default 1
+    force_L_multiple_of_num_pieces : bool, optional
+        If True, ensures that L-1 is divisible by num_pieces. Raises ValueError if not.
+        Default is False.
 
     Returns
     -------
@@ -108,11 +112,14 @@ def control_to_curve(
         waypoints_per_piece = (L - 1) / num_pieces
         if int(waypoints_per_piece) != waypoints_per_piece:
             L_rec = int(waypoints_per_piece) * num_pieces + 1
-            raise ValueError(
-                "The number of waypoints - 1 must be divisible by num_pieces. "
-                f"Got {L} waypoints and {num_pieces} pieces. "
-                f"Consider using {L_rec} waypoints."
-            )
+            if force_L_multiple_of_num_pieces:
+                waypoints_per_piece = L_rec
+            else:
+                raise ValueError(
+                    "The number of waypoints - 1 must be divisible by num_pieces. "
+                    f"Got {L} waypoints and {num_pieces} pieces. "
+                    f"Consider using {L_rec} waypoints."
+                )
         else:
             waypoints_per_piece = int(waypoints_per_piece) + 1
 
@@ -279,6 +286,7 @@ def _cma_evolution_strategy(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     L: int = 64,
+    force_L_multiple_of_num_pieces: bool = True,
     num_pieces: int = 1,
     popsize: int = 200,
     sigma0: float = 1,
@@ -322,7 +330,14 @@ def _cma_evolution_strategy(
         X = es.ask()  # sample len(X) candidate solutions
 
         # Transform controls into curves and compute costs
-        curve = control_to_curve(jnp.array(X), src, dst, L=L, num_pieces=num_pieces)
+        curve = control_to_curve(
+            jnp.array(X),
+            src,
+            dst,
+            L=L,
+            num_pieces=num_pieces,
+            force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
+        )
 
         cost: jnp.ndarray = cost_function(
             vectorfield=vectorfield,
@@ -383,6 +398,7 @@ def optimize(
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,
+    force_L_multiple_of_num_pieces: bool = False,
     popsize: int = 200,
     sigma0: float = 1,
     tolfun: float = 1e-4,
@@ -433,6 +449,9 @@ def optimize(
         Number of free Bézier control points. By default 6
     L : int, optional
         Number of points evaluated in each Bézier curve. By default 64
+    force_L_multiple_of_num_pieces : bool, optional
+        If True, ensures that L-1 is divisible by num_pieces. Raises ValueError if not.
+        By default False
     popsize : int, optional
         Population size for the CMA-ES optimizer. By default 200
     sigma0 : float, optional
@@ -485,7 +504,14 @@ def optimize(
         # Initial solution from provided curve
         x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
         # Validate that, after conversion, it still does not cross land
-        curve_check = control_to_curve(x0, src, dst, L=L, num_pieces=num_pieces)
+        curve_check = control_to_curve(
+            x0,
+            src,
+            dst,
+            L=L,
+            num_pieces=num_pieces,
+            force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
+        )
         is_land = land(curve_check)
         if land is not None and is_land.any():
             ls_idx = jnp.where(is_land)[0].tolist()
@@ -513,6 +539,7 @@ def optimize(
         travel_stw=travel_stw,
         travel_time=travel_time,
         L=L,
+        force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         num_pieces=num_pieces,
         popsize=popsize,
         sigma0=sigma0,
@@ -532,7 +559,12 @@ def optimize(
         print("Fuel cost:", es.best.f)
 
     curve_best = control_to_curve(
-        jnp.asarray(es.best.x), src, dst, L=L, num_pieces=num_pieces
+        jnp.asarray(es.best.x),
+        src,
+        dst,
+        L=L,
+        num_pieces=num_pieces,
+        force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
     )
     cost_best: float = es.best.f
 
@@ -591,6 +623,7 @@ def optimize_with_increasing_penalization(
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,
+    force_L_multiple_of_num_pieces: bool = False,
     popsize: int = 200,
     sigma0: float = 1,
     tolfun: float = 1e-4,
@@ -708,7 +741,12 @@ def optimize_with_increasing_penalization(
             print("Fuel cost:", es.best.f)
 
         curve: jnp.ndarray = control_to_curve(
-            es.best.x, src, dst, L=L, num_pieces=num_pieces
+            es.best.x,
+            src,
+            dst,
+            L=L,
+            num_pieces=num_pieces,
+            force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         )
         # sigma0 = es.sigma0
         if land(curve).any():
