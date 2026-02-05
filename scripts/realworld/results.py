@@ -173,7 +173,7 @@ def single_run(
     curve_circ = move_curve_away_from_land(
         curve=curve_circ,
         land=dict_instance["land"],
-        distance_from_land=1000,
+        distance_from_land=100,
         spherical_correction=True,
     )
 
@@ -238,7 +238,7 @@ def single_run(
     curve_cmaes = move_curve_away_from_land(
         curve=curve_cmaes,
         land=dict_instance["land"],
-        distance_from_land=1000,
+        distance_from_land=100,
         spherical_correction=True,
     )
 
