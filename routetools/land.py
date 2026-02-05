@@ -351,3 +351,72 @@ class Land:
         dist = jnp.sqrt(dx**2 + dy**2) / max_distance
 
         return jnp.sum(cost, axis=1) + neighbor_penalty * jnp.sum(dist, axis=1)
+
+
+def move_curve_away_from_land(
+    curve: jnp.ndarray,
+    land: Land,
+    step_size: float = 1000.0,
+    distance_from_land: float = 0,
+    spherical_correction: bool = False,
+) -> jnp.ndarray:
+    """Move a curve away from land by a specified step size.
+
+    This function assumes the curve is marginally on land
+    and tries to move it away iteratively.
+    It will not work well if the curve is deeply on land,
+    as it may get stuck in a local minimum. In that case,
+    consider using a more sophisticated optimization algorithm.
+    """
+    # Ensure we are working with a single curve of shape (L, 2)
+    if curve.ndim == 3 and curve.shape[0] == 1:
+        curve = curve[0]
+    elif curve.ndim != 2 or curve.shape[1] != 2:
+        raise ValueError(
+            f"""
+            Curve must be of shape (L, 2) or (1, L, 2), but got {curve.shape}
+            """
+        )
+    # Find all points of the curve that are on land
+    is_land = land(curve)
+    # Also the points close to land, if distance_from_land > 0
+    if distance_from_land > 0:
+        distance = land.distance_to_land(curve, haversine=spherical_correction)
+        is_close = distance < distance_from_land
+        is_land = is_land | is_close
+    if not jnp.any(is_land):
+        return curve  # No points on land, return the original curve
+    # We will start an iterative process to move points away from land
+    idx_land = jnp.argwhere(is_land)
+    curve_new = curve.copy()
+    for idx in idx_land:
+        # Open a radius around the point and find the nearest point
+        # not on land
+        point = curve[idx]
+        radius = step_size  # in meters
+        niter = 0
+        while niter < 10:
+            # Create a grid of points around the current point
+            angles = jnp.linspace(0, 2 * jnp.pi, num=16, endpoint=False)
+            offsets = jnp.stack([jnp.cos(angles), jnp.sin(angles)], axis=-1) * radius
+            candidates = point + offsets
+            # Check which candidates are on land
+            is_candidate_land = land(candidates)
+            # Also check distance to land for candidates, if distance_from_land > 0
+            if distance_from_land > 0:
+                distance = land.distance_to_land(
+                    candidates, haversine=spherical_correction
+                )
+                is_candidate_close = distance < distance_from_land
+                is_candidate_land = is_candidate_land | is_candidate_close
+            if not jnp.any(is_candidate_land):
+                # If no candidates are on land, move to the nearest candidate
+                distances = jnp.linalg.norm(candidates - point, axis=1)
+                nearest_idx = jnp.argmin(distances)
+                curve_new = curve_new.at[idx].set(candidates[nearest_idx])
+                break
+            else:
+                # If some candidates are on land, increase the radius and try again
+                radius += step_size
+            niter += 1
+    return curve_new

@@ -16,6 +16,7 @@ from routetools.cost import (
     interpolate_to_constant_cost,
 )
 from routetools.fms import optimize_fms
+from routetools.land import move_curve_away_from_land
 
 YEAR = 2023
 WEEKS = 52
@@ -168,6 +169,13 @@ def single_run(
         cost_per_segment=3600,  # 1 hour segments
         spherical_correction=True,
     )
+    # Ensure land is not crossed after interpolation
+    curve_circ = move_curve_away_from_land(
+        curve=curve_circ,
+        land=dict_instance["land"],
+        distance_from_land=1000,
+        spherical_correction=True,
+    )
 
     cost_circ = cost_function(
         vectorfield=dict_instance["vectorfield"],
@@ -224,6 +232,13 @@ def single_run(
         wavefield=dict_instance["wavefield"],
         travel_stw=vel_ship,
         cost_per_segment=3600,  # 1 hour segments
+        spherical_correction=True,
+    )
+    # Ensure no land crossing after interpolation
+    curve_cmaes = move_curve_away_from_land(
+        curve=curve_cmaes,
+        land=dict_instance["land"],
+        distance_from_land=1000,
         spherical_correction=True,
     )
 
