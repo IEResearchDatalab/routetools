@@ -162,6 +162,7 @@ Temporary Items
 data/
 notebooks/
 output/
+output*
 
 # User files
 nohup.out
