@@ -10,7 +10,7 @@ from routetools._cost.haversine import (
     haversine_distance_from_curve as haversine_distance_from_curve,
 )
 from routetools._cost.haversine import haversine_meters_components
-from routetools._cost.waves import speed_loss_involuntary
+from routetools._cost.waves import wave_adjusted_speed
 
 
 def angle_wrt_true_north(dx: jnp.ndarray, dy: jnp.ndarray) -> jnp.ndarray:
@@ -196,7 +196,7 @@ def cost_function_constant_speed_time_invariant(
         angle = angle_wrt_true_north(dx, dy)
         wave_height, wave_direction = wavefield(curvex, curvey, curvet)
         # TODO: Problem with dimensions of time
-        travel_stw_mod = speed_loss_involuntary(
+        travel_stw_mod = wave_adjusted_speed(
             angle=angle,
             wave_height=wave_height,
             wave_angle=wave_direction,
@@ -280,7 +280,7 @@ def cost_function_constant_speed_time_variant(
             # Ship's angle with respect to true North in degrees
             angle = angle_wrt_true_north(dx_step, dy_step)
             wave_height, wave_direction = wavefield(x, y, t)
-            travel_stw_mod = speed_loss_involuntary(
+            travel_stw_mod = wave_adjusted_speed(
                 angle=angle,
                 wave_height=wave_height,
                 wave_angle=wave_direction,

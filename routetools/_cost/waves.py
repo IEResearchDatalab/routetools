@@ -152,33 +152,27 @@ def _correction_factor(froude_number: jnp.ndarray, coef_block: float) -> jnp.nda
 
 
 def speed_loss_involuntary(
-    angle: jnp.ndarray,
-    wave_height: jnp.ndarray,
-    wave_angle: jnp.ndarray,
-    vel_ship: float,
+    beaufort: jnp.ndarray,
+    wave_incidence_angle: jnp.ndarray,
+    vel_ship: jnp.ndarray | float,
     coef_block: float = 0.6,
     length: float = 220,
     displacement: float = 36500,
 ) -> jnp.ndarray:
     """Compute speed loss as a percentage between 0% to 100%.
 
-    The speed loss must be applied to the original vessel speed over water to get
-    the effective speed over water.
-
     Only valid for large ships (displacement > 100,000 m3).
     Typical reductions should be between 0 to 30.
 
-
     Parameters
     ----------
-    angle : jnp.ndarray
-        Ship's heading angle with respect to true North in degrees
-    wave_height : jnp.ndarray
-        Wave heights in meters
+    beaufort : jnp.ndarray
+        Sliding scale of Beaufort levels
     wave_incidence_angle : jnp.ndarray
-        Angle of the waves with respect to true North in degrees
-    vel_ship : float
-        Ship velocity over water
+        Relative angle between ship and incoming waves in degrees
+    vel_ship : jnp.ndarray | float
+        Ship velocity over water.
+        If it is a float, it will be considered constant.
     coef_block : float, optional
         Block coefficient of the ship, by default 0.6
     length : float, optional
@@ -189,9 +183,58 @@ def speed_loss_involuntary(
     Returns
     -------
     jnp.ndarray
+        Speed reduction coefficient taking into account of all coefficients.
+    """
+    vel_ship_arr = jnp.asarray(vel_ship)
+    if vel_ship_arr.ndim == 0:
+        vel_ship_arr = jnp.full(wave_incidence_angle.shape, vel_ship_arr)
+
+    c_beta = _coefficient_direction_reduction(wave_incidence_angle, beaufort)
+    c_u = _coefficient_speed_reduction(beaufort, displacement)
+
+    # Computes froude number, given the ship's velocity and length,
+    # g = 9.81 m/s^2, the gravitational acceleration
+    froude_number = vel_ship_arr / (length * 9.81) ** 0.5
+    alpha = _correction_factor(froude_number, coef_block)
+    return jnp.clip(c_beta * c_u * alpha, a_min=0, a_max=100)
+
+
+def wave_adjusted_speed(
+    angle: jnp.ndarray,
+    wave_height: jnp.ndarray,
+    wave_angle: jnp.ndarray,
+    vel_ship: jnp.ndarray | float,
+    coef_block: float = 0.6,
+    length: float = 220,
+    displacement: float = 36500,
+    beaufort_max: float = 8,
+) -> jnp.ndarray:
+    """Compute adjusted ship speed after involuntary wave-induced loss.
+
+    Parameters
+    ----------
+    angle : jnp.ndarray
+        Ship's heading angle with respect to true North in degrees
+    wave_height : jnp.ndarray
+        Wave heights in meters
+    wave_angle : jnp.ndarray
+        Angle of the waves with respect to true North in degrees
+    vel_ship : jnp.ndarray | float
+        Ship velocity over water
+    coef_block : float, optional
+        Block coefficient of the ship, by default 0.6
+    length : float, optional
+        Length of the ship, in m, by default 220
+    displacement : float, optional
+        Displacement of the ship, in m^3, by default 36500
+    beaufort_max : float, optional
+        Maximum Beaufort scale used for conversion, by default 8
+
+    Returns
+    -------
+    jnp.ndarray
         Adjusted ship speed over water after involuntary speed loss due to waves.
     """
-    # Compute wave incidence angle
     wia = jnp.mod(jnp.abs(angle - wave_angle), 360)
     wave_incidence_angle = jnp.minimum(wia, 360 - wia)
     # Expectation:
@@ -199,15 +242,15 @@ def speed_loss_involuntary(
     # 90 degrees -> waves in the beam, medium speed loss
     # 180 degrees -> waves in the bow, lowest speed loss
 
-    beaufort = beaufort_scale(wave_height=wave_height, asfloat=True)
-
-    c_beta = _coefficient_direction_reduction(wave_incidence_angle, beaufort)
-    c_u = _coefficient_speed_reduction(beaufort, displacement)
-
-    # Computes froude number, given the ship's velocity and length,
-    # g = 9.81 m/s^2, the gravitational acceleration
-    froude_number = vel_ship / (length * 9.81) ** 0.5
-    alpha = _correction_factor(froude_number, coef_block)
-    speed_loss = c_beta * c_u * alpha
-    # Apply speed loss
-    return vel_ship * (100 - speed_loss) / 100
+    beaufort = beaufort_scale(
+        wave_height=wave_height, asfloat=True, beaufort_max=beaufort_max
+    )
+    speed_loss = speed_loss_involuntary(
+        beaufort=beaufort,
+        wave_incidence_angle=wave_incidence_angle,
+        vel_ship=vel_ship,
+        coef_block=coef_block,
+        length=length,
+        displacement=displacement,
+    )
+    return jnp.asarray(vel_ship) * (100 - speed_loss) / 100
