@@ -4,10 +4,10 @@ import jax.numpy as jnp
 def beaufort_scale(
     wind_speed: jnp.array = None,
     wave_height: jnp.array = None,
-    beaufort_max: float = 12,
+    beaufort_max: float = 8,
     asfloat: bool = False,
 ) -> jnp.ndarray:
-    """Compute Beaufort scale [0, 12] from wind speed in m/s.
+    """Compute Beaufort scale [0, 8] from wind speed in m/s.
 
     One of `wind_speed`, or `wave_height` must be given.
 
@@ -24,7 +24,7 @@ def beaufort_scale(
     wave_height : jnp.ndarray, optional
         Wave heights in meters.
     beaufort_max : float, optional
-        maximum beaufort scale, by default 12
+        maximum beaufort scale, by default 8
     asfloat : bool, optional
         if True, returns beaufort scale as a float, else return as integer
         by default False

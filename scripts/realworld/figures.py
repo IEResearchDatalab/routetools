@@ -415,12 +415,12 @@ def main(
         raise FileNotFoundError(
             "Results not found. Please run first scripts/realworld/results.py"
         ) from exc
-    plot_bers_vs_circumnavigation(
-        df, path_output=Path("output"), data_path=Path(data_path)
-    )
     fullyear_savings_speed(df, Path("output"))
     fullyear_savings_odp(df, Path("output"))
     boxplot_gains_per_instance(df, Path("output"), vel_ship=3)
+    plot_bers_vs_circumnavigation(
+        df, path_output=Path("output"), data_path=Path(data_path)
+    )
 
 
 if __name__ == "__main__":
