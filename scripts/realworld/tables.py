@@ -71,6 +71,26 @@ def print_median_savings(df: pd.DataFrame):
         print(f"{instance_name}: {median_gain:.2f}%")
 
 
+def print_mean_and_std_savings(df: pd.DataFrame):
+    """Print the mean and standard deviation of savings from the DataFrame.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing benchmark results.
+    """
+    for vel_ship in df["vel_ship"].unique():
+        print(f"Speed: {vel_ship} m/s")
+        # Compute mean and std savings for this speed
+        mean_gain = df[df["vel_ship"] == vel_ship]["gain"].mean()
+        std_gain = df[df["vel_ship"] == vel_ship]["gain"].std()
+        print(f"Mean Gain: {mean_gain:.2f}%")
+        print(f"Std Gain: {std_gain:.2f}%")
+    # Print maximum gain across all speeds
+    max_gain = df["gain"].max()
+    print(f"Maximum Gain across all speeds: {max_gain:.2f}%")
+
+
 def main(path_output: str = "output/json_benchmark"):
     """Generate the figures for the paper from benchmark results.
 
@@ -88,6 +108,7 @@ def main(path_output: str = "output/json_benchmark"):
         return
     table_gains_per_season(df, Path("output"))
     print_median_savings(df)
+    print_mean_and_std_savings(df)
 
 
 if __name__ == "__main__":
