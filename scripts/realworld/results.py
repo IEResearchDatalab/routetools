@@ -16,7 +16,6 @@ from routetools.cost import (
     interpolate_to_constant_cost,
 )
 from routetools.fms import optimize_fms
-from routetools.land import move_curve_away_from_land
 
 YEAR = 2023
 WEEKS = 52
@@ -169,13 +168,6 @@ def single_run(
         cost_per_segment=3600,  # 1 hour segments
         spherical_correction=True,
     )
-    # Ensure land is not crossed after interpolation
-    curve_circ = move_curve_away_from_land(
-        curve=curve_circ,
-        land=dict_instance["land"],
-        distance_from_land=100,
-        spherical_correction=True,
-    )
 
     cost_circ = cost_function(
         vectorfield=dict_instance["vectorfield"],
@@ -234,13 +226,21 @@ def single_run(
         cost_per_segment=3600,  # 1 hour segments
         spherical_correction=True,
     )
-    # Ensure no land crossing after interpolation
-    curve_cmaes = move_curve_away_from_land(
-        curve=curve_cmaes,
-        land=dict_instance["land"],
-        distance_from_land=100,
-        spherical_correction=True,
-    )
+
+    # If the CMA-ES cost is worse than the circumnavigation cost,
+    # keep the circumnavigation curve
+    if cost_cmaes > cost_circ:
+        print(
+            "[WARNING] CMA-ES optimization failed to improve over circumnavigation,"
+            " keeping the circumnavigation curve."
+        )
+        curve_cmaes = curve_circ
+        cost_cmaes = cost_circ
+        dist_cmaes_km = dist_circ_km
+        dict_cmaes = {
+            "comp_time": None,
+            "niter": None,
+        }
 
     # Update the results dictionary with the optimization results
     results.update(
@@ -297,6 +297,20 @@ def single_run(
         cost_per_segment=3600,  # 1 hour segments
         spherical_correction=True,
     )
+
+    # If the FMS cost is worse than the CMA-ES cost, keep the CMA-ES curve
+    if cost_fms > cost_cmaes:
+        print(
+            "[WARNING] FMS optimization failed to improve over CMA-ES,"
+            " keeping the CMA-ES curve."
+        )
+        curve_fms = curve_cmaes
+        cost_fms = cost_cmaes
+        dist_fms_km = dist_cmaes_km
+        dict_fms = {
+            "comp_time": None,
+            "niter": None,
+        }
 
     # Update the results dictionary with the optimization results
     results.update(
