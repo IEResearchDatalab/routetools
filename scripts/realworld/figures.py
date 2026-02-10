@@ -77,8 +77,9 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
         df_invalid = df[~mask_valid]
         path_invalid = path_output / "dataframe_invalid.csv"
         df_invalid.to_csv(path_invalid, index=False)
-    # Keep only valid rows
-    df = df[mask_valid].copy()
+    # Invalid rows gains are converted to NaN
+    # This way, they will be ignored in the plots but still available in the CSV
+    df.loc[~mask_valid, "gain"] = np.nan
 
     # Save the DataFrame to a CSV file for future use
     df.to_csv(pth_df, index=False)
@@ -252,6 +253,8 @@ def fullyear_savings_odp(df: pd.DataFrame, path_output: Path):
         for vel, df3 in df2.groupby("vel_ship"):
             _ = plt.figure(figsize=(10, 5))
             ax = plt.gca()
+            # Sort by week
+            df3 = df3.sort_values("week")
             # Set the x-axis and y-axis data
             x = df3["week"]
             y1 = df3["cost_circ"]
