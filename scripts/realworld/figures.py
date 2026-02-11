@@ -39,8 +39,17 @@ def season(week: int) -> str:
         return "winter"
 
 
-def generate_dataframe(path_output: Path) -> pd.DataFrame:
+def generate_dataframe(
+    path_output: Path | str = "output", subfolder: str = "json_benchmark"
+) -> pd.DataFrame:
     """Generate a combined DataFrame from BERS and orthodromic results."""
+    # Ensure path_output is a Path object
+    if isinstance(path_output, str):
+        path_output = Path(path_output)
+    # Ensure the subfolder exists
+    path_output = path_output / subfolder
+    if not path_output.exists():
+        raise FileNotFoundError(f"Output folder not found: {path_output}")
     # First check if the dataframe already exists inside the folder
     pth_df = path_output / "dataframe.csv"
     ls_data = []
@@ -87,7 +96,10 @@ def generate_dataframe(path_output: Path) -> pd.DataFrame:
 
 
 def plot_bers_vs_circumnavigation(
-    df: pd.DataFrame, path_output: Path, data_path: Path = Path("data")
+    df: pd.DataFrame,
+    vel_ship: float = 3.0,
+    path_output: Path | str = "output",
+    data_path: Path | str = "data",
 ):
     """Plot BERS vs Orthodromic travel times for all benchmark instances.
 
@@ -95,108 +107,120 @@ def plot_bers_vs_circumnavigation(
     ----------
     df : pd.DataFrame
         DataFrame containing benchmark results.
-    path_output : Path
+    vel_ship : float, optional
+        Ship velocity to filter the DataFrame, in meters per second,
+        by default 3.0 (6 knots).
+    path_output : Path or str
         Path to the output folder where the plot will be saved.
+    data_path : Path or str
+        Path to the folder containing the benchmark instance data, used to load the
+        vectorfield and land data for plotting, by default "data".
     """
+    # Ensure path_output is a Path object
+    if isinstance(path_output, str):
+        path_output = Path(path_output)
+    # Ensure data_path is a Path object
+    if isinstance(data_path, str):
+        data_path = Path(data_path)
     # List all instances and speeds
     ls_instances = df["instance_name"].unique()
-    ls_speeds = df["vel_ship"].unique()
 
     for instance_name in ls_instances:
         mask_instance = df["instance_name"] == instance_name
-        for vel_ship in ls_speeds:
-            mask_vel = df["vel_ship"] == vel_ship
-            df_sub: pd.DataFrame = df[mask_instance & mask_vel].copy()
-            # Find the biggest gain and take its IDs
-            idx_max_gain = df_sub["gain"].idxmax()
-            instance_name, date_start, vel_ship = df_sub.loc[
-                idx_max_gain, ["instance_name", "date_start", "vel_ship"]
-            ]
-            name: str = instance_name.replace("-", "")
-            # Turn date into "YYMMDD"
-            date_str: str = date_start.strftime("%y%m%d")
-            unique_name = f"{name}_{date_str}_{vel_ship}"
-            # Load the curves from the JSON files
-            with open(Path("output/json_benchmark") / f"{unique_name}.json") as f:
-                data_bers = json.load(f)
-            # Extract the curves
-            curve_cmaes = jnp.array(data_bers["curve_cmaes"])
-            curve_fms = jnp.array(data_bers["curve_fms"])
-            curve_circ = jnp.array(data_bers["curve_circ"])
-            # Extract the vectorfield and land data
-            dict_instance = load_benchmark_instance(
-                instance_name,
-                date_start=data_bers["date_start"],
-                vel_ship=vel_ship,
-                data_path=data_path,
-            )
+        mask_vel = df["vel_ship"] == vel_ship
+        df_sub: pd.DataFrame = df[mask_instance & mask_vel].copy()
+        # Find the biggest gain and take its IDs
+        idx_max_gain = df_sub["gain"].idxmax()
+        instance_name, date_start, vel_ship = df_sub.loc[
+            idx_max_gain, ["instance_name", "date_start", "vel_ship"]
+        ]
+        name: str = instance_name.replace("-", "")
+        # Turn date into "YYMMDD"
+        date_str: str = date_start.strftime("%y%m%d")
+        unique_name = f"{name}_{date_str}_{vel_ship}"
+        # Load the curves from the JSON files
+        with open(Path("output/json_benchmark") / f"{unique_name}.json") as f:
+            data_bers = json.load(f)
+        # Extract the curves
+        curve_cmaes = jnp.array(data_bers["curve_cmaes"])
+        curve_fms = jnp.array(data_bers["curve_fms"])
+        curve_circ = jnp.array(data_bers["curve_circ"])
+        # Extract the vectorfield and land data
+        dict_instance = load_benchmark_instance(
+            instance_name,
+            date_start=data_bers["date_start"],
+            vel_ship=vel_ship,
+            data_path=data_path,
+        )
 
-            dict_costs = {
-                "Orthodromic": data_bers["cost_circ"] / 3600,
-                "CMA-ES": data_bers["cost_cmaes"] / 3600,
-                "FMS": data_bers["cost_fms"] / 3600,
-            }
+        dict_costs = {
+            "Orthodromic": data_bers["cost_circ"] / 3600,
+            "CMA-ES": data_bers["cost_cmaes"] / 3600,
+            "FMS": data_bers["cost_fms"] / 3600,
+        }
 
-            # ------------------------------
-            # Plot the curve
-            # ------------------------------
+        # ------------------------------
+        # Plot the curve
+        # ------------------------------
 
-            vectorfield = dict_instance["vectorfield"]
-            land = dict_instance["land"]
-            fig, ax = plot_curve(
-                vectorfield=vectorfield,
-                ls_curve=[curve_circ, curve_cmaes, curve_fms],
-                ls_name=[
-                    f"Orthodromic ({dict_costs['Orthodromic']:.0f} hrs)",
-                    f"CMA-ES ({dict_costs['CMA-ES']:.0f} hrs)",
-                    f"FMS ({dict_costs['FMS']:.0f} hrs)",
-                ],
-                land=land,
-                gridstep=1 / 12,
-                figsize=(6, 6),
-                xlim=(land.xmin, land.xmax),
-                ylim=(land.ymin, land.ymax),
-                color_currents=True,
-            )
-            # Include date and velocity in the title
-            ax.set_title(
-                f"{instance_name} | {data_bers['date_start']} | {int(2 * vel_ship)} "
-                "knots"
-            )
-            fig.tight_layout()
-            # We use redundant naming to avoid too many images
-            fig.savefig(
-                path_output / f"benchmark_{instance_name}_{int(vel_ship)}.jpg", dpi=300
-            )
-            plt.close()
+        vectorfield = dict_instance["vectorfield"]
+        land = dict_instance["land"]
+        fig, ax = plot_curve(
+            vectorfield=vectorfield,
+            ls_curve=[curve_circ, curve_cmaes, curve_fms],
+            ls_name=[
+                f"Orthodromic ({dict_costs['Orthodromic']:.0f} hrs)",
+                f"CMA-ES ({dict_costs['CMA-ES']:.0f} hrs)",
+                f"FMS ({dict_costs['FMS']:.0f} hrs)",
+            ],
+            land=land,
+            gridstep=1 / 12,
+            figsize=(6, 6),
+            xlim=(land.xmin, land.xmax),
+            ylim=(land.ymin, land.ymax),
+            color_currents=True,
+        )
+        # Include date and velocity in the title
+        ax.set_title(
+            f"{instance_name} | {data_bers['date_start']} | {int(2 * vel_ship)} knots"
+        )
+        fig.tight_layout()
+        # We use redundant naming to avoid too many images
+        fig.savefig(
+            path_output / f"benchmark_{instance_name}_{int(vel_ship)}.jpg", dpi=300
+        )
+        plt.close()
 
-            # ------------------------------
-            # Plot distance to end vs time
-            # ------------------------------
-            fig2, ax2 = plot_distance_to_end_vs_time(
-                vectorfield=vectorfield,
-                ls_curve=[curve_circ, curve_fms],
-                ls_name=["Orthodromic", "FMS"],
-                name=instance_name,
-                vel_ship=vel_ship,
-            )
-            fig2.tight_layout()
-            fig2.savefig(
-                path_output / f"distance_{instance_name}_{int(vel_ship)}.jpg", dpi=300
-            )
-            plt.close()
+        # ------------------------------
+        # Plot distance to end vs time
+        # ------------------------------
+        fig2, ax2 = plot_distance_to_end_vs_time(
+            vectorfield=vectorfield,
+            ls_curve=[curve_circ, curve_fms],
+            ls_name=["Orthodromic", "FMS"],
+            name=instance_name,
+            vel_ship=vel_ship,
+        )
+        fig2.tight_layout()
+        fig2.savefig(
+            path_output / f"distance_{instance_name}_{int(vel_ship)}.jpg", dpi=300
+        )
+        plt.close()
 
 
-def fullyear_savings_speed(df: pd.DataFrame, path_output: Path):
+def fullyear_savings_speed(df: pd.DataFrame, path_output: Path | str = "output"):
     """Plot the time savings distribution over ship speeds.
 
     Parameters
     ----------
     df : pd.DataFrame
         DataFrame containing benchmark results.
-    path_output : Path
+    path_output : Path or str
         Path to the output folder where the plot will be saved.
     """
+    # Ensure path_output is a Path object
+    if isinstance(path_output, str):
+        path_output = Path(path_output)
     # Initialize matplotlib colors
     colors = ["red", "blue", "green"]
     xmin, xmax = -2, 10
@@ -227,7 +251,7 @@ def fullyear_savings_speed(df: pd.DataFrame, path_output: Path):
     plt.show()
 
 
-def fullyear_savings_odp(df: pd.DataFrame, path_output: Path):
+def fullyear_savings_odp(df: pd.DataFrame, path_output: Path | str = "output"):
     """Plot the time savings over the weeks of the year for each ODP benchmark.
 
     Parameters
@@ -237,6 +261,10 @@ def fullyear_savings_odp(df: pd.DataFrame, path_output: Path):
     path_output : Path
         Path to the output folder where the plots will be saved.
     """
+    # Ensure path_output is a Path object
+    if isinstance(path_output, str):
+        path_output = Path(path_output)
+
     dict_color = {
         "winter": "lightblue",
         "spring": "lightgreen",
@@ -340,7 +368,9 @@ def format_instance_name(name: str) -> str:
         return f"{end} < {start}"
 
 
-def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: float):
+def boxplot_gains_per_instance(
+    df: pd.DataFrame, vel_ship: float = 3.0, path_output: Path | str = "output"
+):
     """Create boxplots of time savings per benchmark instance.
 
     Percent reduction in travel time achieved by the algorithm compared to the
@@ -352,11 +382,16 @@ def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: fl
     ----------
     df : pd.DataFrame
         DataFrame containing benchmark results.
-    path_output : Path
+    vel_ship : float, optional
+        Ship velocity to filter the DataFrame, in meters per second,
+        by default 3.0 (6 knots).
+    path_output : Path or str
         Path to the output folder where the plot will be saved.
-    vel_ship : float
-        Ship velocity to filter the DataFrame.
     """
+    # Ensure path_output is a Path object
+    if isinstance(path_output, str):
+        path_output = Path(path_output)
+
     df_sub = df[df["vel_ship"] == vel_ship].copy()
 
     # New instance names with arrows
@@ -401,7 +436,9 @@ def boxplot_gains_per_instance(df: pd.DataFrame, path_output: Path, vel_ship: fl
 
 
 def main(
-    path_output: str = "output/json_benchmark",
+    vel_ship: float = 3.0,
+    path_output: str = "output",
+    subfolder: str = "json_benchmark",
     data_path: str = "../weather-routing-benchmarks/data",
 ):
     """Generate the figures for the paper from benchmark results.
@@ -410,16 +447,16 @@ def main(
     - scripts/realworld/results.py
     """
     try:
-        df = generate_dataframe(Path(path_output))
+        df = generate_dataframe(path_output=path_output, subfolder=subfolder)
     except FileNotFoundError as exc:
         raise FileNotFoundError(
             "Results not found. Please run first scripts/realworld/results.py"
         ) from exc
-    fullyear_savings_speed(df, Path("output"))
-    fullyear_savings_odp(df, Path("output"))
-    boxplot_gains_per_instance(df, Path("output"), vel_ship=3)
+    fullyear_savings_speed(df, path_output=path_output)
+    fullyear_savings_odp(df, path_output=path_output)
+    boxplot_gains_per_instance(df, vel_ship=vel_ship, path_output=path_output)
     plot_bers_vs_circumnavigation(
-        df, path_output=Path("output"), data_path=Path(data_path)
+        df, vel_ship=vel_ship, path_output=path_output, data_path=data_path
     )
 
 
