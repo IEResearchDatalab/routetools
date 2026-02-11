@@ -146,7 +146,7 @@ class LandBenchmark(Land):
         self,
         ocean: Ocean,
         resolution: int | tuple[int, int] | None = None,
-        interpolate: int = 10,
+        interpolate: int = 0,
         map_mode: str = "nearest",
         map_order: int = 1,
         **kwargs: Any,
