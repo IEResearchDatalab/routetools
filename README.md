@@ -162,8 +162,10 @@ JAX_PLATFORMS=cpu uv run scripts/single_run.py
 To reproduce the results from the paper, run the following command:
 
 ```bash
-uv run scripts/synthetic/results.py
+sh scripts/run_results.sh
 ```
+
+(Preferably, using `nohup` to avoid interruption if you close the terminal, and redirecting output to a log file for later review):
 
 This will run BERS across all instance for the synthetic scenarios and output the results to `output/` folder.
 
