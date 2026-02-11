@@ -25,6 +25,8 @@ class Land:
         random_seed: int | None = None,
         land_array: jnp.ndarray | None = None,
         penalize_segments: bool = True,
+        map_mode: str = "nearest",
+        map_order: int = 0,
     ):
         """Class to check if points on a curve are on land.
 
@@ -48,6 +50,12 @@ class Land:
             random seed for reproducibility, by default None
         penalize_segments : bool, optional
             If True, penalize segments, not points, by default True
+        map_mode : str, optional
+            The mode to use for `scipy.ndimage.map_coordinates`, by default "nearest".
+            This determines how points outside the array are handled.
+        map_order : int, optional
+            The order of the spline interpolation,
+            by default 0. 0 for nearest neighbor, 1 for bilinear.
         """
         # Ensure resolution is 2D
         if resolution is None:
@@ -106,6 +114,9 @@ class Land:
         self._lats = self.y[land_indices[:, 1]]
         self._lons = self.x[land_indices[:, 0]]
 
+        self._map_mode = map_mode
+        self._map_order = map_order
+
     @property
     def array(self) -> jnp.ndarray:
         """Return a boolean array indicating land presence."""
@@ -137,7 +148,7 @@ class Land:
 
         # Use bilinear interpolation to check if the points are on land
         land_values = map_coordinates(
-            self._array, [x_norm, y_norm], order=0, mode="nearest"
+            self._array, [x_norm, y_norm], order=self._map_order, mode=self._map_mode
         )
 
         # Return a boolean array where land_values > 0 indicates land
@@ -190,7 +201,7 @@ class Land:
 
         # Use bilinear interpolation to check if the points are on land
         land_values = map_coordinates(
-            self._array, [x_norm, y_norm], order=0, mode="nearest"
+            self._array, [x_norm, y_norm], order=self._map_order, mode=self._map_mode
         )
 
         # Return a boolean array where land_values > 0 indicates land

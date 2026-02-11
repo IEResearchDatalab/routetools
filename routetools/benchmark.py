@@ -146,6 +146,9 @@ class LandBenchmark(Land):
         self,
         ocean: Ocean,
         resolution: int | tuple[int, int] | None = None,
+        interpolate: int = 10,
+        map_mode: str = "nearest",
+        map_order: int = 1,
         **kwargs: Any,
     ) -> None:
         """Land penalization for benchmark instances."""
@@ -177,6 +180,9 @@ class LandBenchmark(Land):
             ylim=(bottom, up),
             resolution=resolution,
             land_array=array,
+            interpolate=interpolate,
+            map_mode=map_mode,
+            map_order=map_order,
             **kwargs,
         )
 
