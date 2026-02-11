@@ -11,6 +11,7 @@ from routetools._cost.haversine import (
 )
 from routetools._cost.haversine import haversine_meters_components
 from routetools._cost.waves import wave_adjusted_speed
+from routetools.land import Land, move_curve_away_from_land
 
 
 def angle_wrt_true_north(dx: jnp.ndarray, dy: jnp.ndarray) -> jnp.ndarray:
@@ -386,6 +387,7 @@ def interpolate_to_constant_cost(
     | None = None,
     spherical_correction: bool = False,
     oversampling_factor: int = 1000,
+    land: Land | None = None,
 ) -> jnp.ndarray:
     """
     Reinterpolate a curve so that each segment has approximately the same cost.
@@ -408,6 +410,8 @@ def interpolate_to_constant_cost(
     oversampling_factor : int, optional
         Factor by which to oversample the original curve for reinterpolation.
         Default is 1000.
+    land : Land, optional
+        An optional Land object to ensure the new curve does not go on land.
 
     Returns
     -------
@@ -462,5 +466,9 @@ def interpolate_to_constant_cost(
 
     # Build the new curve
     new_curve = fine_curve[new_indices, :]
+
+    # If land is provided, ensure the new curve does not go on land
+    if land is not None:
+        new_curve = move_curve_away_from_land(new_curve, land)
 
     return new_curve

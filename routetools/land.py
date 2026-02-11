@@ -367,11 +367,12 @@ class Land:
 def move_curve_away_from_land(
     curve: jnp.ndarray,
     land: Land,
-    step_size: float = 1000.0,
-    distance_from_land: float = 0,
-    spherical_correction: bool = False,
+    step_size: float = 0.01,
 ) -> jnp.ndarray:
     """Move a curve away from land by a specified step size.
+
+    Curve must be of shape (L, 2) or (1, L, 2), expressed in degrees.
+    The land function must be an instance of the Land class.
 
     This function assumes the curve is marginally on land
     and tries to move it away iteratively.
@@ -390,11 +391,6 @@ def move_curve_away_from_land(
         )
     # Find all points of the curve that are on land
     is_land = land(curve)
-    # Also the points close to land, if distance_from_land > 0
-    if distance_from_land > 0:
-        distance = land.distance_to_land(curve, haversine=spherical_correction)
-        is_close = distance < distance_from_land
-        is_land = is_land | is_close
     if not jnp.any(is_land):
         return curve  # No points on land, return the original curve
     # We will start an iterative process to move points away from land
@@ -403,28 +399,36 @@ def move_curve_away_from_land(
     for idx in idx_land:
         # Open a radius around the point and find the nearest point
         # not on land
+        idx = idx[0]
         point = curve[idx]
-        radius = step_size  # in meters
+        radius = step_size  # in degrees
         niter = 0
         while niter < 10:
             # Create a grid of points around the current point
-            angles = jnp.linspace(0, 2 * jnp.pi, num=16, endpoint=False)
-            offsets = jnp.stack([jnp.cos(angles), jnp.sin(angles)], axis=-1) * radius
-            candidates = point + offsets
-            # Check which candidates are on land
-            is_candidate_land = land(candidates)
-            # Also check distance to land for candidates, if distance_from_land > 0
-            if distance_from_land > 0:
-                distance = land.distance_to_land(
-                    candidates, haversine=spherical_correction
+            angles = jnp.linspace(0, 2 * jnp.pi, 16, endpoint=False)
+            candidates = point + radius * jnp.stack(
+                [jnp.cos(angles), jnp.sin(angles)], axis=1
+            )
+            # Shape of candidates is (16, 2). Turn into (16, 1, 2)
+            # and then append the previous point to make it (16, 2, 2)
+            candidates_extended = candidates[:, None, :]
+            if idx > 0:
+                point_prev = curve_new[idx - 1]
+                # Replicate point_prev to match the shape of candidates
+                point_prev = jnp.tile(point_prev, (candidates.shape[0], 1))
+                candidates_extended = jnp.concatenate(
+                    [point_prev[:, None, :], candidates_extended], axis=1
                 )
-                is_candidate_close = distance < distance_from_land
-                is_candidate_land = is_candidate_land | is_candidate_close
-            if not jnp.any(is_candidate_land):
-                # If no candidates are on land, move to the nearest candidate
-                distances = jnp.linalg.norm(candidates - point, axis=1)
-                nearest_idx = jnp.argmin(distances)
-                curve_new = curve_new.at[idx].set(candidates[nearest_idx])
+            # Check which candidates are on land
+            is_candidate_land = land(candidates_extended)
+            is_candidate_land = jnp.any(is_candidate_land, axis=1)
+            if not jnp.all(is_candidate_land):
+                # If there are candidates not on land, move to the nearest one
+                candidates_not_land = candidates[~is_candidate_land]
+                # Compute distances to the original point
+                dists = jnp.sqrt(jnp.sum((candidates_not_land - point) ** 2, axis=1))
+                nearest_idx = jnp.argmin(dists)
+                curve_new = curve_new.at[idx].set(candidates_not_land[nearest_idx])
                 break
             else:
                 # If some candidates are on land, increase the radius and try again

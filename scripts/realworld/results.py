@@ -167,6 +167,7 @@ def single_run(
         travel_stw=vel_ship,
         cost_per_segment=3600,  # 1 hour segments
         spherical_correction=True,
+        land=dict_instance["land"],
     )
 
     cost_circ = cost_function(
@@ -225,6 +226,7 @@ def single_run(
         travel_stw=vel_ship,
         cost_per_segment=3600,  # 1 hour segments
         spherical_correction=True,
+        land=dict_instance["land"],
     )
 
     # If the CMA-ES cost is worse than the circumnavigation cost,
@@ -296,6 +298,7 @@ def single_run(
         travel_stw=vel_ship,
         cost_per_segment=3600,  # 1 hour segments
         spherical_correction=True,
+        land=dict_instance["land"],
     )
 
     # If the FMS cost is worse than the CMA-ES cost, keep the CMA-ES curve
