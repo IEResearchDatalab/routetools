@@ -104,10 +104,6 @@ dev-dependencies = [
     "ipykernel",
 ]
 
-[tool.uv.sources]
-wrr-bench = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routing-benchmarks.git", branch = "main" }
-wrr-utils = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routing-research.git", branch = "main" }
-
 [project.optional-dependencies]
 cuda = ["jax[cuda]==0.8.1"]
 
