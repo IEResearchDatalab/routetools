@@ -306,6 +306,7 @@ def _cma_evolution_strategy(
     weight_l2: float = 0.0,
     keep_top: float = 0.0,
     spherical_correction: bool = False,
+    time_offset: float = 0.0,
     verbose: bool = True,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
@@ -356,6 +357,7 @@ def _cma_evolution_strategy(
             weight_l1=weight_l1,
             weight_l2=weight_l2,
             spherical_correction=spherical_correction,
+            time_offset=time_offset,
         )
 
         # Land penalization
@@ -435,6 +437,7 @@ def optimize(
     keep_top: float = 0.0,
     spherical_correction: bool = False,
     seed: float = jnp.nan,
+    time_offset: float = 0.0,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
@@ -588,6 +591,7 @@ def optimize(
         seed=seed,
         keep_top=keep_top,
         spherical_correction=spherical_correction,
+        time_offset=time_offset,
         verbose=verbose,
     )
     time_end = time.time()
@@ -688,6 +692,7 @@ def optimize_with_increasing_penalization(
     weight_l2: float = 0.0,
     spherical_correction: bool = False,
     seed: float = jnp.nan,
+    time_offset: float = 0.0,
     verbose: bool = True,
 ) -> tuple[list[jnp.ndarray], list[float]]:
     """
@@ -800,6 +805,7 @@ def optimize_with_increasing_penalization(
             weight_l2=weight_l2,
             spherical_correction=spherical_correction,
             seed=seed,
+            time_offset=time_offset,
             verbose=verbose,
         )
         if verbose:

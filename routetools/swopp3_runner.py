@@ -333,7 +333,12 @@ def run_optimised_departure(
     """
     case = SWOPP3_CASES[case_id]
     src, dst = case_endpoints(case_id)
-    travel_time = case["passage_hours"] * 3600.0
+    # Pass travel_time in HOURS to match the ERA5 field's time dimension.
+    # The CMA-ES cost function uses this to compute segment timestamps that
+    # index into the field.  Distances are in meters (spherical_correction)
+    # and wind is m/s, so the absolute cost values are unit-inconsistent,
+    # but CMA-ES only needs relative ranking, which is preserved.
+    travel_time = float(case["passage_hours"])
 
     t0 = _time.time()
 
@@ -345,6 +350,7 @@ def run_optimised_departure(
             L=n_points,
             travel_time=travel_time,
             spherical_correction=True,
+            time_offset=departure_offset_h,
             verbose=False,
         )
         defaults.update(cmaes_kwargs)

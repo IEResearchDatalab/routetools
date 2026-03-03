@@ -60,6 +60,7 @@ def cost_function(
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
     spherical_correction: bool = False,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """
     Compute the cost of a batch of paths navigating over a vector field.
@@ -119,6 +120,7 @@ def cost_function(
             travel_time,
             wavefield=wavefield,
             spherical_correction=spherical_correction,
+            time_offset=time_offset,
         )
     elif (travel_time is not None) and (not is_time_variant):
         cost = cost_function_constant_cost_time_invariant(
@@ -392,20 +394,19 @@ def cost_function_constant_cost_time_variant(
     ]
     | None = None,
     spherical_correction: bool = False,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Compute energy cost for fixed-time routes with time-variant vector fields.
 
-    Each segment takes ``dt = travel_time / (L-1)`` seconds.  The vector
-    field is sampled at the midpoint of each segment at its corresponding
-    timestamp.  The cost per segment is the squared speed-through-water
-    (kinetic energy proxy): ``‖SOG − current‖² / 2 · dt``.
+    Each segment takes ``dt = travel_time / (L-1)``.  The vector field is
+    sampled at the midpoint of each segment at its corresponding timestamp,
+    shifted by *time_offset*.
 
     Parameters
     ----------
     vectorfield : Callable
         ``(lon, lat, t) -> (u, v)`` with ``t`` in the same units as
-        *travel_time* (typically seconds or hours, depending on the
-        field's time convention).
+        *travel_time* (typically hours for ERA5).
     curve : jnp.ndarray
         Batch of trajectories, shape ``(B, L, 2)``.
     travel_time : float
@@ -414,6 +415,11 @@ def cost_function_constant_cost_time_variant(
         ``(lon, lat, t) -> (height, direction)``.
     spherical_correction : bool
         Whether to compute distances on the sphere.
+    time_offset : float
+        Offset added to segment timestamps before querying the field.
+        For ERA5 this is the departure's offset in hours from the
+        dataset epoch (2024-01-01T00:00).  Not a ``static_argname``
+        so changing it does not trigger JIT recompilation.
 
     Returns
     -------
@@ -427,9 +433,8 @@ def cost_function_constant_cost_time_variant(
     curvex = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
     curvey = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
 
-    # Segment midpoints (time): the i-th segment spans [i·dt, (i+1)·dt],
-    # midpoint at (i + 0.5) · dt.
-    seg_times = (jnp.arange(n_seg) + 0.5) * dt  # shape (n_seg,)
+    # Segment midpoints (time), shifted by departure offset.
+    seg_times = time_offset + (jnp.arange(n_seg) + 0.5) * dt  # shape (n_seg,)
     # Broadcast to batch: shape (B, n_seg)
     curvet = jnp.broadcast_to(seg_times[None, :], curvex.shape)
 
