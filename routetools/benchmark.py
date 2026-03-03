@@ -519,18 +519,76 @@ def optimize_benchmark_instance(
     return curve_best, dict_cmaes
 
 
-def main():
+def main(
+    instance_name: str = "DEHAM-USNYC",
+    date_start: str = "2023-01-08",
+    vel_ship: int = 6,
+    data_path: str = "./data",
+    penalty: float = 1e6,
+    K: int = 10,
+    L: int = 320,
+    num_pieces: int = 3,
+    popsize: int = 500,
+    sigma0: int = 1,
+    keep_top: float = 0.002,
+    tolfun_cmaes: float = 60,
+    damping_cmaes: float = 1,
+    maxfevals_cmaes: int = int(1e8),
+    patience_fms: int = 100,
+    damping_fms: float = 0.9,
+    maxfevals_fms: int = int(1e6),
+    path_jsons: str = "output/json_benchmark",
+    path_jsons_circ: str = "output/json_circumnavigation",
+    seed: int = 42,
+    overwrite: bool = False,
+    verbose: bool = True,
+):
     """Test the benchmark."""
-    # Example usage
-    instance_name = "DEHAM-USNYC"
-    dict_instance = load_benchmark_instance(instance_name)
-    curve_opt, dict_cmaes = optimize_benchmark_instance(
-        dict_instance,
-        init_circumnavigate=True,
-        verbose=True,
+    # Extract relevant information from the problem instance
+    dict_instance = load_benchmark_instance(
+        instance_name,
+        date_start=date_start,
+        vel_ship=vel_ship,
+        data_path=data_path,
     )
-    print("Optimized curve:", curve_opt)
+
+    curve_cmaes, dict_cmaes = optimize_benchmark_instance(
+        dict_instance,
+        penalty=penalty,
+        K=K,
+        L=L,  # One segment per hour approx
+        num_pieces=num_pieces,
+        popsize=popsize,
+        sigma0=sigma0,
+        tolfun=tolfun_cmaes,
+        damping=damping_cmaes,
+        maxfevals=maxfevals_cmaes,
+        init_circumnavigate=False,
+        keep_top=keep_top,
+        seed=seed,
+        verbose=verbose,
+    )
+    print("Optimized curve:", curve_cmaes)
     print("CMA-ES optimization details:", dict_cmaes)
+
+    curve_fms, dict_fms = optimize_fms(
+        vectorfield=dict_instance["vectorfield"],
+        curve=curve_cmaes,
+        land=dict_instance["land"],
+        travel_stw=dict_instance["travel_stw"],
+        travel_time=dict_instance["travel_time"],
+        patience=patience_fms,
+        damping=damping_fms,
+        maxfevals=maxfevals_fms,
+        weight_l1=1.0,
+        weight_l2=0.0,
+        spherical_correction=True,
+        seed=seed,
+        verbose=verbose,
+    )
+
+    print("Optimized curve after FMS refinement:", curve_fms)
+    print("FMS optimization details:", dict_fms)
 
 
 if __name__ == "__main__":
