@@ -4,11 +4,13 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
 from routetools.circumnavigate import circumnavigate
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
+from routetools.plot import plot_curve
 from routetools.vectorfield import time_variant, vectorfield_zero
 from routetools.wrr_bench.load import load
 from routetools.wrr_bench.ocean import Ocean
@@ -497,7 +499,7 @@ def optimize_benchmark_instance(
 
 
 def main(
-    instance_name: str = "DEHAM-USNYC",
+    instance_name: str = "ESSDR-USNYC",
     date_start: str = "2023-01-08",
     vel_ship: int = 6,
     data_path: str = "./data",
@@ -563,6 +565,32 @@ def main(
 
     print("Optimized curve after FMS refinement:", curve_fms)
     print("FMS optimization details:", dict_fms)
+
+    # Plot
+    vectorfield = dict_instance["vectorfield"]
+    land = dict_instance["land"]
+    fig, ax = plot_curve(
+        vectorfield=vectorfield,
+        ls_curve=[curve_cmaes, curve_fms[0]],
+        ls_name=[
+            f"CMA-ES ({dict_cmaes['cost']:.0f} hrs)",
+            f"FMS ({sum(dict_fms['cost']):.0f} hrs)",
+        ],
+        land=land,
+        gridstep=1 / 12,
+        figsize=(6, 6),
+        xlim=(land.xmin, land.xmax),
+        ylim=(land.ymin, land.ymax),
+        color_currents=True,
+    )
+    # Include date and velocity in the title
+    ax.set_title(
+        f"{instance_name} | {dict_instance['date_start']} | {int(2 * vel_ship)} knots"
+    )
+    fig.tight_layout()
+    # We use redundant naming to avoid too many images
+    fig.savefig(f"output/benchmark_{instance_name}_{int(vel_ship)}.jpg", dpi=300)
+    plt.close()
 
 
 if __name__ == "__main__":

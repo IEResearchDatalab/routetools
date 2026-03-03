@@ -99,7 +99,7 @@ DICT_PORTS = {
     },
 }
 DICT_BENCHMARKS = {
-    "route_days": 5,
+    "route_days": 10,
     "benchmarks": {
         "DEHAM-USNYC": {"date_start": "2023-01-01T00:00:00"},
         "USNYC-DEHAM": {"date_start": "2023-01-01T00:00:00"},
@@ -111,5 +111,8 @@ DICT_BENCHMARKS = {
         "PECLL-PABLB": {"date_start": "2023-01-01T00:00:00"},
         "PAONX-USNYC": {"date_start": "2023-01-01T00:00:00"},
         "USNYC-PAONX": {"date_start": "2023-01-01T00:00:00"},
+        # SWOPP3
+        "ESSDR-USNYC": {"date_start": "2023-01-01T00:00:00"},
+        "USLAX-JPTYO": {"date_start": "2023-01-01T00:00:00"},
     },
 }
