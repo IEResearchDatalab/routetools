@@ -17,7 +17,8 @@ Components:
 
 - Hull drag:  ``P_hull = K_H · v³``
 - Wind drag:  ``P_wind = K_A · v · (VR · u_x − v²)``
-- Wave added resistance:  ``P_wave = A_W · SWH² · v^{1.5} · exp(−K_W · |MWA|³)``
+- Wave added resistance:  ``P_wave = A_W · SWH² · v^{1.5} · exp(−K_W · |MWA_rad|³)``
+  where ``MWA_rad = MWA · π / 180``.
 - Sail thrust:  ``P_sail = C(AWA) · VR² · v``
   where ``C(AWA) = K_S · sin(α) · (1 + 3/20 · sin²(α))`` for AWA ≥ 10°,
   and ``C(AWA) = 0`` for AWA < 10° (dead zone).
@@ -47,12 +48,13 @@ Example
 from __future__ import annotations
 
 import math
-from typing import overload
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 __all__ = [
     "predict_power",
+    "predict_power_batch",
     "predict_power_no_wps",
     "predict_power_with_wps",
     "K_H",
@@ -242,11 +244,11 @@ def predict_power(
 # Vectorized (NumPy) entry points
 # ---------------------------------------------------------------------------
 def predict_power_batch(
-    tws: np.ndarray,
-    twa: np.ndarray,
-    swh: np.ndarray,
-    mwa: np.ndarray,
-    v: np.ndarray,
+    tws: ArrayLike,
+    twa: ArrayLike,
+    swh: ArrayLike,
+    mwa: ArrayLike,
+    v: ArrayLike,
     *,
     wps: bool = False,
 ) -> np.ndarray:

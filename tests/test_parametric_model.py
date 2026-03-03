@@ -21,10 +21,15 @@ from routetools.performance import (
 )
 
 # ---------------------------------------------------------------------------
-# Skip the entire module if the reference package is not installed
+# Reference package: only skip tests that actually use SWOPP3
 # ---------------------------------------------------------------------------
-swopp3 = pytest.importorskip(
-    "swopp3_performance_model",
+try:
+    import swopp3_performance_model as swopp3  # type: ignore[import-untyped]
+except ModuleNotFoundError:
+    swopp3 = None  # type: ignore[assignment]
+
+needs_swopp3 = pytest.mark.skipif(
+    swopp3 is None,
     reason="swopp3_performance_model wheel is not installed",
 )
 
@@ -32,6 +37,7 @@ swopp3 = pytest.importorskip(
 # ===================================================================
 #  predict_no_wps  tests
 # ===================================================================
+@needs_swopp3
 class TestNoWPS:
     """Parametric model vs reference predict_no_wps."""
 
@@ -183,6 +189,7 @@ class TestNoWPS:
 # ===================================================================
 #  predict_with_wps  tests
 # ===================================================================
+@needs_swopp3
 class TestWithWPS:
     """Parametric model vs reference predict_with_wps."""
 
@@ -289,6 +296,7 @@ class TestWithWPS:
 # ===================================================================
 #  Decomposition / additivity property tests
 # ===================================================================
+@needs_swopp3
 class TestDecomposition:
     """Verify structural properties of the parametric decomposition."""
 
@@ -354,24 +362,23 @@ class TestDecomposition:
     def test_sail_wave_independent(self) -> None:
         """Sail power P_sail(tws,twa,v) is independent of waves.
 
-        Uses a large baseline SWH to guarantee *both* predict_no_wps and
-        predict_with_wps are unclamped, so the observed difference reveals
-        the true sail power regardless of wave conditions.
+        Uses high-speed scenarios with head-on waves (mwa=0) to keep
+        total power well above zero, so the difference P_no − P_wps
+        reveals the true sail thrust without hitting the clamp.
+        All inputs stay within documented ranges (SWH ∈ [0, 10]).
         """
-        BIG_SWH = 100.0  # avoids clamping
-        for tws, twa, v in [(10, 90, 8), (20, 45, 5), (15, 135, 10)]:
-            # Baseline sail power (big SWH, mwa=0)
-            p_no_base = swopp3.predict_no_wps(tws, twa, BIG_SWH, 0.0, v)
-            p_wp_base = swopp3.predict_with_wps(tws, twa, BIG_SWH, 0.0, v)
+        for tws, twa, v in [(10, 90, 8), (20, 45, 10), (15, 135, 12)]:
+            # Baseline sail power (moderate SWH, head-on waves)
+            p_no_base = swopp3.predict_no_wps(tws, twa, 5.0, 0.0, v)
+            p_wp_base = swopp3.predict_with_wps(tws, twa, 5.0, 0.0, v)
             assert p_wp_base > 0, "Baseline should not be clamped"
             p_sail_base = p_no_base - p_wp_base
 
-            # Compare against different wave conditions
-            # (use moderate MWA to keep wave power large and avoid clamping)
-            for swh_extra, mwa in [(BIG_SWH, 0), (BIG_SWH, 45), (BIG_SWH, 90)]:
-                p_no = swopp3.predict_no_wps(tws, twa, swh_extra, mwa, v)
-                p_wp = swopp3.predict_with_wps(tws, twa, swh_extra, mwa, v)
-                assert p_wp > 0, f"Should not be clamped: swh={swh_extra}, mwa={mwa}"
+            # Compare against different in-range wave conditions
+            for swh, mwa in [(2.0, 0), (5.0, 45), (8.0, 0)]:
+                p_no = swopp3.predict_no_wps(tws, twa, swh, mwa, v)
+                p_wp = swopp3.predict_with_wps(tws, twa, swh, mwa, v)
+                assert p_wp > 0, f"Should not be clamped: swh={swh}, mwa={mwa}"
                 p_sail = p_no - p_wp
                 assert abs(p_sail - p_sail_base) < 0.01, (
                     f"Sail depends on waves! mwa={mwa}: "
