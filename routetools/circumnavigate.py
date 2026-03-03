@@ -319,8 +319,9 @@ class Circumnavigate:
         node_start = Node(hex_start)
         node_end = Node(hex_end)
 
+        polygon = invert_polygon(ocean_zero.shapely_ocean, ocean_zero.bounding_box)
         ocean_cells = multipolygon_to_h3_cells(
-            invert_polygon(ocean_zero.shapely_ocean, ocean_zero.bounding_box),
+            polygon,
             res=self.grid_resolution,
             land_dilation=self.land_dilation,
         )

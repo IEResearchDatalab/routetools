@@ -25,7 +25,7 @@ DEG2M = np.deg2rad(1) * EARTH_RADIUS
 
 
 def data_zero(
-    bounding_box: tuple | None = None, data_vars: tuple[str] = ("vo", "uo")
+    bounding_box: tuple | None = None, data_vars: tuple[str, str] = ("vo", "uo")
 ) -> xr.Dataset:
     """Create a fake current dataset with zeros.
 
@@ -76,14 +76,14 @@ class Ocean:
 
     def __init__(
         self,
-        currents_data: xr.Dataset = None,
-        waves_data: xr.Dataset = None,
-        wind_data: xr.Dataset = None,
-        currents_interpolator: Interpolator = None,
-        waves_interpolator: Interpolator = None,
-        wind_interpolator: Interpolator = None,
+        currents_data: xr.Dataset | None = None,
+        waves_data: xr.Dataset | None = None,
+        wind_data: xr.Dataset | None = None,
+        currents_interpolator: Interpolator | None = None,
+        waves_interpolator: Interpolator | None = None,
+        wind_interpolator: Interpolator | None = None,
         radius: float = EARTH_RADIUS,
-        bounding_box: Iterable = None,
+        bounding_box: tuple[float, float, float, float] | None = None,
         time_spacing: float = 8,
         min_thickness: float = 0.08333,
         land_file: str = "static_data/geojson/earth-seas-2km5-valid.geo.json",
