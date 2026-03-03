@@ -537,10 +537,7 @@ def main(
     patience_fms: int = 100,
     damping_fms: float = 0.9,
     maxfevals_fms: int = int(1e6),
-    path_jsons: str = "output/json_benchmark",
-    path_jsons_circ: str = "output/json_circumnavigation",
     seed: int = 42,
-    overwrite: bool = False,
     verbose: bool = True,
 ):
     """Test the benchmark."""
