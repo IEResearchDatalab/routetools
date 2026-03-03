@@ -113,9 +113,12 @@ def cost_function(
             spherical_correction=spherical_correction,
         )
     elif (travel_time is not None) and is_time_variant:
-        # Not supported
-        raise NotImplementedError(
-            "Time-variant cost function with fixed travel time is not implemented."
+        cost = cost_function_constant_cost_time_variant(
+            vectorfield,
+            curve,
+            travel_time,
+            wavefield=wavefield,
+            spherical_correction=spherical_correction,
         )
     elif (travel_time is not None) and (not is_time_variant):
         cost = cost_function_constant_cost_time_invariant(
@@ -370,6 +373,85 @@ def cost_function_constant_cost_time_invariant(
     dydt = dy / dt
 
     # We must navigate the path in a fixed time
+    cost = ((dxdt - uinterp) ** 2 + (dydt - vinterp) ** 2) / 2
+    return cost * dt
+
+
+@partial(
+    jit,
+    static_argnames=("vectorfield", "travel_time", "wavefield", "spherical_correction"),
+)
+def cost_function_constant_cost_time_variant(
+    vectorfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ],
+    curve: jnp.ndarray,
+    travel_time: float,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    spherical_correction: bool = False,
+) -> jnp.ndarray:
+    """Compute energy cost for fixed-time routes with time-variant vector fields.
+
+    Each segment takes ``dt = travel_time / (L-1)`` seconds.  The vector
+    field is sampled at the midpoint of each segment at its corresponding
+    timestamp.  The cost per segment is the squared speed-through-water
+    (kinetic energy proxy): ``‖SOG − current‖² / 2 · dt``.
+
+    Parameters
+    ----------
+    vectorfield : Callable
+        ``(lon, lat, t) -> (u, v)`` with ``t`` in the same units as
+        *travel_time* (typically seconds or hours, depending on the
+        field's time convention).
+    curve : jnp.ndarray
+        Batch of trajectories, shape ``(B, L, 2)``.
+    travel_time : float
+        Fixed total passage time.
+    wavefield : Callable, optional
+        ``(lon, lat, t) -> (height, direction)``.
+    spherical_correction : bool
+        Whether to compute distances on the sphere.
+
+    Returns
+    -------
+    jnp.ndarray
+        Cost per segment, shape ``(B, L-1)``.
+    """
+    n_seg = curve.shape[1] - 1
+    dt = travel_time / n_seg
+
+    # Segment midpoints (position)
+    curvex = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
+    curvey = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
+
+    # Segment midpoints (time): the i-th segment spans [i·dt, (i+1)·dt],
+    # midpoint at (i + 0.5) · dt.
+    seg_times = (jnp.arange(n_seg) + 0.5) * dt  # shape (n_seg,)
+    # Broadcast to batch: shape (B, n_seg)
+    curvet = jnp.broadcast_to(seg_times[None, :], curvex.shape)
+
+    uinterp, vinterp = vectorfield(curvex, curvey, curvet)
+
+    # Distances between waypoints
+    if spherical_correction:
+        dx, dy = haversine_meters_components(
+            curve[:, :-1, 1],
+            curve[:, :-1, 0],
+            curve[:, 1:, 1],
+            curve[:, 1:, 0],
+        )
+    else:
+        dx = jnp.diff(curve[:, :, 0], axis=1)
+        dy = jnp.diff(curve[:, :, 1], axis=1)
+
+    # SOG = displacement / dt
+    dxdt = dx / dt
+    dydt = dy / dt
+
+    # STW cost = ‖SOG - current‖² / 2 · dt
     cost = ((dxdt - uinterp) ** 2 + (dydt - vinterp) ** 2) / 2
     return cost * dt
 
