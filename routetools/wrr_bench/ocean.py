@@ -546,7 +546,7 @@ class Ocean:
 
     def _to_dict(
         self,
-        data: tuple[np.array] | np.array,
+        data: tuple[np.ndarray] | np.ndarray,
         var_keys: Iterable[str],
         derivate: bool,
     ) -> dict:
