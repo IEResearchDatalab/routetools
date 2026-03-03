@@ -22,7 +22,7 @@ from __future__ import annotations
 import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -400,6 +400,7 @@ def run_case(
     submission: int = 1,
     n_points: int = 100,
     verbose: bool = True,
+    dataset_epoch: datetime | None = None,
     **cmaes_kwargs,
 ) -> list[DepartureResult]:
     """Run all departures for a single SWOPP3 case.
@@ -428,6 +429,11 @@ def run_case(
         Number of route waypoints.
     verbose : bool
         Print progress.
+    dataset_epoch : datetime, optional
+        First timestamp of the loaded ERA5 dataset (UTC).  When provided,
+        the departure-to-field time offset is computed automatically for
+        each departure.  If ``None``, offset = 0 (suitable only when each
+        departure loads its own field with ``departure_time``).
     **cmaes_kwargs
         Extra arguments for CMA-ES (optimised cases only).
 
@@ -451,12 +457,20 @@ def run_case(
             )
 
         # Compute time offset for this departure relative to field origin.
-        # When fields are loaded without departure_time, t=0 corresponds to
-        # the first timestamp in the dataset.  For fields loaded with a
-        # specific departure_time, departure_offset_h = 0.
-        # Here we pass 0 and rely on the caller to have loaded the field
-        # with the correct departure_time, or to pass the offset explicitly.
-        departure_offset_h = 0.0
+        # When fields are loaded once for the whole year (without a per-
+        # departure reload), dataset_epoch tells us where t=0 lives.
+        if dataset_epoch is not None:
+            dep_naive = dep.replace(tzinfo=None) if dep.tzinfo else dep
+            epoch_naive = (
+                dataset_epoch.replace(tzinfo=None)
+                if hasattr(dataset_epoch, "tzinfo") and dataset_epoch.tzinfo
+                else dataset_epoch
+            )
+            departure_offset_h = (
+                dep_naive - epoch_naive
+            ).total_seconds() / 3600.0
+        else:
+            departure_offset_h = 0.0
 
         if is_gc:
             result = run_gc_departure(
