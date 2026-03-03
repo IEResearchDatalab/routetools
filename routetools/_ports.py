@@ -73,13 +73,13 @@ DICT_PORTS = {
         "city": "Long Beach",
         "country": "United States",
     },
+    # "USNYC": {
+    #    "lat": 40.53,
+    #    "lon": -73.80,
+    #    "city": "New York",
+    #    "country": "United States",
+    # },
     "USNYC": {
-        "lat": 40.53,
-        "lon": -73.80,
-        "city": "New York",
-        "country": "United States",
-    },
-    "USNYCswopp": {
         "lat": 40.6,
         "lon": -69.0,
         "city": "New York",
