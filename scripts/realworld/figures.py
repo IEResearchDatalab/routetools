@@ -439,7 +439,7 @@ def main(
     vel_ship: float = 3.0,
     path_output: str = "output",
     subfolder: str = "json_benchmark",
-    data_path: str = "../weather-routing-benchmarks/data",
+    data_path: str = "./data",
 ):
     """Generate the figures for the paper from benchmark results.
 
