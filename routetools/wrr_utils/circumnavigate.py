@@ -8,12 +8,10 @@ from collections.abc import Iterable
 import h3.api.basic_int as h3
 import numpy as np
 import pandas as pd
-import typer
 from h3 import Polygon as H3Polygon
 from shapely.geometry import MultiPolygon, Polygon
 
 from routetools.wrr_bench.ocean import Ocean
-from routetools.wrr_utils.benchmark import load
 from routetools.wrr_utils.route import Route
 from routetools.wrr_utils.simulation import split_route_segments
 
@@ -752,35 +750,3 @@ class Circumnavigate(BaseAstar):
             land_penalization=0,
         )
         return route
-
-
-def main(
-    name_benchmark: str = "DEHAM-USNYC",
-    output: str = "output.csv",
-    config_file: str = "config/benchmarks.json",
-    data_folder: str = "/DATA1/SHARED/weather-routing-data/",
-):
-    """Generate the optimal route to circumnavigate between two points.
-
-    Parameters
-    ----------
-    name_bechmark : str
-        Name of the benchmark.
-    output : str
-        Name of the output file.
-    config_file : str, optional
-        Route to config file, by default "config/benchmarks.json"
-    """
-    dict_benchmark = load(
-        name_benchmark, config_file=config_file, local_data_path=data_folder
-    )
-
-    optimizer = Circumnavigate()
-
-    route = optimizer.optimize(**dict_benchmark)
-
-    route.export_to_csv(output)
-
-
-if __name__ == "__main__":
-    typer.run(main)
