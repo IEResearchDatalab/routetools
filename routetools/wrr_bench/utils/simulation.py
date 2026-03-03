@@ -1,7 +1,8 @@
 import numpy as np
 import scipy
 
-from routetools.wrr_bench.ocean import Ocean, beaufort_scale
+from routetools._cost.waves import beaufort_scale, speed_loss_involuntary
+from routetools.wrr_bench.ocean import Ocean
 
 EARTH_RADIUS = 6378137
 DEG2M = np.deg2rad(1) * EARTH_RADIUS
@@ -199,144 +200,6 @@ def compute_currents_projection(
     return current_u_proj, current_v_proj
 
 
-def _coefficient_direction_reduction(
-    wave_incidence_angle: np.ndarray, beaufort: np.ndarray
-) -> np.ndarray:
-    """Compute directional reduction coefficient from wave angle and beaufort.
-
-    Parameters
-    ----------
-    wave_incidence_angle : np.ndarray
-        Relative angle between ship and incoming waves in degrees.
-    beaufort : np.ndarray
-        Sliding Beaufort level, converted from wave height
-
-    Returns
-    -------
-    np.ndarray
-        Direction reduction coefficient, C_beta or mu
-    """
-    rad = np.radians(wave_incidence_angle)
-    a = 6 * np.sin(rad / 2) ** (2 / 3) + 2
-    r = 1.205 * rad
-    b = 0.06 * (1 + (np.sin(r) - np.cos(r))) / (1 + np.sqrt(2))
-    c = 2 - 1.6 * np.sin(rad / 2)
-    return (c - b * (beaufort - a) ** 2) / 2
-
-
-def _coefficient_speed_reduction(
-    beaufort: np.ndarray,
-    displacement: float,
-) -> np.ndarray:
-    """Compute speed reduction coefficient from beaufort and ship displacement.
-
-    Parameters
-    ----------
-    beaufort : np.ndarray
-        Sliding Beaufort level
-    displacement : float
-        Ship displacement in m^3
-
-    Returns
-    -------
-    np.ndarray
-        Speed reduction coefficient, C_u or alpha.
-    """
-    return (0.7 * beaufort + beaufort ** (6.5)) / (22 * displacement ** (2 / 3))
-
-
-def _correction_factor(froude_number: np.ndarray, coef_block: float) -> np.ndarray:
-    """Taken from Table 3.12 of Ship Resistance and Propulsion by Anthony F. Molland.
-
-    The range of block coefficient is from 0.55 - 0.85.
-
-    Parameters
-    ----------
-    froude_number : np.ndarray
-        froude number as list of float
-    coef_block : float
-        block coefficient as list of float
-
-    Returns
-    -------
-    np.ndarray
-        correction factor, C_u or alpha
-
-    Raises
-    ------
-    ValueError
-        Block coefficient too low, less than 0.55
-    ValueError
-        Block coefficient too high, greater than 0.85
-    """
-    if coef_block < 0.55:
-        raise ValueError("Block coefficient too low")
-    elif coef_block == 0.55:
-        # Normal
-        a, b, c = 1.7, 1.4, 7.4
-    elif coef_block <= 0.6:
-        # Normal
-        a, b, c = 2.2, 2.5, 9.7
-    elif coef_block <= 0.65:
-        # Normal
-        a, b, c = 2.6, 3.7, 11.6
-    elif coef_block <= 0.7:
-        # Normal
-        a, b, c = 3.1, 5.3, 12.4
-    elif coef_block <= 0.75:
-        # Normal or laden
-        a, b, c = 2.4, 10.6, 9.5
-    elif coef_block <= 0.8:
-        # Normal or laden
-        a, b, c = 2.6, 13.1, 15.1
-    elif coef_block <= 0.85:
-        # Normal or laden
-        a, b, c = 3.1, 18.7, 28
-    else:
-        raise ValueError("Block coefficient too high")
-    return a - b * froude_number - c * froude_number**2
-
-
-def _speed_loss_involuntary(
-    beaufort: np.ndarray,
-    wave_incidence_angle: np.ndarray,
-    vel_ship: float,
-    coef_block: float = 0.6,
-    length: float = 220,
-    displacement: float = 36500,
-) -> np.ndarray:
-    """Estimate speed loss percentage due to waves and wind.
-
-    Parameters
-    ----------
-    beaufort : np.ndarray
-        Sliding scale of Beaufort levels
-    wave_incidence_angle : np.ndarray
-        Relative angle between ship and incoming waves in degrees
-    vel_ship : float
-        Ship velocity over water
-    coef_block : float, optional
-        Block coefficient of the ship, by default 0.6
-    length : float, optional
-        Length of the ship, in m, by default 220
-    displacement : float, optional
-        Displacement of the ship, in m^3, by default 36500
-
-    Returns
-    -------
-    np.ndarray
-        Speed reduction coefficient taking into account of all coefficients.
-    """
-    c_beta = _coefficient_direction_reduction(wave_incidence_angle, beaufort)
-    c_u = _coefficient_speed_reduction(beaufort, displacement)
-
-    # Computes froude number, given the ship's velocity and length,
-    # g = 9.81 m/s^2, the gravitational acceleration
-    froude_number = vel_ship / (length * 9.81) ** 0.5
-    alpha = _correction_factor(froude_number, coef_block)
-    return c_beta * c_u * alpha
-
-
 def _cost_function_linalg(
     lat: np.ndarray,
     lon: np.ndarray,
@@ -391,7 +254,7 @@ def _cost_function_linalg(
     beaufort_levels = beaufort_scale(
         wave_height=wave_height, asfloat=True, beaufort_max=8
     )
-    speed_loss = _speed_loss_involuntary(
+    speed_loss = speed_loss_involuntary(
         beaufort=beaufort_levels,
         wave_incidence_angle=wave_incidence_angle,
         vel_ship=vel_ship,

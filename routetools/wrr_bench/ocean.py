@@ -11,6 +11,7 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon, shape
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 
+from routetools._cost.waves import beaufort_scale
 from routetools.wrr_bench.interpolate import Interpolator
 from routetools.wrr_bench.utils.dataset import correct_ds_coordinates, get_data_chunk
 from routetools.wrr_bench.utils.polygons import (
@@ -68,47 +69,6 @@ def data_zero(
     )
 
     return data
-
-
-def beaufort_scale(
-    wind_speed: np.array = None,
-    wave_height: np.array = None,
-    beaufort_max: float = 12,
-    asfloat: bool = False,
-) -> np.ndarray:
-    """Compute beaufort scale [0, 12] from wind speed in m/s.
-
-    One of `wind_speed` or `wave_height` must be provided. If
-    `wave_height` is given, an approximate wind speed is derived from it
-    before computing the scale.
-
-    Derived from NOAA: https://www.vos.noaa.gov/MWL/201512/waveheight.shtml
-
-    Parameters
-    ----------
-    wind_speed : np.ndarray, optional
-        Wind speed in meters per second.
-    wave_height : np.ndarray, optional
-        Wave heights in meters.
-    beaufort_max : float, optional
-        Maximum beaufort scale, by default 12.
-    asfloat : bool, optional
-        If True, return beaufort scale as a float, else as integer.
-
-    Returns
-    -------
-    np.ndarray
-        Beaufort scale values.
-    """
-    if (wind_speed is None) and (wave_height is None):
-        raise ValueError("No data provided, can not compute beaufort.")
-    elif (wave_height is not None) and (wind_speed is None):
-        wind_speed = 3.2 * np.abs(wave_height)
-
-    bn = np.clip(np.power(np.array(wind_speed) / 0.836, 2 / 3), 0, beaufort_max)
-    if not asfloat:
-        bn = np.round(bn).astype(int)
-    return bn
 
 
 class Ocean:
