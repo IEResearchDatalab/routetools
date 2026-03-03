@@ -26,7 +26,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jax.numpy as jnp
+from jax import jit
 import numpy as np
+
+
+@jit
+def _zero_vectorfield(x, y, t):
+    """Constant-zero vectorfield for CMA-ES distance optimisation."""
+    return jnp.zeros_like(x), jnp.zeros_like(y)
+
+
+_zero_vectorfield.is_time_variant = False
 
 from routetools.performance import predict_power_batch
 from routetools.swopp3 import (
@@ -333,11 +343,6 @@ def run_optimised_departure(
     """
     case = SWOPP3_CASES[case_id]
     src, dst = case_endpoints(case_id)
-    # Pass travel_time in HOURS to match the ERA5 field's time dimension.
-    # The CMA-ES cost function uses this to compute segment timestamps that
-    # index into the field.  Distances are in meters (spherical_correction)
-    # and wind is m/s, so the absolute cost values are unit-inconsistent,
-    # but CMA-ES only needs relative ranking, which is preserved.
     travel_time = float(case["passage_hours"])
 
     t0 = _time.time()
@@ -346,22 +351,25 @@ def run_optimised_departure(
         # Lazy import to avoid circular dependency / heavy JAX load
         from routetools.cmaes import optimize as cmaes_optimize
 
+        # Use a constant-zero vectorfield for CMA-ES optimisation.
+        # The wind vectorfield would be treated as an ocean current
+        # (‖SOG − wind‖²), but wind does not propel a ship like a
+        # current.  With a zero field the optimizer minimises route
+        # distance (the best shape proxy for fixed-time energy); the
+        # actual energy is evaluated post-hoc with the RISE model.
         defaults = dict(
             L=n_points,
             travel_time=travel_time,
             spherical_correction=True,
-            time_offset=departure_offset_h,
             verbose=False,
         )
         defaults.update(cmaes_kwargs)
 
         curve, info = cmaes_optimize(
-            vectorfield=vectorfield,
+            vectorfield=_zero_vectorfield,
             src=src,
             dst=dst,
             land=land,
-            wavefield=wavefield,
-            windfield=windfield,
             **defaults,
         )
     else:
