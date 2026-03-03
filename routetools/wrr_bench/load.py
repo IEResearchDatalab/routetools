@@ -7,107 +7,15 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from routetools._ports import DICT_BENCHMARKS, DICT_PORTS
 from routetools.wrr_bench.ocean import Ocean
-
-DICT_PORTS = {
-    "CAVAN": {"lat": 48.50, "lon": -124.82, "city": "Vancouver", "country": "Canada"},
-    "CNSHA": {"lat": 31.28, "lon": 121.98, "city": "Shanghai", "country": "China"},
-    "DEHAM": {"lat": 53.99, "lon": 8.63, "city": "Hamburg", "country": "Germany"},
-    "EGHRG": {
-        "lat": 27.66,
-        "lon": 33.88,
-        "city": "Suez",
-        "country": "Egypt",
-        "canal": "Suez",
-        "ocean": "Indian",
-    },
-    "EGPSD": {
-        "lat": 31.53,
-        "lon": 32.32,
-        "city": "Suez",
-        "country": "Egypt",
-        "canal": "Suez",
-        "ocean": "Mediterranean",
-    },
-    "ESALG": {"lat": 36.07, "lon": -5.38, "city": "Algeciras", "country": "Spain"},
-    "FRLEH": {"lat": 49.49, "lon": 0.06, "city": "Le Havre", "country": "France"},
-    "JPTYO": {"lat": 34.86, "lon": 139.72, "city": "Tokyo", "country": "Japan"},
-    "LKCMB": {"lat": 6.93, "lon": 79.79, "city": "Colombo", "country": "Sri Lanka"},
-    "PABLB": {
-        "lat": 8.89,
-        "lon": -79.53,
-        "city": "Balboa",
-        "country": "Panama",
-        "canal": "Panama",
-        "ocean": "Pacific",
-    },
-    "PAONX": {
-        "lat": 9.43,
-        "lon": -79.92,
-        "city": "Colon",
-        "country": "Panama",
-        "canal": "Panama",
-        "ocean": "Atlantic",
-    },
-    "PECLL": {
-        "lat": -12.19,
-        "lon": -77.23,
-        "city": "Callao",
-        "country": "Peru",
-    },
-    "USHOU": {
-        "lat": 29.30,
-        "lon": -94.63,
-        "city": "Houston",
-        "country": "United States",
-    },
-    "USLBH": {
-        "lat": 33.73,
-        "lon": -118.17,
-        "city": "Long Beach",
-        "country": "United States",
-    },
-    "USNYC": {
-        "lat": 40.53,
-        "lon": -73.80,
-        "city": "New York",
-        "country": "United States",
-    },
-    "USSAV": {
-        "lat": 31.99,
-        "lon": -80.76,
-        "city": "Savannah",
-        "country": "United States",
-    },
-    "MYKUL": {
-        "lat": 2.968,
-        "lon": 100.899,
-        "city": "Kuala Lumpur",
-        "country": "Malaysia",
-    },
-}
-DICT_BENCHMARKS = {
-    "route_days": 5,
-    "benchmarks": {
-        "DEHAM-USNYC": {"date_start": "2023-01-01T00:00:00"},
-        "USNYC-DEHAM": {"date_start": "2023-01-01T00:00:00"},
-        "EGHRG-MYKUL": {"date_start": "2023-01-01T00:00:00"},
-        "MYKUL-EGHRG": {"date_start": "2023-01-01T00:00:00"},
-        "EGPSD-ESALG": {"date_start": "2023-01-01T00:00:00"},
-        "ESALG-EGPSD": {"date_start": "2023-01-01T00:00:00"},
-        "PABLB-PECLL": {"date_start": "2023-01-01T00:00:00"},
-        "PECLL-PABLB": {"date_start": "2023-01-01T00:00:00"},
-        "PAONX-USNYC": {"date_start": "2023-01-01T00:00:00"},
-        "USNYC-PAONX": {"date_start": "2023-01-01T00:00:00"},
-    },
-}
 
 
 def load_files(
     list_dates: Iterable[str],
     data_path: str = "./data",
     weather_variables: Iterable[str] = ["currents", "waves"],
-) -> dict[xr.Dataset]:
+) -> dict[str, xr.Dataset]:
     """
     Load multiple files and return a xarray dataset.
 
@@ -126,21 +34,17 @@ def load_files(
         Dataset dictionary containing the data from the files.
     """
     ocean_datasets = dict()
-    data_path = Path(data_path)
+    data_Path = Path(data_path)
 
     # In the future we will have more than one ocean dataset
     for string_ocean in weather_variables:
         files = []
         for date in list_dates:
-            file_path = data_path / f"{string_ocean}/{date}.nc"
+            file_path = data_Path / f"{string_ocean}/{date}.nc"
             files.append(file_path)
 
         ds = xr.open_mfdataset(files, concat_dim="time", combine="nested")
 
-        # if string_ocean == "currents":
-        #    ds["land"] = ds.isnull()["vo"][0]
-
-        # ds = ds.fillna(0)
         ocean_datasets[string_ocean] = ds
 
     return ocean_datasets
@@ -152,8 +56,8 @@ def load(
     data_path: str = "./data",
     bounding_box: Iterable[float] | None = None,
     bounding_border: float = 5.0,
-    land_resolution: float = "2km",
-    vel_ship: float = None,
+    land_resolution: str = "2km",
+    vel_ship: float | None = None,
     use_currents: bool = True,
     use_waves: bool = True,
 ) -> dict:
@@ -196,8 +100,6 @@ def load(
     assert (
         name_benchmark in dict_all_benchmarks
     ), f"Benchmark {name_benchmark} not found"
-
-    data_path = Path(data_path)
 
     # TODO: Add the valid land file to the data_path
     if land_resolution == "1km":
@@ -293,7 +195,7 @@ def load(
         waves_data=ocean_datasets.get("waves", None),
         wind_data=ocean_datasets.get("wind", None),
         bounding_box=benchmark_dict["bounding_box"],
-        land_file=data_path / land_file_name,
+        land_file=data_path + "/" + land_file_name,
     )
 
     benchmark_dict["date_start"] = date_start
