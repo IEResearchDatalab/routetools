@@ -8,8 +8,6 @@ from h3 import Polygon as H3Polygon
 from shapely.geometry import MultiPolygon, Polygon
 
 from routetools.wrr_bench.ocean import Ocean
-from routetools.wrr_utils.route import Route
-from routetools.wrr_utils.simulation import split_route_segments
 
 
 def invert_polygon(
@@ -202,7 +200,6 @@ class Circumnavigate:
         neighbour_disk_size: int = 3,
         land_dilation: int = 0,
         weighted_heuristic: float = 1.1,
-        edge_resolution: float | None = None,
         refine_route: bool = False,
         check_land_edges: bool = True,
     ):
@@ -228,11 +225,6 @@ class Circumnavigate:
             The number of cells to dilate the land cells, by default 0
         weighted_heuristic : float, optional
             The weight of the heuristic in the A* algorithm, by default 1.1
-        edge_resolution : float | None, optional
-            The maximum distance in degrees between two points in the route,
-            by default None
-            If not None, the route will be refined by adding points between two points
-            that are farther than the edge_resolution
         refine_route : bool, optional
             Whether to refine the route by adding points between two points that are not
             neighbors in the h3 grid, by default False
@@ -247,7 +239,6 @@ class Circumnavigate:
         self.neighbour_disk_size = neighbour_disk_size
         self.land_dilation = land_dilation
         self.weighted_heuristic = weighted_heuristic
-        self.edge_resolution = edge_resolution
         self.refine_route = refine_route
         self.check_land_edges = check_land_edges
         self.total_closed_nodes = None
@@ -297,9 +288,8 @@ class Circumnavigate:
         data: Ocean,
         date_start: np.datetime64,
         date_end: np.datetime64 | None,
-        vel_ship: float,
         bounding_box: tuple[float, float, float, float],
-    ) -> Route:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Optimize the route using the A* algorithm.
 
@@ -408,36 +398,8 @@ class Circumnavigate:
 
             latitudes, longitudes = list(zip(*nodes_route, strict=False))
             latitudes, longitudes = np.array(latitudes), np.array(longitudes)
-            if self.edge_resolution:
-                latitudes, longitudes = split_route_segments(
-                    latitudes,
-                    longitudes,
-                    threshold=self.edge_resolution,
-                    ocean_data=data,
-                )
 
-            # Compute the time of the route
-            route = Route.from_start_time(
-                latitudes,
-                longitudes,
-                date_start,
-                ocean_data=data,
-                vel_ship=vel_ship,
-            )
-
-        # If the A* cannot find a route, it will return None
-        if route is None:
-            raise ValueError(
-                "A* could not find a route between the start and end points"
-            )
-
-        # Return the original ocean data
-        route = Route.from_start_time(
-            lats=route.lats,
-            lons=route.lons,
-            time_start=date_start,
-            vel_ship=vel_ship,
-            ocean_data=ocean_zero,
-            land_penalization=0,
-        )
-        return route
+            # Return latitude and longitude arrays for the circumnavigated route.
+            latitudes = np.array(latitudes)
+            longitudes = np.array(longitudes)
+            return latitudes, longitudes

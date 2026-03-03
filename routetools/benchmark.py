@@ -6,13 +6,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from routetools.circumnavigate import Circumnavigate
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
 from routetools.vectorfield import time_variant, vectorfield_zero
 from routetools.wrr_bench.benchmark import load
 from routetools.wrr_bench.ocean import Ocean
-from routetools.wrr_utils.circumnavigate import Circumnavigate
 
 
 def get_currents_to_vectorfield(
@@ -329,7 +329,7 @@ def circumnavigate(
         neighbour_disk_size=neighbour_disk_size,
         land_dilation=land_dilation,
     )
-    route = opt.optimize(
+    lats, lons = opt.optimize(
         lat_start=lat_start,
         lon_start=lon_start,
         lat_end=lat_end,
@@ -338,12 +338,9 @@ def circumnavigate(
         bounding_box=ocean.bounding_box,  # Required explicitly
         date_start=date_start,
         date_end=date_end,  # Required explicitly, but not used
-        vel_ship=vel_ship,  # Required explicitly, but not used
     )
 
-    # Retrieve the curve from the Route instance
-    lats = jnp.asarray(route.lats)
-    lons = jnp.asarray(route.lons)
+    # Retrieve the curve from the optimizer and ensure it has the correct shape (L, 2)
     curve = jnp.stack([lons, lats], axis=1)
     assert (
         curve.ndim == 2 and curve.shape[1] == 2
