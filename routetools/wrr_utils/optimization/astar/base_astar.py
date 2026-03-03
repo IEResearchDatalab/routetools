@@ -3,7 +3,6 @@ from __future__ import annotations
 import heapq
 import json
 import time
-import warnings
 from collections.abc import Iterable
 
 import numpy as np
@@ -374,8 +373,7 @@ class BaseAstar(BaseOptimizer):
             pd.DataFrame(consistency_data).to_csv(self.consistency_data_path)
 
         if nodes_route is None:
-            warnings.warn("The route is not possible. Returning None", stacklevel=2)
-            route = None
+            raise ValueError("The route is not possible with the given parameters.")
         else:
             nodes_route[0] = (lat_start, lon_start)
             nodes_route[-1] = (lat_end, lon_end)

@@ -77,7 +77,7 @@ class Circumnavigate(BaseAstar):
             unit="m",
         )
 
-    def optimize(self, **kwargs):
+    def optimize(self, **kwargs) -> Route:
         """
         Optimize the route using the A* algorithm and DNJ smoothing.
 
@@ -104,7 +104,9 @@ class Circumnavigate(BaseAstar):
         route = super().optimize(data=ocean_zero, **kwargs)
         # If the A* cannot find a route, it will return None
         if route is None:
-            return None
+            raise ValueError(
+                "A* could not find a route between the start and end points"
+            )
 
         if self.num_iter > 0:
             # Apply DNJ smoothing
