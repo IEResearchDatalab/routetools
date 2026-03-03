@@ -4,7 +4,6 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 from routetools.circumnavigate import circumnavigate
 from routetools.cmaes import optimize
@@ -266,9 +265,6 @@ def circumnavigate_and_smooth(
     lon_end: float,
     ocean: Ocean,
     land: LandBenchmark,
-    date_start: np.datetime64,
-    date_end: np.datetime64 | None = None,
-    vel_ship: float = 10.0,
     grid_resolution: int = 4,
     neighbour_disk_size: int = 3,
     land_dilation: int = 0,
@@ -295,12 +291,6 @@ def circumnavigate_and_smooth(
     land : Land | None, optional
         Land instance to derive navigable cells from. If None, assumes no land
         constraints, by default None.
-    date_start : np.datetime64
-        Start date for the route.
-    date_end : np.datetime64 | None, optional
-        End date for the route, by default None.
-    vel_ship : float, optional
-        Speed through water of the ship in knots, by default 10.0.
     grid_resolution : int, optional
         Grid resolution in kilometers, by default 4.
     neighbour_disk_size : int, optional
@@ -460,9 +450,6 @@ def optimize_benchmark_instance(
             lon_end=dict_instance["lon_end"],
             ocean=dict_instance["data"],
             land=dict_instance["land"],
-            date_start=dict_instance["date_start"],
-            date_end=dict_instance.get("date_end"),
-            vel_ship=dict_instance["vel_ship"],
             grid_resolution=4,
             neighbour_disk_size=3,
             land_dilation=0,
