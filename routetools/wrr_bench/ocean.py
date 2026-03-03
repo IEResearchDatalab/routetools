@@ -175,7 +175,8 @@ class Ocean:
 
         try:
             interp_obj: Interpolator = getattr(
-                importlib.import_module("wrr_bench.interpolate"), interp_method
+                importlib.import_module("routetools.wrr_bench.interpolate"),
+                interp_method,
             )
             if not isinstance(Interpolator, type):
                 raise AttributeError(f"{interp_method} is not a class.")
