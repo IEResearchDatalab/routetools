@@ -11,9 +11,9 @@ import numpy as np
 import pandas as pd
 import typer
 
+from routetools.wrr_utils import BaseOptimizer
 from routetools.wrr_utils.benchmark import load_from_config
 from routetools.wrr_utils.consumption import FuelConsumption, Joessel, Towage
-from routetools.wrr_utils.optimization import BaseOptimizer
 from routetools.wrr_utils.route import Route
 from routetools.wrr_utils.utils.aggregate_data import aggregate_data
 from routetools.wrr_utils.utils.config import load_config

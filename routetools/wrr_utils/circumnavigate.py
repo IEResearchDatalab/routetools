@@ -2,9 +2,9 @@ import h3.api.basic_int as h3
 import typer
 
 from routetools.wrr_bench.ocean import Ocean
+from routetools.wrr_utils.base_astar import BaseAstar, Node
 from routetools.wrr_utils.benchmark import load
-from routetools.wrr_utils.optimization.astar.base_astar import BaseAstar, Node
-from routetools.wrr_utils.optimization.dnj import DNJ
+from routetools.wrr_utils.dnj import DNJ
 from routetools.wrr_utils.route import Route
 
 

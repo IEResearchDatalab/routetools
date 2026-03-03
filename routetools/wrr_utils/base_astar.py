@@ -10,13 +10,11 @@ import pandas as pd
 from h3.api import basic_int as h3
 
 from routetools.wrr_bench.ocean import Ocean
-from routetools.wrr_utils.optimization.astar.hexagonal_grid import (
-    multipolygon_to_h3_cells,
-)
-from routetools.wrr_utils.optimization.base_optimizer import BaseOptimizer
+from routetools.wrr_utils.base_optimizer import BaseOptimizer
+from routetools.wrr_utils.hexagonal_grid import multipolygon_to_h3_cells
+from routetools.wrr_utils.polygons import invert_polygon
 from routetools.wrr_utils.route import Route
 from routetools.wrr_utils.simulation import split_route_segments
-from routetools.wrr_utils.utils.polygons import invert_polygon
 
 
 class Node:

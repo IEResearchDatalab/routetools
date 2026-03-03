@@ -12,7 +12,7 @@ from routetools.land import Land
 from routetools.vectorfield import time_variant, vectorfield_zero
 from routetools.wrr_bench.benchmark import load
 from routetools.wrr_bench.ocean import Ocean
-from routetools.wrr_utils.optimization import Circumnavigate
+from routetools.wrr_utils.circumnavigate import Circumnavigate
 
 
 def get_currents_to_vectorfield(

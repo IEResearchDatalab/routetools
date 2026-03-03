@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from routetools.wrr_bench.ocean import Ocean
-from routetools.wrr_bench.utils.simulation import (
+from routetools.wrr_bench.simulation import (
     angle_from_points,
     compute_currents_projection,
     compute_times_given_coordinates_and_start,

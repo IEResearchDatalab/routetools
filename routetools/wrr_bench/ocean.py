@@ -12,9 +12,9 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 from routetools._cost.waves import beaufort_scale
+from routetools.wrr_bench.dataset import correct_ds_coordinates, get_data_chunk
 from routetools.wrr_bench.interpolate import Interpolator
-from routetools.wrr_bench.utils.dataset import correct_ds_coordinates, get_data_chunk
-from routetools.wrr_bench.utils.polygons import (
+from routetools.wrr_bench.polygons import (
     crop_polygon,
     invert_polygon,
     relative_to_latlon,
