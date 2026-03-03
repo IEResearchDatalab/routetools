@@ -105,44 +105,48 @@ def _select_corridor(
     lats = ds[lat_dim].values
     lons = ds[lon_dim].values
 
-    # Handle the Pacific antimeridian case (lon_min=120, lon_max=240)
-    if lon_max > 180:
+    # Latitude selection (ERA5 lat is often descending: 90 → -90)
+    if lats[0] > lats[-1]:
+        lat_slice = slice(lat_max, lat_min)
+    else:
+        lat_slice = slice(lat_min, lat_max)
+
+    # Determine whether the dataset uses [0, 360) longitudes
+    ds_uses_0_360 = float(np.min(lons)) >= 0 and float(np.max(lons)) > 180
+
+    if lon_min < 0 and ds_uses_0_360:
+        # Corridor spans negative longitudes but dataset is in [0, 360).
+        # E.g. Atlantic (-80, 10) → need [280, 360) ∪ [0, 10] then
+        # relabel to [-80, 10].
+        import xarray as xr
+
+        lon_min_360 = lon_min % 360  # -80 → 280
+        part_west = ds.sel(
+            {lat_dim: lat_slice, lon_dim: slice(lon_min_360, 360.0)}
+        )
+        part_east = ds.sel(
+            {lat_dim: lat_slice, lon_dim: slice(0.0, lon_max)}
+        )
+        ds = xr.concat([part_west, part_east], dim=lon_dim)
+        # Relabel longitudes to [-180, 180) convention
+        new_lons = ds[lon_dim].values.copy()
+        new_lons[new_lons >= 180] -= 360
+        ds = ds.assign_coords({lon_dim: new_lons})
+    elif lon_max > 180:
+        # Pacific-style corridor already in [0, 360) range (e.g. 120–240)
         # Convert dataset lons from [-180, 180] to [0, 360] if needed
         if np.any(lons < 0):
             ds = ds.assign_coords({lon_dim: np.mod(lons, 360)})
             ds = ds.sortby(lon_dim)
-            lats = ds[lat_dim].values  # refresh after sortby
-
-        # Latitude selection with support for descending coordinates
-        lat_lower = max(lat_min, float(np.min(lats)))
-        lat_upper = min(lat_max, float(np.max(lats)))
-        if lats[0] > lats[-1]:
-            lat_slice = slice(lat_upper, lat_lower)
-        else:
-            lat_slice = slice(lat_lower, lat_upper)
 
         ds = ds.sel(
-            {
-                lat_dim: lat_slice,
-                lon_dim: slice(lon_min, lon_max),
-            }
+            {lat_dim: lat_slice, lon_dim: slice(lon_min, lon_max)}
         )
     else:
-        # Standard selection (ERA5 lat is often descending)
-        if lats[0] > lats[-1]:
-            ds = ds.sel(
-                {
-                    lat_dim: slice(lat_max, lat_min),
-                    lon_dim: slice(lon_min, lon_max),
-                }
-            )
-        else:
-            ds = ds.sel(
-                {
-                    lat_dim: slice(lat_min, lat_max),
-                    lon_dim: slice(lon_min, lon_max),
-                }
-            )
+        # Both corridor and dataset are in compatible ranges
+        ds = ds.sel(
+            {lat_dim: lat_slice, lon_dim: slice(lon_min, lon_max)}
+        )
 
     return ds
 
