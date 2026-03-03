@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import heapq
-from collections.abc import Iterable
 
 import h3.api.basic_int as h3
 import numpy as np
@@ -48,68 +47,6 @@ def invert_polygon(
         ) from e
 
     return polygon
-
-
-def crop_polygon(
-    multipolygon: MultiPolygon, bounding_box: tuple[float, float, float, float]
-) -> MultiPolygon:
-    """
-    Crop a MultiPolygon with a bounding box.
-
-    Parameters
-    ----------
-    multipolygon : MultiPolygon
-        The input geometries as a MultiPolygon.
-    bounding_box : Iterable[float]
-        The bounding box as a list of four floats: [min_lat, min_lon, max_lat, max_lon].
-
-    Returns
-    -------
-    MultiPolygon
-        The cropped MultiPolygon.
-    """
-    # Crear el polígono de la bounding box
-    bounding_polygon = Polygon(
-        [
-            (bounding_box[1], bounding_box[0]),
-            (bounding_box[3], bounding_box[0]),
-            (bounding_box[3], bounding_box[2]),
-            (bounding_box[1], bounding_box[2]),
-        ]
-    )
-
-    return multipolygon.intersection(bounding_polygon)
-
-
-def relative_to_latlon(
-    y: float, x: float, height: int, width: int, bounding_box: Iterable[float]
-) -> Iterable[float]:
-    """
-    Transform the relative coordinates of a pixel to latitude and longitude.
-
-    Parameters
-    ----------
-    y : float
-        The relative y coordinate.
-    x : float
-        The relative x coordinate.
-    height : int
-        The height of the image.
-    width : int
-        The width of the image.
-    bounding_box : Iterable[float]
-        The bounding box as a list of four floats: [min_lat, min_lon, max_lat, max_lon].
-
-    Returns
-    -------
-    Iterable[float]
-        The latitude and longitude of the pixel.
-    """
-    lat_min, lon_min, lat_max, lon_max = bounding_box
-    lat = lat_min + (lat_max - lat_min) * (y / height)
-    lon = lon_min + (lon_max - lon_min) * (x / width)
-
-    return lon, lat
 
 
 def get_h3_cells(polygons: list[dict], res: int = 5) -> set[int]:
@@ -261,7 +198,13 @@ class Circumnavigate:
         damping: float = 0.5,
         threshold: float = 0.1,
         early_stop: int = 5,
-        **kwargs: dict,
+        grid_resolution: int = 4,
+        neighbour_disk_size: int = 3,
+        land_dilation: int = 0,
+        weighted_heuristic: float = 1.1,
+        edge_resolution: float | None = None,
+        refine_route: bool = False,
+        check_land_edges: bool = True,
     ):
         """Initialize the circumnavigate optimizer.
 
@@ -273,22 +216,40 @@ class Circumnavigate:
         threshold : float, optional
             Maximum value that a point can be moved in a single iteration,
             in degrees, by default 0.1
-        kwargs : dict
-            All the other A* parameters.
+        early_stop : int, optional
+            Number of iterations without improvement to stop the optimization,
+            by default 5
+        grid_resolution : int, optional
+            The resolution of the h3 grid used for the A* algorithm, by default 4
+        neighbour_disk_size : int, optional
+            The size of the disk used to get the neighbors of a node in the
+            A* algorithm, by default 3
+        land_dilation : int, optional
+            The number of cells to dilate the land cells, by default 0
+        weighted_heuristic : float, optional
+            The weight of the heuristic in the A* algorithm, by default 1.1
+        edge_resolution : float | None, optional
+            The maximum distance in degrees between two points in the route,
+            by default None
+            If not None, the route will be refined by adding points between two points
+            that are farther than the edge_resolution
+        refine_route : bool, optional
+            Whether to refine the route by adding points between two points that are not
+            neighbors in the h3 grid, by default False
+        check_land_edges : bool, optional
+            Whether to check if the edge between two nodes is crossing land,
+            by default True
         """
-        # Circumnavigate params
         self.damping = damping
         self.threshold = threshold
         self.early_stop = early_stop
-
-        # Merge BaseAstar defaults
-        self.grid_resolution = kwargs.get("grid_resolution", 4)
-        self.neighbour_disk_size = kwargs.get("neighbour_disk_size", 3)
-        self.land_dilation = kwargs.get("land_dilation", 0)
-        self.weighted_heuristic = kwargs.get("weighted_heuristic", 1.1)
-        self.edge_resolution = kwargs.get("edge_resolution")
-        self.refine_route = kwargs.get("refine_route", False)
-        self.check_land_edges = kwargs.get("check_land_edges", True)
+        self.grid_resolution = grid_resolution
+        self.neighbour_disk_size = neighbour_disk_size
+        self.land_dilation = land_dilation
+        self.weighted_heuristic = weighted_heuristic
+        self.edge_resolution = edge_resolution
+        self.refine_route = refine_route
+        self.check_land_edges = check_land_edges
         self.total_closed_nodes = None
         self.total_expanded_nodes = None
         self.damping = damping
@@ -302,80 +263,6 @@ class Circumnavigate:
             (node1_lat, node1_lon), (node2_lat, node2_lon), unit="m"
         )
 
-    def _g_delta(
-        self,
-        node_now: Node,
-        neighbour: Node,
-        **kwargs: dict,
-    ) -> float:
-        """
-        Calculate the distance between two nodes.
-
-        Parameters
-        ----------
-        node_now : Node
-            Current node.
-        neighbour : Node
-            Neighbour node.
-
-        Returns
-        -------
-        float
-            Distance between the two nodes.
-        """
-        node_now_lat, node_now_lon = h3.cell_to_latlng(node_now.hex_id)
-        neighbour_lat, neighbour_lon = h3.cell_to_latlng(neighbour.hex_id)
-
-        return h3.great_circle_distance(
-            (node_now_lat, node_now_lon),
-            (neighbour_lat, neighbour_lon),
-            unit="m",
-        )
-
-    def optimize(self, **kwargs) -> Route:
-        """
-        Optimize the route using the A* algorithm.
-
-        The ocean data is replaced by one with all zero currents.
-
-        Parameters
-        ----------
-        **kwargs : dict
-            Additional keyword arguments.
-
-        Returns
-        -------
-        Route
-            The optimized route with a fine reparametrization.
-        """
-        # Remove the kwarg "data" and replace it with zero currents
-        data: Ocean = kwargs.pop("data")
-        ocean_zero = Ocean(
-            bounding_box=data.bounding_box,
-            land_file=data.land_file,
-            interp_method=data.interp_method,
-            radius=data.radius,
-        )
-        # Call the inlined A* optimizer using zero currents
-        route = self._astar_optimize(data=ocean_zero, **kwargs)
-        # If the A* cannot find a route, it will return None
-        if route is None:
-            raise ValueError(
-                "A* could not find a route between the start and end points"
-            )
-
-        # Return the original ocean data
-        route = Route.from_start_time(
-            lats=route.lats,
-            lons=route.lons,
-            time_start=route.time_stamps[0],
-            vel_ship=route.vel_ship,
-            ocean_data=data,
-            land_penalization=0,
-        )
-        return route
-
-    # --- Inlined A* implementation from former BaseAstar ---
     def _get_route(self, last_node: Node) -> list[tuple]:
         route: list[tuple] = []
         node_now = last_node
@@ -401,37 +288,7 @@ class Circumnavigate:
                 neighbours.append(Node(neighbour))
         return neighbours
 
-    def _update_neighbour_cost(
-        self,
-        node_now: Node,
-        neighbour: Node,
-        node_end: Node,
-        data: Ocean,
-        date_start: np.datetime64,
-        date_end: np.datetime64,
-        vel_ship: float,
-    ) -> float:
-        g_delta = self._g_delta(
-            node_now,
-            neighbour,
-            data=data,
-            date_start=date_start,
-            date_end=date_end,
-            vel_ship=vel_ship,
-        )
-        neighbour.g = node_now.g + g_delta
-        neighbour.h = self._heuristic(
-            neighbour,
-            node_end,
-            data=data,
-            date_start=date_start,
-            date_end=date_end,
-            vel_ship=vel_ship,
-        )
-        neighbour.f = neighbour.g + self.weighted_heuristic * neighbour.h
-        return g_delta
-
-    def _astar_optimize(
+    def optimize(
         self,
         lat_start: float,
         lon_start: float,
@@ -439,11 +296,33 @@ class Circumnavigate:
         lon_end: float,
         data: Ocean,
         date_start: np.datetime64,
-        vel_ship: float | None = None,
-        date_end: np.datetime64 | None = None,
-        bounding_box: Iterable[float] | None = None,
-        **kwargs,
+        date_end: np.datetime64 | None,
+        vel_ship: float,
+        bounding_box: tuple[float, float, float, float],
     ) -> Route:
+        """
+        Optimize the route using the A* algorithm.
+
+        The ocean data is replaced by one with all zero currents.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            Additional keyword arguments.
+
+        Returns
+        -------
+        Route
+            The optimized route with a fine reparametrization.
+        """
+        # Replace the ocean data with one with all zero currents to compute the route
+        ocean_zero = Ocean(
+            bounding_box=data.bounding_box,
+            land_file=data.land_file,
+            interp_method=data.interp_method,
+            radius=data.radius,
+        )
+
         hex_start = h3.latlng_to_cell(lat_start, lon_start, self.grid_resolution)
         hex_end = h3.latlng_to_cell(lat_end, lon_end, self.grid_resolution)
 
@@ -456,7 +335,7 @@ class Circumnavigate:
             node_end.dt = dt
 
         ocean_cells = multipolygon_to_h3_cells(
-            invert_polygon(data.shapely_ocean, bounding_box),
+            invert_polygon(ocean_zero.shapely_ocean, bounding_box),
             res=self.grid_resolution,
             land_dilation=self.land_dilation,
         )
@@ -546,4 +425,19 @@ class Circumnavigate:
                 vel_ship=vel_ship,
             )
 
+        # If the A* cannot find a route, it will return None
+        if route is None:
+            raise ValueError(
+                "A* could not find a route between the start and end points"
+            )
+
+        # Return the original ocean data
+        route = Route.from_start_time(
+            lats=route.lats,
+            lons=route.lons,
+            time_start=route.time_stamps[0],
+            vel_ship=route.vel_ship,
+            ocean_data=ocean_zero,
+            land_penalization=0,
+        )
         return route
