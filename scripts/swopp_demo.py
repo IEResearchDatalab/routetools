@@ -1,6 +1,8 @@
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 from routetools.benchmark import load_benchmark_instance, optimize_benchmark_instance
+from routetools.cost import haversine_distance_from_curve
 from routetools.fms import optimize_fms
 from routetools.plot import plot_curve
 
@@ -51,7 +53,6 @@ def main(
         seed=seed,
         verbose=verbose,
     )
-    print("Optimized curve:", curve_cmaes)
     print("CMA-ES optimization details:", dict_cmaes)
 
     curve_fms, dict_fms = optimize_fms(
@@ -70,8 +71,11 @@ def main(
         verbose=verbose,
     )
 
-    print("Optimized curve after FMS refinement:", curve_fms)
     print("FMS optimization details:", dict_fms)
+
+    # Compute distances
+    dist_cmaes = jnp.sum(haversine_distance_from_curve(curve_cmaes)) / 1000
+    dist_fms = jnp.sum(haversine_distance_from_curve(curve_fms[0])) / 1000
 
     # Plot
     vectorfield = dict_instance["vectorfield"]
@@ -80,8 +84,8 @@ def main(
         vectorfield=vectorfield,
         ls_curve=[curve_cmaes, curve_fms[0]],
         ls_name=[
-            f"CMA-ES ({dict_cmaes['cost'] / 3600:.0f} hrs)",
-            f"FMS ({sum(dict_fms['cost']) / 3600:.0f} hrs)",
+            f"CMA-ES ({dict_cmaes['cost'] / 3600:.0f} hrs, {dist_cmaes:.0f} km)",
+            f"FMS ({sum(dict_fms['cost']) / 3600:.0f} hrs, {dist_fms:.0f} km)",
         ],
         land=land,
         gridstep=1 / 12,
@@ -102,5 +106,5 @@ def main(
 
 if __name__ == "__main__":
     main()
-    main()
-    main()
+    # stop
+    # stop
