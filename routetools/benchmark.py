@@ -462,7 +462,7 @@ def optimize_benchmark_instance(
             land=dict_instance["land"],
             date_start=dict_instance["date_start"],
             date_end=dict_instance.get("date_end"),
-            vel_ship=dict_instance.get("vel_ship"),
+            vel_ship=dict_instance["vel_ship"],
             grid_resolution=4,
             neighbour_disk_size=3,
             land_dilation=0,
