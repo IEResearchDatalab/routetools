@@ -3,31 +3,33 @@
 Defines the two SWOPP3 routes (Trans-Atlantic and Trans-Pacific), their
 fixed passage times, and the 366 daily departures throughout 2024.
 
-The 8 SWOPP3 cases are:
+The 8 SWOPP3 cases (Table 2 in the SWOPP3 info package):
 
-========  ==============================  =============  ==========
-Case      Route                           Direction      Passage (h)
-========  ==============================  =============  ==========
-1         Santander → New York            Westbound      354
-2         New York → Santander            Eastbound      354
-3         Santander → New York (no wx)    Westbound      354
-4         New York → Santander (no wx)    Eastbound      354
-5         Tokyo → Los Angeles             Eastbound      583
-6         Los Angeles → Tokyo             Westbound      583
-7         Tokyo → Los Angeles (no wx)     Eastbound      583
-8         Los Angeles → Tokyo (no wx)     Westbound      583
-========  ==============================  =============  ==========
+====  =========  ====================  =========================  ===
+Case  Name       Route                 Strategy                   WPS
+====  =========  ====================  =========================  ===
+1     AO_WPS     Atlantic westbound    Optimised route + speed    yes
+2     AO_noWPS   Atlantic westbound    Optimised route + speed    no
+3     AGC_WPS    Atlantic westbound    Great circle, fixed speed  yes
+4     AGC_noWPS  Atlantic westbound    Great circle, fixed speed  no
+5     PO_WPS     Pacific eastbound     Optimised route + speed    yes
+6     PO_noWPS   Pacific eastbound     Optimised route + speed    no
+7     PGC_WPS    Pacific eastbound     Great circle, fixed speed  yes
+8     PGC_noWPS  Pacific eastbound     Great circle, fixed speed  no
+====  =========  ====================  =========================  ===
 
-Cases 3, 4, 7, 8 use the same routes but **without weather constraints**
-(TWS/Hs limits are not enforced).
+- **Optimised (O):** CMA-ES finds minimum-energy route and speed profile.
+- **Great Circle (GC):** Fixed geodesic route, constant speed.
+- **WPS:** RISE polar model with wingsails enabled.
+- **noWPS:** RISE polar model with wingsails disabled (engine only).
 
 Example
 -------
 >>> from routetools.swopp3 import SWOPP3_CASES, departures_2024
->>> case = SWOPP3_CASES["case1"]
+>>> case = SWOPP3_CASES["AO_WPS"]
 >>> deps = departures_2024()
 >>> print(f"{case['name']}: {len(deps)} departures, {case['passage_hours']}h passage")
-case1: 366 departures, 354h passage
+AO_WPS: 366 departures, 354h passage
 """
 
 from __future__ import annotations
@@ -87,69 +89,85 @@ ROUTE_PACIFIC = {
 # The 8 SWOPP3 cases
 # ---------------------------------------------------------------------------
 SWOPP3_CASES: dict[str, dict] = {
-    "case1": {
-        "name": "ESSDR-USNYC",
-        "label": "Santander → New York (weather constrained)",
+    "AO_WPS": {
+        "name": "AO_WPS",
+        "label": "Atlantic Optimised, with WPS",
+        "route": "atlantic",
         "src_port": "ESSDR",
         "dst_port": "USNYC",
         "passage_hours": 354,
-        "weather_constrained": True,
+        "strategy": "optimised",
+        "wps": True,
     },
-    "case2": {
-        "name": "USNYC-ESSDR",
-        "label": "New York → Santander (weather constrained)",
-        "src_port": "USNYC",
-        "dst_port": "ESSDR",
-        "passage_hours": 354,
-        "weather_constrained": True,
-    },
-    "case3": {
-        "name": "ESSDR-USNYC-nowx",
-        "label": "Santander → New York (no weather constraints)",
+    "AO_noWPS": {
+        "name": "AO_noWPS",
+        "label": "Atlantic Optimised, without WPS",
+        "route": "atlantic",
         "src_port": "ESSDR",
         "dst_port": "USNYC",
         "passage_hours": 354,
-        "weather_constrained": False,
+        "strategy": "optimised",
+        "wps": False,
     },
-    "case4": {
-        "name": "USNYC-ESSDR-nowx",
-        "label": "New York → Santander (no weather constraints)",
-        "src_port": "USNYC",
-        "dst_port": "ESSDR",
+    "AGC_WPS": {
+        "name": "AGC_WPS",
+        "label": "Atlantic Great Circle, with WPS",
+        "route": "atlantic",
+        "src_port": "ESSDR",
+        "dst_port": "USNYC",
         "passage_hours": 354,
-        "weather_constrained": False,
+        "strategy": "gc",
+        "wps": True,
     },
-    "case5": {
-        "name": "JPTYO-USLAX",
-        "label": "Tokyo → Los Angeles (weather constrained)",
+    "AGC_noWPS": {
+        "name": "AGC_noWPS",
+        "label": "Atlantic Great Circle, without WPS",
+        "route": "atlantic",
+        "src_port": "ESSDR",
+        "dst_port": "USNYC",
+        "passage_hours": 354,
+        "strategy": "gc",
+        "wps": False,
+    },
+    "PO_WPS": {
+        "name": "PO_WPS",
+        "label": "Pacific Optimised, with WPS",
+        "route": "pacific",
         "src_port": "JPTYO",
         "dst_port": "USLAX",
         "passage_hours": 583,
-        "weather_constrained": True,
+        "strategy": "optimised",
+        "wps": True,
     },
-    "case6": {
-        "name": "USLAX-JPTYO",
-        "label": "Los Angeles → Tokyo (weather constrained)",
-        "src_port": "USLAX",
-        "dst_port": "JPTYO",
-        "passage_hours": 583,
-        "weather_constrained": True,
-    },
-    "case7": {
-        "name": "JPTYO-USLAX-nowx",
-        "label": "Tokyo → Los Angeles (no weather constraints)",
+    "PO_noWPS": {
+        "name": "PO_noWPS",
+        "label": "Pacific Optimised, without WPS",
+        "route": "pacific",
         "src_port": "JPTYO",
         "dst_port": "USLAX",
         "passage_hours": 583,
-        "weather_constrained": False,
+        "strategy": "optimised",
+        "wps": False,
     },
-    "case8": {
-        "name": "USLAX-JPTYO-nowx",
-        "label": "Los Angeles → Tokyo (no weather constraints)",
-        "src_port": "USLAX",
-        "dst_port": "JPTYO",
+    "PGC_WPS": {
+        "name": "PGC_WPS",
+        "label": "Pacific Great Circle, with WPS",
+        "route": "pacific",
+        "src_port": "JPTYO",
+        "dst_port": "USLAX",
         "passage_hours": 583,
-        "weather_constrained": False,
+        "strategy": "gc",
+        "wps": True,
+    },
+    "PGC_noWPS": {
+        "name": "PGC_noWPS",
+        "label": "Pacific Great Circle, without WPS",
+        "route": "pacific",
+        "src_port": "JPTYO",
+        "dst_port": "USLAX",
+        "passage_hours": 583,
+        "strategy": "gc",
+        "wps": False,
     },
 }
 

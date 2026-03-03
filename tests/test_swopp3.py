@@ -64,47 +64,62 @@ class TestRoutes:
 # ---------------------------------------------------------------------------
 # 8 SWOPP3 cases
 # ---------------------------------------------------------------------------
+_CASE_IDS = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS",
+             "PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+
+_ATLANTIC_CASES = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+_PACIFIC_CASES = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+
+
 class TestCases:
     def test_eight_cases(self):
         assert len(SWOPP3_CASES) == 8
 
     def test_case_ids(self):
-        expected = {f"case{i}" for i in range(1, 9)}
-        assert set(SWOPP3_CASES.keys()) == expected
+        assert set(SWOPP3_CASES.keys()) == set(_CASE_IDS)
 
-    @pytest.mark.parametrize("cid", [f"case{i}" for i in range(1, 9)])
+    @pytest.mark.parametrize("cid", _CASE_IDS)
     def test_case_has_required_keys(self, cid):
         case = SWOPP3_CASES[cid]
-        for key in ("name", "label", "src_port", "dst_port", "passage_hours", "weather_constrained"):
+        for key in ("name", "label", "src_port", "dst_port",
+                     "passage_hours", "route", "strategy", "wps"):
             assert key in case, f"{cid} missing key {key}"
 
-    def test_atlantic_cases_weather(self):
-        assert SWOPP3_CASES["case1"]["weather_constrained"] is True
-        assert SWOPP3_CASES["case2"]["weather_constrained"] is True
-        assert SWOPP3_CASES["case3"]["weather_constrained"] is False
-        assert SWOPP3_CASES["case4"]["weather_constrained"] is False
+    @pytest.mark.parametrize("cid", _CASE_IDS)
+    def test_strategy_values(self, cid):
+        assert SWOPP3_CASES[cid]["strategy"] in ("optimised", "gc")
 
-    def test_pacific_cases_weather(self):
-        assert SWOPP3_CASES["case5"]["weather_constrained"] is True
-        assert SWOPP3_CASES["case6"]["weather_constrained"] is True
-        assert SWOPP3_CASES["case7"]["weather_constrained"] is False
-        assert SWOPP3_CASES["case8"]["weather_constrained"] is False
+    def test_optimised_cases(self):
+        for cid in ("AO_WPS", "AO_noWPS", "PO_WPS", "PO_noWPS"):
+            assert SWOPP3_CASES[cid]["strategy"] == "optimised"
+
+    def test_gc_cases(self):
+        for cid in ("AGC_WPS", "AGC_noWPS", "PGC_WPS", "PGC_noWPS"):
+            assert SWOPP3_CASES[cid]["strategy"] == "gc"
+
+    def test_wps_flag(self):
+        for cid in ("AO_WPS", "AGC_WPS", "PO_WPS", "PGC_WPS"):
+            assert SWOPP3_CASES[cid]["wps"] is True
+        for cid in ("AO_noWPS", "AGC_noWPS", "PO_noWPS", "PGC_noWPS"):
+            assert SWOPP3_CASES[cid]["wps"] is False
 
     def test_atlantic_passage_hours(self):
-        for cid in ("case1", "case2", "case3", "case4"):
+        for cid in _ATLANTIC_CASES:
             assert SWOPP3_CASES[cid]["passage_hours"] == 354
 
     def test_pacific_passage_hours(self):
-        for cid in ("case5", "case6", "case7", "case8"):
+        for cid in _PACIFIC_CASES:
             assert SWOPP3_CASES[cid]["passage_hours"] == 583
 
-    def test_reverse_routes_paired(self):
-        # case1/case2 are reverse of each other
-        assert SWOPP3_CASES["case1"]["src_port"] == SWOPP3_CASES["case2"]["dst_port"]
-        assert SWOPP3_CASES["case1"]["dst_port"] == SWOPP3_CASES["case2"]["src_port"]
-        # case5/case6 are reverse of each other
-        assert SWOPP3_CASES["case5"]["src_port"] == SWOPP3_CASES["case6"]["dst_port"]
-        assert SWOPP3_CASES["case5"]["dst_port"] == SWOPP3_CASES["case6"]["src_port"]
+    def test_atlantic_route(self):
+        for cid in _ATLANTIC_CASES:
+            assert SWOPP3_CASES[cid]["src_port"] == "ESSDR"
+            assert SWOPP3_CASES[cid]["dst_port"] == "USNYC"
+
+    def test_pacific_route(self):
+        for cid in _PACIFIC_CASES:
+            assert SWOPP3_CASES[cid]["src_port"] == "JPTYO"
+            assert SWOPP3_CASES[cid]["dst_port"] == "USLAX"
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +168,8 @@ class TestDepartures:
 # case_endpoints
 # ---------------------------------------------------------------------------
 class TestCaseEndpoints:
-    def test_case1_src_dst(self):
-        src, dst = case_endpoints("case1")
+    def test_ao_wps_src_dst(self):
+        src, dst = case_endpoints("AO_WPS")
         assert src.shape == (2,)
         assert dst.shape == (2,)
         # src should be Santander (lon, lat)
@@ -162,18 +177,26 @@ class TestCaseEndpoints:
         # dst should be New York (lon, lat)
         assert jnp.allclose(dst, jnp.array([-73.80, 40.53]))
 
-    def test_case2_is_reverse_of_case1(self):
-        src1, dst1 = case_endpoints("case1")
-        src2, dst2 = case_endpoints("case2")
-        assert jnp.allclose(src1, dst2)
-        assert jnp.allclose(dst1, src2)
+    def test_all_atlantic_same_endpoints(self):
+        src_ref, dst_ref = case_endpoints("AO_WPS")
+        for cid in _ATLANTIC_CASES:
+            src, dst = case_endpoints(cid)
+            assert jnp.allclose(src, src_ref)
+            assert jnp.allclose(dst, dst_ref)
 
-    def test_case5_pacific(self):
-        src, dst = case_endpoints("case5")
+    def test_po_wps_pacific(self):
+        src, dst = case_endpoints("PO_WPS")
         # Tokyo
         assert jnp.allclose(src, jnp.array([140.0, 34.8]))
         # LA
         assert jnp.allclose(dst, jnp.array([-121.0, 34.4]))
+
+    def test_all_pacific_same_endpoints(self):
+        src_ref, dst_ref = case_endpoints("PO_WPS")
+        for cid in _PACIFIC_CASES:
+            src, dst = case_endpoints(cid)
+            assert jnp.allclose(src, src_ref)
+            assert jnp.allclose(dst, dst_ref)
 
     def test_invalid_case_raises(self):
         with pytest.raises(KeyError):
@@ -185,10 +208,10 @@ class TestCaseEndpoints:
 # ---------------------------------------------------------------------------
 class TestCaseTravelTime:
     def test_atlantic(self):
-        assert case_travel_time_seconds("case1") == 354 * 3600.0
+        assert case_travel_time_seconds("AO_WPS") == 354 * 3600.0
 
     def test_pacific(self):
-        assert case_travel_time_seconds("case5") == 583 * 3600.0
+        assert case_travel_time_seconds("PO_WPS") == 583 * 3600.0
 
 
 # ---------------------------------------------------------------------------
