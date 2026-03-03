@@ -435,8 +435,8 @@ class Circumnavigate:
         route = Route.from_start_time(
             lats=route.lats,
             lons=route.lons,
-            time_start=route.time_stamps[0],
-            vel_ship=route.vel_ship,
+            time_start=date_start,
+            vel_ship=vel_ship,
             ocean_data=ocean_zero,
             land_penalization=0,
         )
