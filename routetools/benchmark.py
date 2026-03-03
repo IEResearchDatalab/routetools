@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from routetools.circumnavigate import Circumnavigate
+from routetools.circumnavigate import circumnavigate
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
@@ -259,7 +259,7 @@ def load_benchmark_instance(
     }
 
 
-def circumnavigate(
+def circumnavigate_and_smooth(
     lat_start: float,
     lon_start: float,
     lat_end: float,
@@ -324,17 +324,15 @@ def circumnavigate(
         - The initial A* route as an array of (lon, lat) points.
     """
     # Circumnavigate optimizer
-    opt = Circumnavigate(
-        grid_resolution=grid_resolution,
-        neighbour_disk_size=neighbour_disk_size,
-        land_dilation=land_dilation,
-    )
-    lats, lons = opt.optimize(
+    lats, lons = circumnavigate(
         lat_start=lat_start,
         lon_start=lon_start,
         lat_end=lat_end,
         lon_end=lon_end,
         data=ocean,
+        grid_resolution=grid_resolution,
+        neighbour_disk_size=neighbour_disk_size,
+        land_dilation=land_dilation,
     )
 
     # Retrieve the curve from the optimizer and ensure it has the correct shape (L, 2)
@@ -455,7 +453,7 @@ def optimize_benchmark_instance(
         if verbose:
             print("[INFO] Initializing with circumnavigation route...")
         # Initialize the circumnavigation route
-        curve0 = circumnavigate(
+        curve0 = circumnavigate_and_smooth(
             lat_start=dict_instance["lat_start"],
             lon_start=dict_instance["lon_start"],
             lat_end=dict_instance["lat_end"],
