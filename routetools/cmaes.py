@@ -16,6 +16,7 @@ from jax import jit
 from routetools.cost import cost_function
 from routetools.land import Land
 from routetools.vectorfield import vectorfield_fourvortices
+from routetools.weather import weather_penalty as _weather_penalty
 
 
 @jit  # type: ignore[misc]
@@ -282,7 +283,14 @@ def _cma_evolution_strategy(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty: float = 10,
+    weather_penalty_weight: float = 0.0,
+    tws_limit: float = 20.0,
+    hs_limit: float = 7.0,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     L: int = 64,
@@ -354,6 +362,17 @@ def _cma_evolution_strategy(
         if land is not None and penalty > 0:
             cost += land.penalization(curve, penalty=penalty)
 
+        # Weather constraint penalization
+        if weather_penalty_weight > 0 and (windfield is not None or wavefield is not None):
+            cost += _weather_penalty(
+                curve,
+                windfield=windfield,
+                wavefield=wavefield,
+                tws_limit=tws_limit,
+                hs_limit=hs_limit,
+                penalty=weather_penalty_weight,
+            )
+
         # Replace the worst solutions with the best found so far
         if keep_top > 0 and es.countiter > 1:
             num_replace = min(num_top, len(X))
@@ -392,7 +411,14 @@ def optimize(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty: float = 10,
+    weather_penalty_weight: float = 0.0,
+    tws_limit: float = 20.0,
+    hs_limit: float = 7.0,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     K: int = 6,
@@ -439,6 +465,13 @@ def optimize(
         by default None
     penalty : float, optional
         Penalty for land points, by default 10
+    weather_penalty_weight : float, optional
+        Penalty weight for weather constraint violations (TWS, Hs).
+        Set to 0 (default) to disable weather penalties.
+    tws_limit : float, optional
+        Maximum allowed true wind speed in m/s, by default 20.0
+    hs_limit : float, optional
+        Maximum allowed significant wave height in m, by default 7.0
     travel_stw : float, optional
         The boat will have this fixed speed through water (STW).
         If set, then `travel_time` must be None. By default None
@@ -535,7 +568,11 @@ def optimize(
         x0=x0,
         land=land,
         wavefield=wavefield,
+        windfield=windfield,
         penalty=penalty,
+        weather_penalty_weight=weather_penalty_weight,
+        tws_limit=tws_limit,
+        hs_limit=hs_limit,
         travel_stw=travel_stw,
         travel_time=travel_time,
         L=L,
@@ -584,6 +621,17 @@ def optimize(
             cost_initial += land.penalization(
                 curve0[jnp.newaxis, :, :], penalty=penalty
             ).item()
+        if weather_penalty_weight > 0 and (
+            windfield is not None or wavefield is not None
+        ):
+            cost_initial += _weather_penalty(
+                curve0[jnp.newaxis, :, :],
+                windfield=windfield,
+                wavefield=wavefield,
+                tws_limit=tws_limit,
+                hs_limit=hs_limit,
+                penalty=weather_penalty_weight,
+            ).item()
         if cost_initial < cost_best:
             warnings.warn(
                 "[WARNING] The optimized curve has a higher cost "
@@ -615,9 +663,16 @@ def optimize_with_increasing_penalization(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty_init: float = 0,
     penalty_increment: float = 10,
     maxiter: int = 10,
+    weather_penalty_weight: float = 0.0,
+    tws_limit: float = 20.0,
+    hs_limit: float = 7.0,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     K: int = 6,
@@ -664,6 +719,13 @@ def optimize_with_increasing_penalization(
         Increment in the penalty for land points. By default 10
     maxiter : int, optional
         Maximum number of iterations. By default 10
+    weather_penalty_weight : float, optional
+        Penalty weight for weather constraint violations (TWS, Hs).
+        Set to 0 (default) to disable weather penalties.
+    tws_limit : float, optional
+        Maximum allowed true wind speed in m/s, by default 20.0
+    hs_limit : float, optional
+        Maximum allowed significant wave height in m, by default 7.0
     travel_stw : float, optional
         The boat will have this fixed speed through water (STW).
         If set, then `travel_time` must be None. By default None
@@ -720,7 +782,11 @@ def optimize_with_increasing_penalization(
             x0=x0,
             land=land,
             wavefield=wavefield,
+            windfield=windfield,
             penalty=penalty,
+            weather_penalty_weight=weather_penalty_weight,
+            tws_limit=tws_limit,
+            hs_limit=hs_limit,
             travel_stw=travel_stw,
             travel_time=travel_time,
             L=L,
