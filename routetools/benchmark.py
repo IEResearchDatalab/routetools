@@ -335,9 +335,6 @@ def circumnavigate(
         lat_end=lat_end,
         lon_end=lon_end,
         data=ocean,
-        bounding_box=ocean.bounding_box,  # Required explicitly
-        date_start=date_start,
-        date_end=date_end,  # Required explicitly, but not used
     )
 
     # Retrieve the curve from the optimizer and ensure it has the correct shape (L, 2)

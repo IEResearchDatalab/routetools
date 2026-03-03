@@ -159,7 +159,9 @@ def multipolygon_to_h3_cells(
 class Node:
     """A node class for A* Pathfinding."""
 
-    def __init__(self, hex_id: int, parent: Node = None, vel_ship: float | None = None):
+    def __init__(
+        self, hex_id: int, parent: Node | None = None, vel_ship: float | None = None
+    ):
         self.parent = parent
         self.hex_id = hex_id
         self.vel_ship = vel_ship
@@ -286,9 +288,6 @@ class Circumnavigate:
         lat_end: float,
         lon_end: float,
         data: Ocean,
-        date_start: np.datetime64,
-        date_end: np.datetime64 | None,
-        bounding_box: tuple[float, float, float, float],
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Optimize the route using the A* algorithm.
@@ -302,8 +301,9 @@ class Circumnavigate:
 
         Returns
         -------
-        Route
-            The optimized route with a fine reparametrization.
+        tuple[np.ndarray, np.ndarray]
+            The optimized route with a fine reparametrization,
+            as arrays of latitudes and longitudes.
         """
         # Replace the ocean data with one with all zero currents to compute the route
         ocean_zero = Ocean(
@@ -319,13 +319,8 @@ class Circumnavigate:
         node_start = Node(hex_start)
         node_end = Node(hex_end)
 
-        # Include JIT time if needed
-        if date_end is not None:
-            dt = (date_end - date_start).astype("timedelta64[us]").astype(float) / 1e6
-            node_end.dt = dt
-
         ocean_cells = multipolygon_to_h3_cells(
-            invert_polygon(ocean_zero.shapely_ocean, bounding_box),
+            invert_polygon(ocean_zero.shapely_ocean, ocean_zero.bounding_box),
             res=self.grid_resolution,
             land_dilation=self.land_dilation,
         )
@@ -392,14 +387,14 @@ class Circumnavigate:
 
         if nodes_route is None:
             raise ValueError("The route is not possible with the given parameters.")
-        else:
-            nodes_route[0] = (lat_start, lon_start)
-            nodes_route[-1] = (lat_end, lon_end)
 
-            latitudes, longitudes = list(zip(*nodes_route, strict=False))
-            latitudes, longitudes = np.array(latitudes), np.array(longitudes)
+        nodes_route[0] = (lat_start, lon_start)
+        nodes_route[-1] = (lat_end, lon_end)
 
-            # Return latitude and longitude arrays for the circumnavigated route.
-            latitudes = np.array(latitudes)
-            longitudes = np.array(longitudes)
-            return latitudes, longitudes
+        latitudes, longitudes = list(zip(*nodes_route, strict=False))
+        latitudes, longitudes = np.array(latitudes), np.array(longitudes)
+
+        # Return latitude and longitude arrays for the circumnavigated route.
+        latitudes = np.array(latitudes)
+        longitudes = np.array(longitudes)
+        return latitudes, longitudes
