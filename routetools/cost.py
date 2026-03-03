@@ -452,13 +452,15 @@ def cost_function_constant_cost_time_variant(
         dx = jnp.diff(curve[:, :, 0], axis=1)
         dy = jnp.diff(curve[:, :, 1], axis=1)
 
-    # SOG = displacement / dt
-    dxdt = dx / dt
-    dydt = dy / dt
+    # SOG = displacement / dt  (convert dt from hours to seconds so
+    # that SOG is in m/s, matching the wind field units).
+    dt_s = dt * 3600.0
+    dxdt = dx / dt_s
+    dydt = dy / dt_s
 
-    # STW cost = ‖SOG - current‖² / 2 · dt
+    # STW cost = ‖SOG - current‖² / 2 · dt_s
     cost = ((dxdt - uinterp) ** 2 + (dydt - vinterp) ** 2) / 2
-    return cost * dt
+    return cost * dt_s
 
 
 def interpolate_to_constant_cost(

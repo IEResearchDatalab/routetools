@@ -26,17 +26,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jax.numpy as jnp
-from jax import jit
 import numpy as np
-
-
-@jit
-def _zero_vectorfield(x, y, t):
-    """Constant-zero vectorfield for CMA-ES distance optimisation."""
-    return jnp.zeros_like(x), jnp.zeros_like(y)
-
-
-_zero_vectorfield.is_time_variant = False
 
 from routetools.performance import predict_power_batch
 from routetools.swopp3 import (
@@ -351,33 +341,33 @@ def run_optimised_departure(
         # Lazy import to avoid circular dependency / heavy JAX load
         from routetools.cmaes import optimize as cmaes_optimize
 
-        # Use a constant-zero vectorfield for CMA-ES optimisation.
-        # The wind vectorfield would be treated as an ocean current
-        # (‖SOG − wind‖²), but wind does not propel a ship like a
-        # current.  With a zero field the optimizer minimises route
-        # distance (the best shape proxy for fixed-time energy); the
-        # actual energy is evaluated post-hoc with the RISE model.
-        #
         # Initialise from the great-circle route so CMA-ES starts near
-        # the geodesic.  Use a small sigma0 to keep exploration tight
-        # (the default sigma0 * |dst-src|/2 ≈ 50° for Pacific routes,
-        # causing wild divergence).
+        # the geodesic.
         gc_init = great_circle_route(src, dst, n_points=n_points)
+        # great_circle_route may unwrap longitude through the
+        # antimeridian (e.g. -121° becomes 239°).  Use the unwrapped
+        # endpoints so the CMA-ES endpoint check passes and the Bézier
+        # curve stays in a consistent longitude range.
+        src_opt = jnp.array([gc_init[0, 0], gc_init[0, 1]])
+        dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
         defaults = dict(
             L=n_points,
             curve0=gc_init,
             travel_time=travel_time,
             spherical_correction=True,
-            sigma0=0.01,         # small: avoids divergence from GC
+            time_offset=departure_offset_h,
+            sigma0=0.1,
             verbose=False,
         )
         defaults.update(cmaes_kwargs)
 
         curve, info = cmaes_optimize(
-            vectorfield=_zero_vectorfield,
-            src=src,
-            dst=dst,
+            vectorfield=vectorfield,
+            src=src_opt,
+            dst=dst_opt,
             land=land,
+            wavefield=wavefield,
+            windfield=windfield,
             **defaults,
         )
     else:
