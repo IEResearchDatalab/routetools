@@ -13,7 +13,6 @@ from routetools.vectorfield import time_variant, vectorfield_zero
 from routetools.wrr_bench.benchmark import load
 from routetools.wrr_bench.ocean import Ocean
 from routetools.wrr_utils.optimization import Circumnavigate
-from routetools.wrr_utils.route import Route
 
 
 def get_currents_to_vectorfield(
@@ -331,7 +330,7 @@ def circumnavigate(
         land_dilation=land_dilation,
         num_iter=0,  # No FMS refinement here
     )
-    route: Route = opt.optimize(
+    route = opt.optimize(
         lat_start=lat_start,
         lon_start=lon_start,
         lat_end=lat_end,
