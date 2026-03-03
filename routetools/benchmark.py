@@ -328,7 +328,6 @@ def circumnavigate(
         grid_resolution=grid_resolution,
         neighbour_disk_size=neighbour_disk_size,
         land_dilation=land_dilation,
-        num_iter=0,  # No FMS refinement here
     )
     route = opt.optimize(
         lat_start=lat_start,
@@ -559,7 +558,7 @@ def main(
         tolfun=tolfun_cmaes,
         damping=damping_cmaes,
         maxfevals=maxfevals_cmaes,
-        init_circumnavigate=False,
+        init_circumnavigate=True,
         keep_top=keep_top,
         seed=seed,
         verbose=verbose,
