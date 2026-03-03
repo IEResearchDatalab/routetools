@@ -1,55 +1,10 @@
 import numpy as np
 import scipy
-import searoute as sr
 
 from routetools.wrr_bench.ocean import Ocean, beaufort_scale
 
 EARTH_RADIUS = 6378137
 DEG2M = np.deg2rad(1) * EARTH_RADIUS
-
-
-def auto_bounding_box(
-    lat_start: float,
-    lon_start: float,
-    lat_end: float,
-    lon_end: float,
-    padding: float = 5,
-) -> tuple[float]:
-    """Compute a bounding box that contains the searoute between two points.
-
-    Parameters
-    ----------
-    lat_start : float
-        Latitude of the starting point.
-    lon_start : float
-        Longitude of the starting point.
-    lat_end : float
-        Latitude of the ending point.
-    lon_end : float
-        Longitude of the ending point.
-    padding : float
-        Padding to be added to the bounding box in degrees, by default 5.
-
-    Returns
-    -------
-    tuple[float]
-        Tuple with (min_lat, min_lon, max_lat, max_lon).
-    """
-    origin = [lon_start, lat_start]
-    destination = [lon_end, lat_end]
-
-    coordinates_dict = sr.searoute(origin, destination)
-
-    coords = coordinates_dict["geometry"]["coordinates"]
-
-    lats = [x[1] for x in coords]
-    lons = [x[0] for x in coords]
-    min_lat = min(lats) - padding
-    max_lat = max(lats) + padding
-    min_lon = min(lons) - padding
-    max_lon = max(lons) + padding
-
-    return (min_lat, min_lon, max_lat, max_lon)
 
 
 def unit_vector(lat: np.array, lon: np.array) -> np.array:
