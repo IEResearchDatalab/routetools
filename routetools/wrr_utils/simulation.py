@@ -151,15 +151,15 @@ def auto_bounding_box(
     return (min_lat, min_lon, max_lat, max_lon)
 
 
-def unit_vector(lat: np.array, lon: np.array) -> np.array:
+def unit_vector(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
     """
     Compute the 3D unit vector for latitude/longitude points.
 
     Parameters
     ----------
-    lat : np.array
+    lat : np.ndarray
         Array containing the latitude of the points.
-    lon : np.array
+    lon : np.ndarray
         Array containing the longitude of the points.
 
     Returns
@@ -176,14 +176,14 @@ def unit_vector(lat: np.array, lon: np.array) -> np.array:
 
 
 def distance_from_points(
-    lat_start: np.array,
-    lon_start: np.array,
-    lat_end: np.array,
-    lon_end: np.array,
+    lat_start: np.ndarray,
+    lon_start: np.ndarray,
+    lat_end: np.ndarray,
+    lon_end: np.ndarray,
     ocean_data: Ocean = None,
     radius: float = EARTH_RADIUS,
     land_penalization: float = 0,
-) -> np.array:
+) -> np.ndarray:
     """
     Compute distances in meters between pairs of coordinates.
 
@@ -192,13 +192,13 @@ def distance_from_points(
 
     Parameters
     ----------
-    lat_start : np.array
+    lat_start : np.ndarray
         Array containing the latitude of the starting points.
-    lon_start : np.array
+    lon_start : np.ndarray
         Array containing the longitude of the starting points.
-    lat_end : np.array
+    lat_end : np.ndarray
         Array containing the latitude of the ending points.
-    lon_end : np.array
+    lon_end : np.ndarray
         Array containing the longitude of the ending points.
     radius : float
         Radius of the sphere. Default value is the Earth's radius in meters.
@@ -238,25 +238,25 @@ def distance_from_points(
 
 
 def angle_from_points(
-    lat_start: np.array,
-    lon_start: np.array,
-    lat_end: np.array,
-    lon_end: np.array,
+    lat_start: np.ndarray,
+    lon_start: np.ndarray,
+    lat_end: np.ndarray,
+    lon_end: np.ndarray,
     ocean_data: Ocean = None,
     radius: float = EARTH_RADIUS,
-) -> np.array:
+) -> np.ndarray:
     """
     Compute azimuth angles (degrees) between coordinate pairs.
 
     Parameters
     ----------
-    lat_start : np.array
+    lat_start : np.ndarray
         Array containing the latitude of the starting points in degrees.
-    lon_start : np.array
+    lon_start : np.ndarray
         Array containing the longitude of the starting points in degrees.
-    lat_end : np.array
+    lat_end : np.ndarray
         Array containing the latitude of the ending points in degrees.
-    lon_end : np.array
+    lon_end : np.ndarray
         Array containing the longitude of the ending points in degrees.
     ocean_data : Ocean
         Ocean object containing the ocean data.
@@ -285,7 +285,7 @@ def angle_from_points(
         )
 
 
-def module_angle_from_components(v: np.array, u: np.array) -> tuple[np.array]:
+def module_angle_from_components(v: np.ndarray, u: np.ndarray) -> tuple[np.array]:
     """
     Compute the module and the angle in degrees (with respect to latitude=azimuth).
 
@@ -293,9 +293,9 @@ def module_angle_from_components(v: np.array, u: np.array) -> tuple[np.array]:
 
     Parameters
     ----------
-    v : np.array
+    v : np.ndarray
         Array containing the v (latitude) component of the vector.
-    u : np.array
+    u : np.ndarray
         Array containing the u (longitude) component of the vector.
 
     Returns
@@ -309,15 +309,17 @@ def module_angle_from_components(v: np.array, u: np.array) -> tuple[np.array]:
     return module, angle
 
 
-def components_from_module_angle(module: np.array, angle: np.array) -> tuple[np.array]:
+def components_from_module_angle(
+    module: np.ndarray, angle: np.ndarray
+) -> tuple[np.array]:
     """
     Compute the v and u components of the given vector.
 
     Parameters
     ----------
-    module : np.array
+    module : np.ndarray
         Array containing the module of the vector.
-    angle : np.array
+    angle : np.ndarray
         Array containing the angle in degrees (with respect to latitude).
 
     Returns
@@ -665,15 +667,15 @@ def compute_times_linalg(
 
     Parameters
     ----------
-    lat_start : np.array
+    lat_start : np.ndarray
         Array containing the latitude of the starting points.
-    lon_start : np.array
+    lon_start : np.ndarray
         Array containing the longitude of the starting points.
-    lat_end : np.array
+    lat_end : np.ndarray
         Array containing the latitude of the ending points.
-    lon_end : np.array
+    lon_end : np.ndarray
         Array containing the longitude of the ending points.
-    timestamps : np.array
+    timestamps : np.ndarray
         Array containing the timestamps.
     vel_ship : Union[float, np.ndarray]
         Ship velocity in m/s.
@@ -810,15 +812,15 @@ def compute_times_integral(
 
     Parameters
     ----------
-    lat_start : np.array
+    lat_start : np.ndarray
         Array containing the latitude of the starting points.
-    lon_start : np.array
+    lon_start : np.ndarray
         Array containing the longitude of the starting points.
-    lat_end : np.array
+    lat_end : np.ndarray
         Array containing the latitude of the ending points.
-    lon_end : np.array
+    lon_end : np.ndarray
         Array containing the longitude of the ending points.
-    timestamps : np.array
+    timestamps : np.ndarray
         Array containing the timestamps.
     vel_ship : Union[float, np.ndarray]
         Ship velocity in m/s.
@@ -895,25 +897,25 @@ def velocity_over_ground(
 
 
 def compute_times_given_coordinates_and_start(
-    latitudes: np.array,
-    longitudes: np.array,
-    ts_start: np.array,
+    latitudes: np.ndarray,
+    longitudes: np.ndarray,
+    ts_start: np.ndarray,
     vel_ship: float | np.ndarray,
     ocean_data: Ocean,
     land_penalization: float = 0,
-) -> np.array:
+) -> np.ndarray:
     """
     Compute the time series for the given lat, lon coordinates and timestamps.
 
     Parameters
     ----------
-    latitudes : np.array
+    latitudes : np.ndarray
         Array containing the latitude of the route points.
         It shape can be (N_routes, N_points) or (N_points,)
-    longitudes : np.array
+    longitudes : np.ndarray
         Array containing the longitude of the starting points.
         It shape can be (N_routes, N_points) or (N_points,)
-    ts_start : np.array
+    ts_start : np.ndarray
         Starting timestamp.
         It shape can be (N_routes,) or (1,)
     vel_ship : Union[float, np.ndarray]
@@ -975,8 +977,8 @@ def compute_times_given_coordinates_and_start(
 
 
 def route_segments_distance(
-    lat: np.array,
-    lon: np.array,
+    lat: np.ndarray,
+    lon: np.ndarray,
     ocean_data: Ocean = None,
     land_penalization: float = 0,
 ) -> float:
@@ -984,9 +986,9 @@ def route_segments_distance(
 
     Parameters
     ----------
-    lat : np.array
+    lat : np.ndarray
         Latitudes of the route.
-    lon : np.array
+    lon : np.ndarray
         Longitudes of the route
     ocean_data : Ocean
         Ocean object containing the ocean data.
@@ -1019,8 +1021,8 @@ def route_segments_distance(
 
 
 def route_distance(
-    lat: np.array,
-    lon: np.array,
+    lat: np.ndarray,
+    lon: np.ndarray,
     ocean_data: Ocean = None,
     land_penalization: float = 0,
 ) -> float:
@@ -1028,9 +1030,9 @@ def route_distance(
 
     Parameters
     ----------
-    lat : np.array
+    lat : np.ndarray
         Latitudes of the route.
-    lon : np.array
+    lon : np.ndarray
         Longitudes of the route
     ocean_data : Ocean
         Ocean object containing the ocean data.
@@ -1056,13 +1058,13 @@ def route_distance(
 
 
 def even_reparametrization(
-    curve: np.array,
+    curve: np.ndarray,
     cost: callable,
     n_points: int = None,
     cost_per_segment: float = None,
     n_iter: int = 5,
     verbose: bool = True,
-) -> np.array:
+) -> np.ndarray:
     """Reparameterize a polyline so that the cost is the same on each segment.
 
     Given a polyline and a cost function, reparameterize the polyline so that
@@ -1122,7 +1124,9 @@ def even_reparametrization(
             [do_slice(t, y[:, sl])[:, None] for sl in range(y.shape[1])], axis=1
         )
 
-    def even_resample(t: np.array, y: np.array, n_points: int, cost_per_segment: float):
+    def even_resample(
+        t: np.ndarray, y: np.ndarray, n_points: int, cost_per_segment: float
+    ):
         """Resample t so that points on the y axis are evenly spaced.
 
         Given a function t -> y, resample t into P points so that points on
