@@ -20,7 +20,12 @@ DICT_PORTS = {
     },
     "ESALG": {"lat": 36.07, "lon": -5.38, "city": "Algeciras", "country": "Spain"},
     "FRLEH": {"lat": 49.49, "lon": 0.06, "city": "Le Havre", "country": "France"},
-    "JPTYO": {"lat": 34.86, "lon": 139.72, "city": "Tokyo", "country": "Japan"},
+    "JPTYO": {
+        "lat": 34.8,
+        "lon": 140.0,
+        "city": "Tokyo/Yokohama",
+        "country": "Japan",
+    },
     "LKCMB": {"lat": 6.93, "lon": 79.79, "city": "Colombo", "country": "Sri Lanka"},
     "PABLB": {
         "lat": 8.89,
@@ -44,6 +49,18 @@ DICT_PORTS = {
         "city": "Callao",
         "country": "Peru",
     },
+    "ESSDR": {
+        "lat": 43.6,
+        "lon": -4.0,
+        "city": "Santander",
+        "country": "Spain",
+    },
+    "USLAX": {
+        "lat": 34.4,
+        "lon": -121.0,
+        "city": "Los Angeles",
+        "country": "United States",
+    },
     "USHOU": {
         "lat": 29.30,
         "lon": -94.63,
@@ -59,6 +76,12 @@ DICT_PORTS = {
     "USNYC": {
         "lat": 40.53,
         "lon": -73.80,
+        "city": "New York",
+        "country": "United States",
+    },
+    "USNYCswopp": {
+        "lat": 40.6,
+        "lon": -69.0,
         "city": "New York",
         "country": "United States",
     },
