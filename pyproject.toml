@@ -33,6 +33,8 @@ dependencies = [
     "s3fs>=2026.2.0",
     "tqdm>=4.67.3",
     "searoute>=1.4.3",
+    "netcdf4>=1.7.4",
+    "dask>=2026.1.2",
 ]
 
 [project.urls]
