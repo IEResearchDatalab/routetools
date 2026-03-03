@@ -540,24 +540,25 @@ def optimize(
         # Initial solution from provided curve
         x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
         # Validate that, after conversion, it still does not cross land
-        curve_check = control_to_curve(
-            x0,
-            src,
-            dst,
-            L=L,
-            num_pieces=num_pieces,
-            force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
-        )
-        is_land = land(curve_check)
-        if land is not None and is_land.any():
-            ls_idx = jnp.where(is_land)[0].tolist()
-            warnings.warn(
-                "[WARNING] The provided initial curve0 crosses land "
-                "after conversion to control points. "
-                f"Indices on land (out of {is_land.size}): {ls_idx}",
-                category=UserWarning,
-                stacklevel=2,
+        if land is not None:
+            curve_check = control_to_curve(
+                x0,
+                src,
+                dst,
+                L=L,
+                num_pieces=num_pieces,
+                force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
             )
+            is_land = land(curve_check)
+            if is_land.any():
+                ls_idx = jnp.where(is_land)[0].tolist()
+                warnings.warn(
+                    "[WARNING] The provided initial curve0 crosses land "
+                    "after conversion to control points. "
+                    f"Indices on land (out of {is_land.size}): {ls_idx}",
+                    category=UserWarning,
+                    stacklevel=2,
+                )
 
     # Initial standard deviation to sample new solutions
     # One sigma is half the distance between src and dst
