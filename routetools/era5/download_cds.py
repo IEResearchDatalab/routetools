@@ -206,7 +206,7 @@ def download_all(
     output_dir: str | Path = "data/era5",
     year: str = DEFAULT_YEAR,
     corridors: list[str] | None = None,
-    **kwargs: ...,
+    **kwargs: object,
 ) -> list[Path]:
     """Download all ERA5 data needed for SWOPP3.
 

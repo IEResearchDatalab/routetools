@@ -32,7 +32,7 @@ def _make_wind_nc(path: Path) -> None:
     lats = np.array([30.0, 35.0, 40.0, 45.0, 50.0])
     lons = np.array([-70.0, -60.0, -50.0, -40.0, -30.0, -20.0])
 
-    # Simple pattern: u10 = lon/10, v10 = lat/10 (constant in time)
+    # Simple pattern: u10 = lon/10 + t*0.1, v10 = lat/10 + t*0.1 (varies with time)
     u10 = np.zeros((4, 5, 6), dtype=np.float32)
     v10 = np.zeros((4, 5, 6), dtype=np.float32)
     for t in range(4):

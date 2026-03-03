@@ -46,12 +46,20 @@ def _load_dataset(path: str | Path) -> xr.Dataset:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"ERA5 data file not found: {path}")
+    last_exc: Exception | None = None
     for engine in ("scipy", "netcdf4", None):
         try:
             return xr.open_dataset(path, engine=engine)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            logger.debug(
+                "Failed to open %s with engine %r", path, engine, exc_info=True
+            )
             continue
-    return xr.open_dataset(path)
+    raise RuntimeError(
+        f"Failed to open ERA5 data file {path!s} with engines "
+        "('scipy', 'netcdf4', None)"
+    ) from last_exc
 
 
 def _get_coord_name(ds: xr.Dataset, candidates: list[str]) -> str:
@@ -196,8 +204,9 @@ def _build_field_closure(
 
         # Handle 2D inputs
         if lat.ndim > 1:
-            ts_full = jnp.repeat(ts_full[:, None], lat.shape[1], axis=1)
             shape = lat.shape
+            if ts_full.ndim < lat.ndim:
+                ts_full = jnp.repeat(ts_full[:, None], lat.shape[1], axis=1)
             ts_full = ts_full.flatten()
             lat = lat.flatten()
             lon = lon.flatten()
@@ -279,6 +288,7 @@ def load_era5_windfield(
                 u_var = candidate
                 break
         if u_var is None:
+            ds.close()
             raise KeyError(
                 f"Cannot find u-wind variable in {path}. "
                 f"Available: {list(ds.data_vars)}"
@@ -289,25 +299,24 @@ def load_era5_windfield(
                 v_var = candidate
                 break
         if v_var is None:
+            ds.close()
             raise KeyError(
                 f"Cannot find v-wind variable in {path}. "
                 f"Available: {list(ds.data_vars)}"
             )
 
     grid = _prepare_grid(ds, departure_time)
+    ds = grid["ds"]  # use the reindexed dataset from _prepare_grid
 
     # Extract data as JAX arrays: shape (T, lat, lon)
     lat_name = grid["lat_name"]
     udata = ds[u_var]
     vdata = ds[v_var]
 
-    # Ensure lat is ascending in the data variable
-    if grid["lat"][0] < grid["lat"][-1] and ds[lat_name].values[0] > ds[lat_name].values[-1]:
-        udata = udata.isel({lat_name: slice(None, None, -1)})
-        vdata = vdata.isel({lat_name: slice(None, None, -1)})
-
     umat = jnp.array(udata.values, dtype=jnp.float32)
     vmat = jnp.array(vdata.values, dtype=jnp.float32)
+
+    ds.close()  # release file handles; data is now in JAX arrays
 
     logger.info(
         "Loaded ERA5 wind: shape=%s, lat=[%.1f, %.1f], lon=[%.1f, %.1f], "
@@ -410,6 +419,7 @@ def load_era5_wavefield(
                 hs_var = candidate
                 break
         if hs_var is None:
+            ds.close()
             raise KeyError(
                 f"Cannot find wave height variable in {path}. "
                 f"Available: {list(ds.data_vars)}"
@@ -421,24 +431,23 @@ def load_era5_wavefield(
                 dir_var = candidate
                 break
         if dir_var is None:
+            ds.close()
             raise KeyError(
                 f"Cannot find wave direction variable in {path}. "
                 f"Available: {list(ds.data_vars)}"
             )
 
     grid = _prepare_grid(ds, departure_time)
+    ds = grid["ds"]  # use the reindexed dataset from _prepare_grid
 
     lat_name = grid["lat_name"]
     hsdata = ds[hs_var]
     dirdata = ds[dir_var]
 
-    # Ensure lat is ascending
-    if grid["lat"][0] < grid["lat"][-1] and ds[lat_name].values[0] > ds[lat_name].values[-1]:
-        hsdata = hsdata.isel({lat_name: slice(None, None, -1)})
-        dirdata = dirdata.isel({lat_name: slice(None, None, -1)})
-
     hmat = jnp.array(hsdata.values, dtype=jnp.float32)
     dmat = jnp.array(dirdata.values, dtype=jnp.float32)
+
+    ds.close()  # release file handles; data is now in JAX arrays
 
     # Replace NaN with 0 (land points in wave data)
     hmat = jnp.nan_to_num(hmat, nan=0.0)

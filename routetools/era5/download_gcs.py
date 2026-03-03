@@ -93,7 +93,7 @@ def _select_corridor(
     lat_min, lat_max, lon_min, lon_max = CORRIDORS[corridor]
 
     # Time selection
-    ds = ds.sel(time=ds.time.dt.year == int(year))
+    ds = ds.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
     if time_step > 1:
         ds = ds.isel(time=slice(None, None, time_step))
 
@@ -111,12 +111,19 @@ def _select_corridor(
         if np.any(lons < 0):
             ds = ds.assign_coords({lon_dim: np.mod(lons, 360)})
             ds = ds.sortby(lon_dim)
+            lats = ds[lat_dim].values  # refresh after sortby
+
+        # Latitude selection with support for descending coordinates
+        lat_lower = max(lat_min, float(np.min(lats)))
+        lat_upper = min(lat_max, float(np.max(lats)))
+        if lats[0] > lats[-1]:
+            lat_slice = slice(lat_upper, lat_lower)
+        else:
+            lat_slice = slice(lat_lower, lat_upper)
+
         ds = ds.sel(
             {
-                lat_dim: slice(
-                    max(lat_min, float(np.min(lats))),
-                    min(lat_max, float(np.max(lats))),
-                ),
+                lat_dim: lat_slice,
                 lon_dim: slice(lon_min, lon_max),
             }
         )
