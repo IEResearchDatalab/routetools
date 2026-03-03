@@ -189,7 +189,7 @@ def main(
         ds.close()
         # Convert numpy datetime64 -> Python datetime (UTC-naive)
         ts = (epoch_np - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
-        return datetime.utcfromtimestamp(float(ts))
+        return datetime.fromtimestamp(float(ts), tz=None)
 
     def _get_wind(corridor: str):
         """Return (windfield_closure, dataset_epoch) for corridor, or (None, None)."""
