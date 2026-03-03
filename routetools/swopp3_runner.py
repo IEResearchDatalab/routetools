@@ -357,10 +357,18 @@ def run_optimised_departure(
         # current.  With a zero field the optimizer minimises route
         # distance (the best shape proxy for fixed-time energy); the
         # actual energy is evaluated post-hoc with the RISE model.
+        #
+        # Initialise from the great-circle route so CMA-ES starts near
+        # the geodesic.  Use a small sigma0 to keep exploration tight
+        # (the default sigma0 * |dst-src|/2 ≈ 50° for Pacific routes,
+        # causing wild divergence).
+        gc_init = great_circle_route(src, dst, n_points=n_points)
         defaults = dict(
             L=n_points,
+            curve0=gc_init,
             travel_time=travel_time,
             spherical_correction=True,
+            sigma0=0.01,         # small: avoids divergence from GC
             verbose=False,
         )
         defaults.update(cmaes_kwargs)
