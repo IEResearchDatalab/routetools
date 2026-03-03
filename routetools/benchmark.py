@@ -5,13 +5,13 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
-from wrr_bench.benchmark import load
-from wrr_bench.ocean import Ocean
 
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
 from routetools.vectorfield import time_variant, vectorfield_zero
+from routetools.wrr_bench.benchmark import load
+from routetools.wrr_bench.ocean import Ocean
 from routetools.wrr_utils.optimization import Circumnavigate
 from routetools.wrr_utils.route import Route
 
