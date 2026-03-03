@@ -517,3 +517,21 @@ def optimize_benchmark_instance(
     )
 
     return curve_best, dict_cmaes
+
+
+def main():
+    """Test the benchmark."""
+    # Example usage
+    instance_name = "DEHAM-USNYC"
+    dict_instance = load_benchmark_instance(instance_name)
+    curve_opt, dict_cmaes = optimize_benchmark_instance(
+        dict_instance,
+        init_circumnavigate=True,
+        verbose=True,
+    )
+    print("Optimized curve:", curve_opt)
+    print("CMA-ES optimization details:", dict_cmaes)
+
+
+if __name__ == "__main__":
+    main()
