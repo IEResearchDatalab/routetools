@@ -20,13 +20,12 @@ import numpy as np
 try:
     from swopp3_performance_model import predict_no_wps, predict_with_wps
 except ImportError:
-    print("ERROR: swopp3_performance_model wheel is not installed.")
+    print("ERROR: swopp3_performance_model wheel is not installed.", file=sys.stderr)
     sys.exit(1)
 
 from routetools.performance import (
     K_A,
     K_H,
-    K_S,
     K_W,
     A_W,
     predict_power_no_wps as parametric_no_wps,
@@ -212,7 +211,13 @@ def benchmark_component_breakdown() -> None:
         ux = tws_test * np.cos(twa_rad) + v_test
         uy = tws_test * np.sin(twa_rad)
         vr = np.sqrt(ux**2 + uy**2)
-        ref_wind = predict_no_wps(tws_test, twa, 0, 0, v_test) - p_hull
+        total_ref = predict_no_wps(tws_test, twa, 0, 0, v_test)
+        # If the model clamps total power at zero (strong tailwind),
+        # the decomposition total = hull + wind is invalid.
+        if total_ref > 0.0:
+            ref_wind = total_ref - p_hull
+        else:
+            ref_wind = float("nan")
         par_wind = K_A * v_test * (vr * ux - v_test**2)
         print(f"    {twa:5}  {tws_test:5.0f}  {v_test:5.0f}  {ref_wind:10.4f}  "
               f"{par_wind:10.4f}  {abs(par_wind - ref_wind):10.6f}")

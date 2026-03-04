@@ -57,9 +57,9 @@ $$
 where the apparent wind components are:
 
 $$
-u_x = \text{tws} \cdot \cos(\text{twa}) + v
+u_x = \text{tws} \cdot \cos\!\left(\text{twa} \cdot \frac{\pi}{180}\right) + v
 \qquad
-u_y = \text{tws} \cdot \sin(\text{twa})
+u_y = \text{tws} \cdot \sin\!\left(\text{twa} \cdot \frac{\pi}{180}\right)
 $$
 
 $$
@@ -132,8 +132,10 @@ where $V_R^2 = u_x^2 + u_y^2$ is the squared apparent wind speed
 and $\text{AWA}$ is the apparent wind angle:
 
 $$
-\text{AWA} = \arctan2\!\big(|u_y|,\; u_x\big)
+\text{AWA} = \arctan2\!\big(|u_y|,\; u_x\big) \cdot \frac{180}{\pi}
 $$
+
+so $\text{AWA}$ is in **degrees**.
 
 **Sail polar coefficient** $C(\text{AWA})$:
 
@@ -144,7 +146,7 @@ K_s \cdot \sin\alpha \cdot \Big(1 + \dfrac{3}{20}\sin^2\alpha\Big) & \text{if } 
 \end{cases}
 $$
 
-where $\alpha = \text{AWA} - 10°$ and:
+where $\alpha = (\text{AWA} - 10°) \cdot \pi / 180$ (converted to radians) and:
 
 $$
 K_s = 0.85903125
