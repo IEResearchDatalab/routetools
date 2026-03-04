@@ -10,8 +10,7 @@ from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
 from routetools.vectorfield import time_variant, vectorfield_zero
-from routetools.wrr_bench.load import load
-from routetools.wrr_bench.ocean import Ocean
+from routetools.wrr_bench import Ocean, load_real_instance
 
 
 def get_currents_to_vectorfield(
@@ -219,7 +218,7 @@ def load_benchmark_instance(
         - vectorfield: Callable function to get the current vectors
         - land: Land instance for land penalization
     """
-    dict_instance = load(
+    dict_instance = load_real_instance(
         instance_name,
         date_start=date_start,
         vel_ship=vel_ship,

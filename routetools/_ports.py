@@ -98,9 +98,9 @@ DICT_PORTS = {
         "country": "Malaysia",
     },
 }
-DICT_BENCHMARKS = {
+DICT_INSTANCES = {
     "route_days": 10,
-    "benchmarks": {
+    "instances": {
         "DEHAM-USNYC": {"date_start": "2023-01-01T00:00:00"},
         "USNYC-DEHAM": {"date_start": "2023-01-01T00:00:00"},
         "EGHRG-MYKUL": {"date_start": "2023-01-01T00:00:00"},

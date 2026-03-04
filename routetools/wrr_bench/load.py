@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from routetools._ports import DICT_BENCHMARKS, DICT_PORTS
+from routetools._ports import DICT_INSTANCES, DICT_PORTS
 from routetools.wrr_bench.ocean import Ocean
 
 
@@ -50,8 +50,8 @@ def load_files(
     return ocean_datasets
 
 
-def load(
-    name_benchmark: str,
+def load_real_instance(
+    name_instance: str,
     date_start: np.datetime64 | str | None = None,
     data_path: str = "./data",
     bounding_box: Iterable[float] | None = None,
@@ -62,15 +62,15 @@ def load(
     use_waves: bool = True,
 ) -> dict:
     """
-    Load benchmark configuration and prepare data and parameters to optimize.
+    Load instance configuration and prepare data and parameters to optimize.
 
     Parameters
     ----------
-    name_benchmark : str
-        Name of the benchmark used.
+    name_instance : str
+        Name of the instance used.
     date_start : np.datetime64 | str, optional
-        Starting date. If not given, takes the one given by the benchmark.
-        Be careful, because the benchmark doesn't have the date by default.
+        Starting date. If not given, takes the one given by the instance.
+        Be careful, because the instance doesn't have the date by default.
     data_path : str, optional
         Path to the folder containing the files, by default "./data"
     bounding_box : Optional[List[float]], optional
@@ -83,7 +83,7 @@ def load(
         It can be "1km" or "2km".
     vel_ship : float, optional
         Speed of the ship in m/s, by default None
-        If it is None will try to use the one given by the benchmark,
+        If it is None will try to use the one given by the instance,
         if not it will use this value.
     use_currents : bool, optional
         Whether to use ocean currents data, by default True
@@ -93,13 +93,11 @@ def load(
     Returns
     -------
     dict
-        Dictionary containing the benchmark configuration.
+        Dictionary containing the instance configuration.
     """
-    dict_all_benchmarks: dict = DICT_BENCHMARKS["benchmarks"]
+    dict_all_instances: dict = DICT_INSTANCES["instances"]
 
-    assert (
-        name_benchmark in dict_all_benchmarks
-    ), f"Benchmark {name_benchmark} not found"
+    assert name_instance in dict_all_instances, f"Instance {name_instance} not found"
 
     # TODO: Add the valid land file to the data_path
     if land_resolution == "1km":
@@ -107,15 +105,15 @@ def load(
     else:
         land_file_name = "earth-seas-2km5-valid.geo.json"
 
-    route_days = DICT_BENCHMARKS["route_days"]
+    route_days = DICT_INSTANCES["route_days"]
 
-    benchmark_dict = {}
+    dict_instance = {}
 
-    # Check if the benchmark name is a port-to-port code "XXXXX-YYYYY"
-    if re.match(r"^[A-Z]{5}-[A-Z]{5}$", name_benchmark):
+    # Check if the instance name is a port-to-port code "XXXXX-YYYYY"
+    if re.match(r"^[A-Z]{5}-[A-Z]{5}$", name_instance):
         # If it does, take the port information
-        port_start = name_benchmark[:5]
-        port_end = name_benchmark[6:]
+        port_start = name_instance[:5]
+        port_end = name_instance[6:]
         # Reinitiliaze the dictionary with the port coordinates
         dict_add = {
             "lat_start": DICT_PORTS[port_start]["lat"],
@@ -123,36 +121,36 @@ def load(
             "lat_end": DICT_PORTS[port_end]["lat"],
             "lon_end": DICT_PORTS[port_end]["lon"],
         }
-        benchmark_dict.update(dict_add)
+        dict_instance.update(dict_add)
         # In addition, make sure the ODP information exists in either direction
         # This will be useful if we have, for instance, defined a limit or starting date
         name_alt = f"{port_end}-{port_start}"
     else:
-        name_alt = name_benchmark
+        name_alt = name_instance
 
-    # Find if the benchmark is defined inside the dictionary, as is
-    if name_benchmark in dict_all_benchmarks:
-        benchmark_dict.update(dict_all_benchmarks[name_benchmark])
+    # Find if the instance is defined inside the dictionary, as is
+    if name_instance in dict_all_instances:
+        dict_instance.update(dict_all_instances[name_instance])
     # Else, find if the reverse name works
-    elif name_alt in dict_all_benchmarks:
-        benchmark_dict.update(dict_all_benchmarks[name_alt])
+    elif name_alt in dict_all_instances:
+        dict_instance.update(dict_all_instances[name_alt])
 
-    # Initialize the dictionary containing the benchmark configuration
+    # Initialize the dictionary containing the instance configuration
     # Adds default parameters to avoid missing information
     assert (
-        vel_ship is not None or benchmark_dict.get("vel_ship") is not None
-    ), "Velocity of the ship not found. Must be defined on benchmark or as parameter."
+        vel_ship is not None or dict_instance.get("vel_ship") is not None
+    ), "Velocity of the ship not found. Must be defined on instance or as parameter."
 
     if vel_ship is not None:
-        benchmark_dict["vel_ship"] = vel_ship
+        dict_instance["vel_ship"] = vel_ship
 
     # Fill the date, if provided
     if date_start is None:
-        # If date_start is not provided, take the one from the benchmark
-        date_start = np.datetime64(benchmark_dict["date_start"])
+        # If date_start is not provided, take the one from the instance
+        date_start = np.datetime64(dict_instance["date_start"])
     else:
         # If it is provided, update the dictionary
-        benchmark_dict["date_start"] = pd.to_datetime(str(date_start)).strftime(
+        dict_instance["date_start"] = pd.to_datetime(str(date_start)).strftime(
             "%Y-%m-%dT%H:%M:%S"
         )
 
@@ -179,25 +177,25 @@ def load(
     )
 
     if bounding_box is not None:
-        benchmark_dict["bounding_box"] = bounding_box
+        dict_instance["bounding_box"] = bounding_box
 
     # Slice the data chunk
-    if benchmark_dict.get("bounding_box") is None:
+    if dict_instance.get("bounding_box") is None:
         bb = bounding_border
-        bottom = min(benchmark_dict["lat_start"], benchmark_dict["lat_end"]) - bb
-        up = max(benchmark_dict["lat_start"], benchmark_dict["lat_end"]) + bb
-        left = min(benchmark_dict["lon_start"], benchmark_dict["lon_end"]) - bb
-        right = max(benchmark_dict["lon_start"], benchmark_dict["lon_end"]) + bb
-        benchmark_dict["bounding_box"] = [bottom, left, up, right]
+        bottom = min(dict_instance["lat_start"], dict_instance["lat_end"]) - bb
+        up = max(dict_instance["lat_start"], dict_instance["lat_end"]) + bb
+        left = min(dict_instance["lon_start"], dict_instance["lon_end"]) - bb
+        right = max(dict_instance["lon_start"], dict_instance["lon_end"]) + bb
+        dict_instance["bounding_box"] = [bottom, left, up, right]
 
-    benchmark_dict["data"] = Ocean(
+    dict_instance["data"] = Ocean(
         currents_data=ocean_datasets.get("currents", None),
         waves_data=ocean_datasets.get("waves", None),
         wind_data=ocean_datasets.get("wind", None),
-        bounding_box=benchmark_dict["bounding_box"],
+        bounding_box=dict_instance["bounding_box"],
         land_file=data_path + "/" + land_file_name,
     )
 
-    benchmark_dict["date_start"] = date_start
+    dict_instance["date_start"] = date_start
 
-    return benchmark_dict
+    return dict_instance
