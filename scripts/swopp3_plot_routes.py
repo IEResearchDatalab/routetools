@@ -359,11 +359,19 @@ def plot_distance_vs_energy(input_dir: Path, fig_dir: Path) -> None:
                 c=months, cmap="hsv", s=12, alpha=0.7, vmin=1, vmax=12,
                 label="Optimised",
             )
-            # GC reference point
+            # GC: same route every departure but energy varies with weather
+            gc_months = pd.to_datetime(gc_df["departure_time_utc"]).dt.month
+            ax.scatter(
+                gc_df["sailed_distance_nm"], gc_df["energy_cons_mwh"],
+                c=gc_months, cmap="hsv", s=12, alpha=0.7, vmin=1, vmax=12,
+                marker="^", label="GC",
+            )
+            # GC mean reference star
             gc_d = gc_df["sailed_distance_nm"].mean()
             gc_e = gc_df["energy_cons_mwh"].mean()
-            ax.scatter(gc_d, gc_e, color="blue", marker="*", s=200,
-                       zorder=10, label=f"GC ({gc_d:.0f} nm, {gc_e:.0f} MWh)")
+            ax.scatter(gc_d, gc_e, color="navy", marker="*", s=200,
+                       zorder=10, edgecolors="white", linewidths=0.5,
+                       label=f"GC mean ({gc_d:.0f} nm, {gc_e:.0f} MWh)")
 
             ax.set_xlabel("Sailed Distance (nm)", fontsize=11)
             ax.set_ylabel("Energy (MWh)", fontsize=11)
