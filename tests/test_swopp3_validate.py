@@ -6,10 +6,9 @@ import csv
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from routetools.swopp3_validate import (
     ValidationError,
+    validate_case_pair_strategy,
     validate_case_pair_wps,
     validate_file_a,
     validate_file_b,
@@ -233,3 +232,40 @@ class TestValidateSubmissionDir:
         # Should report missing File A for all 8 cases
         missing = [e for e in errs if "not found" in e.message]
         assert len(missing) == 8
+
+
+# ---------------------------------------------------------------------------
+# validate_case_pair_strategy (optimised vs GC baseline)
+# ---------------------------------------------------------------------------
+class TestValidateCasePairStrategy:
+    def test_optimised_always_better_no_errors(self, tmp_path: Path):
+        """All departures have optimised ≤ GC → no errors."""
+        opt = tmp_path / "opt.csv"
+        gc = tmp_path / "gc.csv"
+        _write_file_a_custom(opt, [90.0, 85.0, 80.0])
+        _write_file_a_custom(gc, [100.0, 100.0, 100.0])
+        errs = validate_case_pair_strategy(opt, gc)
+        assert errs == []
+
+    def test_under_threshold_no_errors(self, tmp_path: Path):
+        """Exactly 10% worse departures (1 of 10) → allowed, no errors."""
+        opt_energies = [90.0] * 9 + [110.0]  # 1 out of 10 worse
+        gc_energies = [100.0] * 10
+        opt = tmp_path / "opt.csv"
+        gc = tmp_path / "gc.csv"
+        _write_file_a_custom(opt, opt_energies)
+        _write_file_a_custom(gc, gc_energies)
+        errs = validate_case_pair_strategy(opt, gc)
+        assert errs == []
+
+    def test_over_threshold_reports_error(self, tmp_path: Path):
+        """More than 10% worse departures → returns errors."""
+        opt_energies = [110.0] * 10  # all worse
+        gc_energies = [100.0] * 10
+        opt = tmp_path / "opt.csv"
+        gc = tmp_path / "gc.csv"
+        _write_file_a_custom(opt, opt_energies)
+        _write_file_a_custom(gc, gc_energies)
+        errs = validate_case_pair_strategy(opt, gc)
+        assert len(errs) == 1
+        assert "worse" in errs[0].message.lower() or "optimised" in errs[0].message.lower()

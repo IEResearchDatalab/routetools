@@ -1,13 +1,17 @@
-"""SWOPP3 output validation — verify File A & File B compliance.
+"""SWOPP3 output validation — verify File A, File B and submission compliance.
 
-Checks performed:
+Currently implemented checks:
 
 - File A columns, formats, no NaN/missing values.
-- File B columns, timestamps consistent with File A.
+- File B columns and timestamp ordering.
 - Naming convention:  ``IEUniversity-{sub}-{case}.csv``.
-- Route sanity: distance within expected range.
 - Energy sanity: WPS ≤ noWPS, optimised ≤ GC (across case pairs).
-- Constraint compliance reporting.
+
+Planned / not yet wired:
+
+- File B timestamps consistent with File A arrival/departure.
+- Route distance range checks.
+- Fixed passage time enforcement.
 
 Example
 -------
@@ -240,7 +244,17 @@ def validate_file_b(
 # Cross-case comparisons
 # ---------------------------------------------------------------------------
 def _load_energies(path: Path) -> list[float]:
-    """Load energy_cons_mwh column from a File A CSV."""
+    """Load energy_cons_mwh column from a File A CSV.
+
+    Raises
+    ------
+    FileNotFoundError
+        If *path* does not exist.
+    KeyError
+        If the ``energy_cons_mwh`` column is missing.
+    ValueError
+        If a cell value is not numeric.
+    """
     with path.open() as f:
         reader = csv.DictReader(f)
         return [float(row["energy_cons_mwh"]) for row in reader]
@@ -258,8 +272,12 @@ def validate_case_pair_wps(
         One error per departure where WPS > noWPS.
     """
     errors: list[ValidationError] = []
-    wps_e = _load_energies(Path(wps_path))
-    nowps_e = _load_energies(Path(nowps_path))
+    try:
+        wps_e = _load_energies(Path(wps_path))
+        nowps_e = _load_energies(Path(nowps_path))
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        errors.append(ValidationError(str(wps_path), None, f"Cannot load energies: {exc}"))
+        return errors
     n = min(len(wps_e), len(nowps_e))
     violations = 0
     for i in range(n):
@@ -291,8 +309,12 @@ def validate_case_pair_strategy(
         Error if too many departures show optimised > GC.
     """
     errors: list[ValidationError] = []
-    opt_e = _load_energies(Path(opt_path))
-    gc_e = _load_energies(Path(gc_path))
+    try:
+        opt_e = _load_energies(Path(opt_path))
+        gc_e = _load_energies(Path(gc_path))
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        errors.append(ValidationError(str(opt_path), None, f"Cannot load energies: {exc}"))
+        return errors
     n = min(len(opt_e), len(gc_e))
     worse = sum(1 for i in range(n) if opt_e[i] > gc_e[i] + 1e-6)
     pct = worse / n * 100 if n else 0

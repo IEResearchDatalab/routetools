@@ -90,6 +90,8 @@ def waypoint_times(
         ``L`` UTC datetimes, one per waypoint.
     """
     L = curve.shape[0]
+    if L < 2:
+        return [departure]
     total_seconds = passage_hours * 3600.0
     return [
         departure + timedelta(seconds=total_seconds * i / (L - 1))
@@ -164,7 +166,7 @@ def file_a_name(submission: int, casename: str) -> str:
     submission : int
         Submission number (e.g. 1, 2, …).
     casename : str
-        Case name (e.g. ``"AOWPS"``).
+        Case name (e.g. ``"AO_WPS"``).
 
     Returns
     -------
@@ -252,7 +254,8 @@ def write_file_b(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     L = curve.shape[0]
-    assert len(times) == L, f"Expected {L} times, got {len(times)}"
+    if len(times) != L:
+        raise ValueError(f"Expected {L} times, got {len(times)}")
 
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=_FILE_B_COLUMNS)

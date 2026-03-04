@@ -216,7 +216,8 @@ def case_endpoints(case_id: str) -> tuple[jnp.ndarray, jnp.ndarray]:
     Parameters
     ----------
     case_id : str
-        One of ``"case1"`` through ``"case8"``.
+        Identifier of a SWOPP3 case, i.e. one of ``SWOPP3_CASES.keys()`` (for
+        example ``"AO_WPS"``).
 
     Returns
     -------
@@ -242,7 +243,7 @@ def case_travel_time_seconds(case_id: str) -> float:
     Parameters
     ----------
     case_id : str
-        One of ``"case1"`` through ``"case8"``.
+        Identifier of a SWOPP3 case, i.e. one of ``SWOPP3_CASES.keys()``.
 
     Returns
     -------
