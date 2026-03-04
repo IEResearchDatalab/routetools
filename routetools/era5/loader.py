@@ -557,24 +557,37 @@ def load_era5_land_mask(
     lon_min, lon_max = float(lons[0]), float(lons[-1])
     lat_min, lat_max = float(lats[0]), float(lats[-1])
 
-    # The Land __init__ expects the shape to equal:
-    #   lenx = ceil(xlim[1] - xlim[0]) * resolution[0]
-    # We compute resolution to match.
-    span_lon = lon_max - lon_min
-    span_lat = lat_max - lat_min
-    res_lon = max(1, round(n_lon / ceil(span_lon))) if span_lon > 0 else 1
-    res_lat = max(1, round(n_lat / ceil(span_lat))) if span_lat > 0 else 1
+    # Land.__init__ computes lenx = ceil(xlim[1] - xlim[0]) * resolution[0]
+    # and expects land_array.shape == (lenx, leny).
+    # To match the ERA5 grid exactly we construct the Land object directly,
+    # bypassing the Perlin-noise generation path entirely.
+    land = Land.__new__(Land)
+    land._array = jnp.array(land_array)
+    land.x = jnp.linspace(lon_min, lon_max, n_lon)
+    land.y = jnp.linspace(lat_min, lat_max, n_lat)
+    land.xmin = lon_min
+    land.xmax = lon_max
+    land.xnorm = (n_lon - 1) / (lon_max - lon_min) if lon_max > lon_min else 1.0
+    land.ymin = lat_min
+    land.ymax = lat_max
+    land.ynorm = (n_lat - 1) / (lat_max - lat_min) if lat_max > lat_min else 1.0
+    land.resolution = (1, 1)
+    land.random_seed = None
+    land.water_level = 0.5
+    land.shape = land_array.shape
+    land.interpolate = 0        # no sub-sampling; grid is already fine
+    land.outbounds_is_land = True
+    land.penalize_segments = True
+    land._map_mode = "nearest"
+    land._map_order = 0
 
-    land = Land(
-        xlim=(lon_min, lon_max),
-        ylim=(lat_min, lat_max),
-        resolution=(res_lon, res_lat),
-        land_array=land_array,
-        water_level=0.5,
-        outbounds_is_land=True,
-        interpolate=0,          # no sub-sampling; grid is already fine
-        penalize_segments=True,
-    )
+    land_indices = jnp.argwhere(land._array > land.water_level)
+    if land_indices.size > 0:
+        land._lats = land.y[land_indices[:, 1]]
+        land._lons = land.x[land_indices[:, 0]]
+    else:
+        land._lats = jnp.array([])
+        land._lons = jnp.array([])
 
     n_land = int(np.sum(is_land_lonlat))
     n_total = int(np.prod(is_land_lonlat.shape))
