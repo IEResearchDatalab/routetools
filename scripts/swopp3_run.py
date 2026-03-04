@@ -172,6 +172,7 @@ def main(
 
     # ---- Load fields per corridor (cache so we load each file once) ----
     from routetools.era5.loader import (
+        load_era5_land_mask,
         load_era5_vectorfield,
         load_era5_wavefield,
         load_era5_windfield,
@@ -180,6 +181,7 @@ def main(
     _loaded_wind: dict[str, tuple] = {}   # corridor -> (windfield, epoch)
     _loaded_wave: dict[str, tuple] = {}   # corridor -> (wavefield, epoch)
     _loaded_vf: dict[str, object] = {}    # corridor -> vectorfield
+    _loaded_land: dict[str, object] = {}  # corridor -> Land
 
     def _dataset_epoch(path: Path) -> datetime:
         """Extract the first timestamp from a NetCDF dataset."""
@@ -233,6 +235,19 @@ def main(
         _loaded_wave[corridor] = (wvf, epoch)
         return wvf, epoch
 
+    def _get_land(corridor: str):
+        """Return Land mask for corridor (from wave NaN), or None."""
+        if corridor in _loaded_land:
+            return _loaded_land[corridor]
+        wp = corridor_wave.get(corridor)
+        if wp is None:
+            _loaded_land[corridor] = None
+            return None
+        typer.echo(f"Building land mask for {corridor} from {wp} …")
+        land = load_era5_land_mask(wp)
+        _loaded_land[corridor] = land
+        return land
+
     # ---- Run ----
     for cid in case_ids:
         case = SWOPP3_CASES[cid]
@@ -245,6 +260,7 @@ def main(
         windfield, wind_epoch = _get_wind(corridor)
         wavefield, wave_epoch = _get_wave(corridor)
         vectorfield = _get_vectorfield(corridor)
+        land = _get_land(corridor)
 
         # Use the wind field epoch as canonical dataset epoch (both fields
         # share the same 2024-01-01 epoch from the ERA5 download).
@@ -256,6 +272,7 @@ def main(
             vectorfield=vectorfield,
             windfield=windfield,
             wavefield=wavefield,
+            land=land,
             output_dir=output_dir,
             submission=submission,
             n_points=n_points,

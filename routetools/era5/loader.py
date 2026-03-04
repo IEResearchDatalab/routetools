@@ -475,3 +475,114 @@ def load_era5_wavefield(
         mode="nearest",
         add_time_variant_attr=False,
     )
+
+
+def load_era5_land_mask(
+    wave_path: str | Path,
+    hs_var: str | None = None,
+) -> "Land":
+    """Create a :class:`~routetools.land.Land` mask from ERA5 wave NaN values.
+
+    ERA5 wave variables (SWH, MWD) are NaN over land.  This function
+    reads the first timestep, marks every grid cell that is NaN as land,
+    and returns a ``Land`` object that can be passed to CMA-ES.
+
+    Parameters
+    ----------
+    wave_path : str or Path
+        Path to an ERA5 wave NetCDF file.
+    hs_var : str, optional
+        Name of the significant wave height variable.  Auto-detected if
+        ``None``.
+
+    Returns
+    -------
+    Land
+        A ``Land`` object whose grid covers the ERA5 file extent.
+    """
+    from routetools.land import Land
+
+    ds = _load_dataset(wave_path)
+
+    # Auto-detect wave-height variable
+    if hs_var is None:
+        for candidate in [
+            "swh",
+            "significant_height_of_combined_wind_waves_and_swell",
+            "Hs",
+            "hs",
+        ]:
+            if candidate in ds.data_vars:
+                hs_var = candidate
+                break
+        if hs_var is None:
+            ds.close()
+            raise KeyError(
+                f"Cannot find wave height variable in {wave_path}. "
+                f"Available: {list(ds.data_vars)}"
+            )
+
+    # Get grid coordinates
+    lat_name = _get_coord_name(ds, ["latitude", "lat"])
+    lon_name = _get_coord_name(ds, ["longitude", "lon"])
+
+    lats = ds[lat_name].values.astype(np.float64)
+    lons = ds[lon_name].values.astype(np.float64)
+
+    # Ensure ascending
+    if lats[0] > lats[-1]:
+        lats = lats[::-1]
+        ds = ds.isel({lat_name: slice(None, None, -1)})
+    if lons[0] > lons[-1]:
+        lons = lons[::-1]
+        ds = ds.isel({lon_name: slice(None, None, -1)})
+
+    # First timestep of wave height: NaN → land
+    hs_t0 = ds[hs_var].isel(
+        {_get_coord_name(ds, ["time", "valid_time"]): 0}
+    ).values
+
+    ds.close()
+
+    # hs_t0 shape is (lat, lon).  Land class expects (x, y) = (lon, lat).
+    is_land_latlon = np.isnan(hs_t0)  # (lat, lon)
+    is_land_lonlat = is_land_latlon.T  # (lon, lat)
+
+    # Land class: values > water_level → land.
+    # We use 1.0 for land, 0.0 for water, water_level = 0.5.
+    land_array = is_land_lonlat.astype(np.float32)
+
+    n_lon, n_lat = land_array.shape
+    lon_min, lon_max = float(lons[0]), float(lons[-1])
+    lat_min, lat_max = float(lats[0]), float(lats[-1])
+
+    # The Land __init__ expects the shape to equal:
+    #   lenx = ceil(xlim[1] - xlim[0]) * resolution[0]
+    # We compute resolution to match.
+    span_lon = lon_max - lon_min
+    span_lat = lat_max - lat_min
+    res_lon = max(1, round(n_lon / ceil(span_lon))) if span_lon > 0 else 1
+    res_lat = max(1, round(n_lat / ceil(span_lat))) if span_lat > 0 else 1
+
+    land = Land(
+        xlim=(lon_min, lon_max),
+        ylim=(lat_min, lat_max),
+        resolution=(res_lon, res_lat),
+        land_array=land_array,
+        water_level=0.5,
+        outbounds_is_land=True,
+        interpolate=0,          # no sub-sampling; grid is already fine
+        penalize_segments=True,
+    )
+
+    n_land = int(np.sum(is_land_lonlat))
+    n_total = int(np.prod(is_land_lonlat.shape))
+    logger.info(
+        "ERA5 land mask: %d/%d cells are land (%.1f%%), "
+        "lon=[%.1f, %.1f], lat=[%.1f, %.1f], shape=%s",
+        n_land, n_total, 100 * n_land / n_total,
+        lon_min, lon_max, lat_min, lat_max, land_array.shape,
+    )
+
+    return land
+

@@ -372,6 +372,7 @@ def run_optimised_departure(
             curve0=gc_init,
             sigma0=0.1,
             cost_fn=_rise_cost,
+            penalty=1000,
             verbose=False,
         )
         defaults.update(cmaes_kwargs)
