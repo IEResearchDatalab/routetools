@@ -327,3 +327,70 @@ class TestDownloadGCS:
         from routetools.era5.download_gcs import GCS_ERA5_SINGLE_LEVEL
 
         assert "gcp-public-data" in GCS_ERA5_SINGLE_LEVEL
+
+
+class TestLoadERA5LandMask:
+    """Tests for load_era5_land_mask — derives Land from wave NaN patterns."""
+
+    def test_basic_land_mask(self, tmp_path: Path) -> None:
+        """Wave NaN cells become land, valid cells become water."""
+        from routetools.era5.loader import load_era5_land_mask
+
+        # Create a synthetic wave NC with known NaN pattern
+        times = np.array(["2024-01-15T00:00"], dtype="datetime64[ns]")
+        lats = np.array([30.0, 35.0, 40.0, 45.0, 50.0])
+        lons = np.array([-70.0, -60.0, -50.0, -40.0, -30.0, -20.0])
+        swh = np.ones((1, 5, 6), dtype=np.float32) * 2.0
+        mwd = np.ones((1, 5, 6), dtype=np.float32) * 180.0
+
+        # Mark some cells as land (NaN)
+        swh[0, 0, 0] = np.nan   # (lat=30, lon=-70) → land
+        swh[0, 2, 3] = np.nan   # (lat=40, lon=-40) → land
+        mwd[0, 0, 0] = np.nan
+        mwd[0, 2, 3] = np.nan
+
+        ds = xr.Dataset(
+            {
+                "swh": (["time", "latitude", "longitude"], swh),
+                "mwd": (["time", "latitude", "longitude"], mwd),
+            },
+            coords={"time": times, "latitude": lats, "longitude": lons},
+        )
+        nc_path = tmp_path / "wave_land.nc"
+        ds.to_netcdf(nc_path, engine="scipy")
+
+        land = load_era5_land_mask(nc_path)
+
+        # Land object grid should cover the file extent
+        assert land.xmin == -70.0
+        assert land.xmax == -20.0
+        assert land.ymin == 30.0
+        assert land.ymax == 50.0
+
+        # Internal array shape should be (lon, lat) = (6, 5)
+        assert land._array.shape == (6, 5)
+
+        # Check NaN → land (value > 0.5) and valid → water (value < 0.5)
+        arr = np.array(land._array)
+        assert arr[0, 0] > 0.5, "NaN cell should be land"
+        assert arr[3, 2] > 0.5, "NaN cell should be land"
+        assert arr[1, 1] < 0.5, "Valid cell should be water"
+        assert arr[5, 4] < 0.5, "Valid cell should be water"
+
+    def test_missing_variable_raises(self, tmp_path: Path) -> None:
+        """KeyError when no wave-height variable is found."""
+        from routetools.era5.loader import load_era5_land_mask
+
+        times = np.array(["2024-01-15T00:00"], dtype="datetime64[ns]")
+        lats = np.array([30.0, 35.0])
+        lons = np.array([-70.0, -60.0])
+        ds = xr.Dataset(
+            {"temperature": (["time", "latitude", "longitude"],
+                             np.ones((1, 2, 2), dtype=np.float32))},
+            coords={"time": times, "latitude": lats, "longitude": lons},
+        )
+        nc_path = tmp_path / "no_wave.nc"
+        ds.to_netcdf(nc_path, engine="scipy")
+
+        with pytest.raises(KeyError, match="Cannot find wave height"):
+            load_era5_land_mask(nc_path)

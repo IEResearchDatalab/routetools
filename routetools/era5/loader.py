@@ -191,8 +191,9 @@ def _build_field_closure(
         ts: jnp.ndarray | int | float,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # Normalise ts
-        if isinstance(ts, int | float):
+        if isinstance(ts, (int, float)):
             ts = jnp.array([ts], dtype=jnp.float32)
+        ts = jnp.atleast_1d(ts)
 
         # Handle mismatched lengths (same pattern as benchmark.py)
         diff = lat.shape[0] - ts.shape[0]
@@ -636,10 +637,25 @@ def load_natural_earth_land_mask(
     Land
         A ``Land`` object compatible with CMA-ES.
     """
-    import cartopy.io.shapereader as shpreader
-    from shapely.affinity import translate
-    from shapely.geometry import box
-    from shapely.validation import make_valid
+    try:
+        import cartopy.io.shapereader as shpreader
+        from shapely.affinity import translate
+        from shapely.geometry import box
+        from shapely.validation import make_valid
+    except ImportError as exc:
+        raise ImportError(
+            "Natural Earth land mask requires cartopy, shapely, and rasterio. "
+            "Install them with:\n  pip install cartopy shapely rasterio"
+        ) from exc
+
+    try:
+        import rasterio  # noqa: F401 — validate availability early
+        from rasterio import features, transform
+    except ImportError as exc:
+        raise ImportError(
+            "Natural Earth land mask requires rasterio. "
+            "Install it with:\n  pip install rasterio"
+        ) from exc
 
     from routetools.land import Land
 

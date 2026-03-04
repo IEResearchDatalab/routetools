@@ -57,7 +57,7 @@ def _ensure_deps() -> None:
 
 def _open_era5_zarr(variables: list[str]) -> "xarray.Dataset":  # type: ignore[name-defined]
     """Open the ERA5 Zarr store on GCS and select the given variables."""
-    import gcsfs  # noqa: F811
+    import gcsfs
     import xarray as xr
 
     fs = gcsfs.GCSFileSystem(token="anon")
