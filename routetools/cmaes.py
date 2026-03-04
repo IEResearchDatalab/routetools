@@ -366,7 +366,12 @@ def _cma_evolution_strategy(
 
         # Land penalization
         if land is not None and penalty > 0:
-            cost += land.penalization(curve, penalty=penalty)
+            land_count = land.penalization(curve, penalty=1)  # count only
+            has_land = land_count > 0
+            # Death penalty: land-crossing candidates get cost=1e10,
+            # plus land_count as gradient signal so CMA-ES moves
+            # toward fewer land points.
+            cost = jnp.where(has_land, 1e10 + land_count, cost)
 
         # Weather constraint penalization
         if weather_penalty_weight > 0 and (windfield is not None or wavefield is not None):
@@ -632,9 +637,11 @@ def optimize(
                 spherical_correction=spherical_correction,
             ).item()
         if land is not None and penalty > 0:
-            cost_initial += land.penalization(
-                curve0[jnp.newaxis, :, :], penalty=penalty
+            land_count = land.penalization(
+                curve0[jnp.newaxis, :, :], penalty=1
             ).item()
+            if land_count > 0:
+                cost_initial = 1e10 + land_count
         if weather_penalty_weight > 0 and (
             windfield is not None or wavefield is not None
         ):
