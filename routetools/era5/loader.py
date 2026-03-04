@@ -197,9 +197,12 @@ def _build_field_closure(
 
         # Handle mismatched lengths (same pattern as benchmark.py)
         diff = lat.shape[0] - ts.shape[0]
-        ts_full = (
-            jnp.concatenate([ts, jnp.full(diff, ts[-1])]) if diff > 0 else ts
-        )
+        if diff > 0:
+            ts_full = jnp.concatenate([ts, jnp.full(diff, ts[-1])])
+        elif diff < 0:
+            ts_full = ts[: lat.shape[0]]
+        else:
+            ts_full = ts
 
         # Offset: t=0 means departure time
         ts_full = ts_full + dep_offset
