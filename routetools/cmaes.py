@@ -374,10 +374,10 @@ def _cma_evolution_strategy(
                 curve_check = curve
             land_count = land.penalization(curve_check, penalty=1)
             has_land = land_count > 0
-            # Death penalty: land-crossing candidates get cost=1e10,
+            # Death penalty: land-crossing candidates get cost=penalty,
             # plus land_count as gradient signal so CMA-ES moves
             # toward fewer land points.
-            cost = jnp.where(has_land, 1e10 + land_count, cost)
+            cost = jnp.where(has_land, penalty + land_count, cost)
 
         # Weather constraint penalization
         if weather_penalty_weight > 0 and (windfield is not None or wavefield is not None):
@@ -484,7 +484,8 @@ def optimize(
         A function that returns the height and direction of the wave field,
         by default None
     penalty : float, optional
-        Penalty for land points, by default 10
+        Large penalty applied to routes that intersect land (death-penalty
+        scheme), by default 1e10
     weather_penalty_weight : float, optional
         Penalty weight for weather constraint violations (TWS, Hs).
         Set to 0 (default) to disable weather penalties.
@@ -643,6 +644,7 @@ def optimize(
                 weight_l1=weight_l1,
                 weight_l2=weight_l2,
                 spherical_correction=spherical_correction,
+                time_offset=time_offset,
             ).item()
         if land is not None and penalty > 0:
             c0_batch = curve0[jnp.newaxis, :, :]
@@ -652,7 +654,7 @@ def optimize(
                 c0_check = c0_batch
             land_count = land.penalization(c0_check, penalty=1).item()
             if land_count > 0:
-                cost_initial = 1e10 + land_count
+                cost_initial = penalty + land_count
         if weather_penalty_weight > 0 and (
             windfield is not None or wavefield is not None
         ):
@@ -857,7 +859,7 @@ def optimize_with_increasing_penalization(
             curve_check = curve[land_margin:-land_margin, :]
         else:
             curve_check = curve
-        if land(curve_check).any():
+        if land is not None and land(curve_check).any():
             penalty += penalty_increment
             x0 = es.best.x
         else:
