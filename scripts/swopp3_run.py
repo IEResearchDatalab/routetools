@@ -187,7 +187,14 @@ def main(
         """Extract the first timestamp from a NetCDF dataset."""
         import xarray as xr
         ds = xr.open_dataset(path)
-        epoch_np = ds.time.values[0]
+        # Handle both 'time' and 'valid_time' coordinate names
+        for tname in ("time", "valid_time"):
+            if tname in ds.coords:
+                epoch_np = ds[tname].values[0]
+                break
+        else:
+            ds.close()
+            raise KeyError(f"No time coordinate found in {path}")
         ds.close()
         # Convert numpy datetime64 -> Python datetime (UTC-naive)
         ts = (epoch_np - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
