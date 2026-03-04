@@ -62,15 +62,41 @@ class RouteWeatherStats:
     max_hs : jnp.ndarray
         Maximum significant wave height along each route, shape ``(B,)``.
     tws_exceeded : jnp.ndarray
-        Boolean array: whether any waypoint exceeded the TWS limit, shape ``(B,)``.
+        Boolean array: whether any segment midpoint exceeded the TWS limit,
+        shape ``(B,)``.
     hs_exceeded : jnp.ndarray
-        Boolean array: whether any waypoint exceeded the Hs limit, shape ``(B,)``.
+        Boolean array: whether any segment midpoint exceeded the Hs limit,
+        shape ``(B,)``.
     """
 
     max_tws: jnp.ndarray
     max_hs: jnp.ndarray
     tws_exceeded: jnp.ndarray
     hs_exceeded: jnp.ndarray
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+def _segment_midpoints(
+    curve: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Compute segment midpoint coordinates and zero timestamps.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        Shape ``(B, L, 2)`` with ``(lon, lat)``.
+
+    Returns
+    -------
+    mid_lon, mid_lat, t_zeros : jnp.ndarray
+        Each of shape ``(B, L-1)``.
+    """
+    mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
+    mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
+    t_zeros = jnp.zeros_like(mid_lon)
+    return mid_lon, mid_lat, t_zeros
 
 
 # ---------------------------------------------------------------------------
@@ -120,10 +146,17 @@ def evaluate_weather(
     """
     B = curve.shape[0]
 
+    # Guard: curves with fewer than 2 points have no segments
+    if curve.shape[1] < 2:
+        return RouteWeatherStats(
+            max_tws=jnp.zeros(B),
+            max_hs=jnp.zeros(B),
+            tws_exceeded=jnp.zeros(B, dtype=bool),
+            hs_exceeded=jnp.zeros(B, dtype=bool),
+        )
+
     # Midpoints of each segment
-    mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
-    mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
-    t_zeros = jnp.zeros_like(mid_lon)
+    mid_lon, mid_lat, t_zeros = _segment_midpoints(curve)
 
     # Wind
     if windfield is not None:
@@ -193,9 +226,7 @@ def weather_penalty(
     jnp.ndarray
         Penalty per route, shape ``(B,)``.
     """
-    mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
-    mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
-    t_zeros = jnp.zeros_like(mid_lon)
+    mid_lon, mid_lat, t_zeros = _segment_midpoints(curve)
 
     violations = jnp.zeros(curve.shape[0])
 
@@ -233,12 +264,12 @@ def weather_penalty_smooth(
 ) -> jnp.ndarray:
     """Compute a smooth (differentiable) penalty for weather violations.
 
-    Uses a soft-plus-like ramp so that the penalty increases continuously
+    Uses a squared ReLU ramp so that the penalty increases continuously
     as conditions worsen beyond the threshold.  For each segment:
 
-        ``penalty_i = penalty · max(0, value - limit)² · sharpness``
+        ``penalty_i = sharpness · max(0, value - limit)²``
 
-    This is summed over all segments per route.
+    This is summed over all segments per route and scaled by ``penalty``.
 
     Parameters
     ----------
@@ -255,16 +286,14 @@ def weather_penalty_smooth(
     penalty : float
         Scaling factor (default 10).
     sharpness : float
-        Controls how steeply the penalty grows beyond the limit (default 5).
+        Linear multiplier on the squared excess (default 5).
 
     Returns
     -------
     jnp.ndarray
         Smooth penalty per route, shape ``(B,)``.
     """
-    mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
-    mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
-    t_zeros = jnp.zeros_like(mid_lon)
+    mid_lon, mid_lat, t_zeros = _segment_midpoints(curve)
 
     total = jnp.zeros(curve.shape[0])
 

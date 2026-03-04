@@ -279,3 +279,30 @@ class TestWeatherPenaltySmooth:
         wf = _constant_windfield(20.0, 0.0)  # TWS = 20, limit = 20
         pen = weather_penalty_smooth(curve, windfield=wf)
         assert jnp.allclose(pen, 0.0)
+
+
+class TestEdgeCases:
+    """Edge cases for curve shapes."""
+
+    def test_single_point_evaluate(self):
+        """Curve with a single point (no segments) returns zeros."""
+        curve = jnp.array([[[0.0, 0.0]]])  # (1, 1, 2)
+        wf = _constant_windfield(25.0, 0.0)
+        stats = evaluate_weather(curve, windfield=wf)
+        assert stats.max_tws.shape == (1,)
+        assert jnp.allclose(stats.max_tws, 0.0)
+        assert not stats.tws_exceeded[0]
+
+    def test_single_point_penalty(self):
+        """weather_penalty returns zero for single-point curve."""
+        curve = jnp.array([[[0.0, 0.0]]])
+        wf = _constant_windfield(25.0, 0.0)
+        pen = weather_penalty(curve, windfield=wf)
+        assert jnp.allclose(pen, 0.0)
+
+    def test_single_point_smooth(self):
+        """weather_penalty_smooth returns zero for single-point curve."""
+        curve = jnp.array([[[0.0, 0.0]]])
+        wf = _constant_windfield(25.0, 0.0)
+        pen = weather_penalty_smooth(curve, windfield=wf)
+        assert jnp.allclose(pen, 0.0)
