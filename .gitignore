@@ -167,3 +167,4 @@ output*
 # User files
 nohup.out
 *.zip
+output/

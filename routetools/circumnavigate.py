@@ -192,7 +192,8 @@ def circumnavigate(
 
     latitudes, longitudes = list(zip(*nodes_route, strict=False))
 
-    # Return latitude and longitude arrays for the circumnavigated route.
     latitudes = np.array(latitudes)
     longitudes = np.array(longitudes)
+
+    # Return latitude and longitude arrays for the circumnavigated route.
     return latitudes, longitudes
