@@ -7,6 +7,7 @@ import pytest
 
 from routetools._ports import DICT_INSTANCES
 from routetools.benchmark import LandBenchmark, load_benchmark_instance
+from routetools.wrr_bench import load as load_mod
 from routetools.wrr_bench.ocean import data_zero
 
 
@@ -171,7 +172,6 @@ def test_load_files_called_with_expected_parameters(
     length == route_days
     and weather_variables matching the requested flags.
     """
-    from routetools.wrr_bench import load as load_mod
 
     captured = {}
 
