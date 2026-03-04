@@ -7,44 +7,8 @@ import numpy as np
 from h3 import Polygon as H3Polygon
 from shapely.geometry import MultiPolygon, Polygon
 
-from routetools.wrr_bench.ocean import Ocean
-
-
-def invert_polygon(
-    polygon: Polygon | MultiPolygon,
-    bounding_box: tuple[float, float, float, float],
-) -> Polygon | MultiPolygon:
-    """
-    Invert a Polygon or MultiPolygon with a bounding box.
-
-    Parameters
-    ----------
-    polygon : Union[Polygon, MultiPolygon]
-        The input geometry.
-    bounding_box : Iterable[float]
-        The bounding box as a list of four floats: [min_lat, min_lon, max_lat, max_lon].
-
-    Returns
-    -------
-    Union[Polygon, MultiPolygon]
-        The inverted geometry.
-    """
-    bounding_polygon = Polygon(
-        [
-            (bounding_box[1], bounding_box[0]),
-            (bounding_box[3], bounding_box[0]),
-            (bounding_box[3], bounding_box[2]),
-            (bounding_box[1], bounding_box[2]),
-        ]
-    )
-    try:
-        polygon = bounding_polygon.difference(polygon)
-    except Exception as e:
-        raise Exception(
-            f"The ocean geometry is not valid. Please check the geojson file.{polygon}"
-        ) from e
-
-    return polygon
+from routetools.wrr_bench import Ocean
+from routetools.wrr_bench.polygons import invert_polygon
 
 
 def get_h3_cells(polygons: list[dict], res: int = 5) -> set[int]:
