@@ -71,12 +71,19 @@ def test_load_benchmark_instance_basic(tmp_path):
         # concatenated datasets have evenly spaced times
         ds_c = ds_c.isel(time=0).expand_dims(time=[np.datetime64(datestr)])
         ds_w = ds_w.isel(time=0).expand_dims(time=[np.datetime64(datestr)])
-        ds_c.to_netcdf(data_dir / "currents" / f"{datestr}.nc", engine="scipy")
-        ds_w.to_netcdf(data_dir / "waves" / f"{datestr}.nc", engine="scipy")
+        # Writing with netCDF4 may emit a RuntimeWarning on import in some
+        # environments; suppress that specific warning around the write.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="numpy.ndarray size changed, "
+                "may indicate binary incompatibility",
+                category=RuntimeWarning,
+            )
+            ds_c.to_netcdf(data_dir / "currents" / f"{datestr}.nc", engine="netcdf4")
+            ds_w.to_netcdf(data_dir / "waves" / f"{datestr}.nc", engine="netcdf4")
 
     # Suppress netCDF4 C-extension ABI RuntimeWarning (may be raised on import)
-    import warnings
-
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -121,8 +128,17 @@ def test_load_benchmark_for_all_instances(tmp_path, instance_name):
         # concatenated datasets have evenly spaced times
         ds_c = ds_c.isel(time=0).expand_dims(time=[np.datetime64(datestr)])
         ds_w = ds_w.isel(time=0).expand_dims(time=[np.datetime64(datestr)])
-        ds_c.to_netcdf(data_dir / "currents" / f"{datestr}.nc", engine="scipy")
-        ds_w.to_netcdf(data_dir / "waves" / f"{datestr}.nc", engine="scipy")
+        # Writing with netCDF4 may emit a RuntimeWarning on import in some
+        # environments; suppress that specific warning around the write.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="numpy.ndarray size changed, "
+                "may indicate binary incompatibility",
+                category=RuntimeWarning,
+            )
+            ds_c.to_netcdf(data_dir / "currents" / f"{datestr}.nc", engine="netcdf4")
+            ds_w.to_netcdf(data_dir / "waves" / f"{datestr}.nc", engine="netcdf4")
 
     # Suppress netCDF4 C-extension ABI RuntimeWarning (may be raised on import)
 
