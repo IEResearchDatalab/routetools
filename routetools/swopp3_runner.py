@@ -168,6 +168,10 @@ def evaluate_energy(
         ``(energy_mwh, max_tws_mps, max_hs_m)``.
     """
     L = curve.shape[0]
+    if L < 2:
+        raise ValueError(
+            f"curve must have at least 2 points, got {L}"
+        )
     n_seg = L - 1
 
     # ---- segment midpoints (position) ----
@@ -218,7 +222,7 @@ def evaluate_energy(
 
     # ---- integrate: energy = Σ P_kW · Δt_h (kWh), then → MWh ----
     dt_hours = passage_hours / n_seg
-    energy_kwh = float(np.sum(power_kw) * dt_hours)
+    energy_kwh = float(jnp.sum(power_kw) * dt_hours)
     energy_mwh = energy_kwh / 1000.0
 
     max_tws_mps = float(np.max(tws)) if windfield is not None else 0.0
@@ -337,6 +341,13 @@ def run_optimised_departure(
     t0 = _time.time()
 
     if vectorfield is not None:
+        if windfield is None:
+            import warnings
+            warnings.warn(
+                "vectorfield provided without windfield; energy evaluation "
+                "will assume zero wind.",
+                stacklevel=2,
+            )
         # Lazy import to avoid circular dependency / heavy JAX load
         from routetools.cmaes import optimize as cmaes_optimize
         from routetools.cost import cost_function_rise

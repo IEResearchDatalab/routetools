@@ -185,16 +185,14 @@ def main(
     def _dataset_epoch(path: Path) -> datetime:
         """Extract the first timestamp from a NetCDF dataset."""
         import xarray as xr
-        ds = xr.open_dataset(path)
-        # Handle both 'time' and 'valid_time' coordinate names
-        for tname in ("time", "valid_time"):
-            if tname in ds.coords:
-                epoch_np = ds[tname].values[0]
-                break
-        else:
-            ds.close()
-            raise KeyError(f"No time coordinate found in {path}")
-        ds.close()
+        with xr.open_dataset(path) as ds:
+            # Handle both 'time' and 'valid_time' coordinate names
+            for tname in ("time", "valid_time"):
+                if tname in ds.coords:
+                    epoch_np = ds[tname].values[0]
+                    break
+            else:
+                raise KeyError(f"No time coordinate found in {path}")
         # Convert numpy datetime64 -> Python datetime (UTC)
         ts = (epoch_np - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
         return datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None)
@@ -251,16 +249,19 @@ def main(
             _loaded_land[corridor] = None
             return None
         import xarray as xr
-        ds = xr.open_dataset(wp)
-        for cname in ("longitude", "lon"):
-            if cname in ds.coords:
-                lons = ds[cname].values
-                break
-        for cname in ("latitude", "lat"):
-            if cname in ds.coords:
-                lats = ds[cname].values
-                break
-        ds.close()
+        with xr.open_dataset(wp) as ds:
+            for cname in ("longitude", "lon"):
+                if cname in ds.coords:
+                    lons = ds[cname].values
+                    break
+            else:
+                raise KeyError(f"No longitude coordinate found in {wp}")
+            for cname in ("latitude", "lat"):
+                if cname in ds.coords:
+                    lats = ds[cname].values
+                    break
+            else:
+                raise KeyError(f"No latitude coordinate found in {wp}")
         lon_range = (float(lons.min()), float(lons.max()))
         lat_range = (float(lats.min()), float(lats.max()))
         typer.echo(
