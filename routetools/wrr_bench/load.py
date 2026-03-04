@@ -99,8 +99,6 @@ def load_real_instance(
     dict
         Dictionary containing the instance configuration.
     """
-    assert name_instance in DICT_INSTANCES, f"Instance {name_instance} not found"
-
     # TODO: Add the valid land file to the data_path
     if land_resolution == "1km":
         land_file_name = "earth-seas-1km-valid.geo.json"
@@ -134,6 +132,15 @@ def load_real_instance(
     # Else, find if the reverse name works
     elif name_alt in DICT_INSTANCES:
         dict_instance.update(DICT_INSTANCES[name_alt])
+
+    # If neither the direct name nor the alternate (reversed) name exist,
+    # and the provided name is not a port-to-port code, it's an error.
+    if not (
+        name_instance in DICT_INSTANCES
+        or name_alt in DICT_INSTANCES
+        or re.match(r"^[A-Z]{5}-[A-Z]{5}$", name_instance)
+    ):
+        raise AssertionError(f"Instance {name_instance} not found")
 
     # Initialize the dictionary containing the instance configuration
     # Adds default parameters to avoid missing information
