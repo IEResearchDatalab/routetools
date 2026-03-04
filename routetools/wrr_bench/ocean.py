@@ -216,16 +216,16 @@ class Ocean:
 
         currents_data, waves_data, wind_data = ocean_datasets
 
-        if land_file is None:
-            self.shapely_ocean = MultiPolygon([Polygon()])
-        else:
-            self.shapely_ocean = self.create_land_mask(
-                use_ice=use_ice,
-                erode_ice=erode_ice,
-                waves_data=waves_data,
-                land_file=land_file,
-                bounding_box=self.bounding_box,
-            )
+        # Build the land/ice mask from available inputs. If `land_file` is
+        # None, `create_land_mask` will use only `waves_data` (NaN mask) when
+        # `use_ice` is True; otherwise it returns an empty MultiPolygon.
+        self.shapely_ocean = self.create_land_mask(
+            use_ice=use_ice,
+            erode_ice=erode_ice,
+            waves_data=waves_data,
+            land_file=land_file,
+            bounding_box=self.bounding_box,
+        )
 
         if prepare_geom:
             shapely.prepare(self.shapely_ocean)
@@ -271,10 +271,10 @@ class Ocean:
         self,
         use_ice: bool,
         erode_ice: int,
-        waves_data: xr.Dataset,
-        land_file: str,
+        waves_data: xr.Dataset | None,
+        land_file: str | None,
         bounding_box: Iterable[float],
-    ) -> np.ndarray:
+    ) -> MultiPolygon:
         """
         Create a mask with the ice and land data.
 
@@ -298,13 +298,19 @@ class Ocean:
         np.ndarray
             Mask with the land data.
         """
-        with open(land_file) as f:
-            land_data = json.load(f)
+        # If a geojson land file is provided, start from that geometry.
+        # Otherwise start with an empty polygon and (optionally) build land
+        # from the waves NaN mask when `use_ice` is True.
+        if land_file is not None:
+            with open(land_file) as f:
+                land_data = json.load(f)
 
-        shapely_ocean = shape(land_data["geometries"][0])
-        # This way it can be used inside A*
-        shapely_ocean = crop_polygon(shapely_ocean, bounding_box)
-        shapely_ocean = invert_polygon(shapely_ocean, bounding_box)
+            shapely_ocean = shape(land_data["geometries"][0])
+            # This way it can be used inside A*
+            shapely_ocean = crop_polygon(shapely_ocean, bounding_box)
+            shapely_ocean = invert_polygon(shapely_ocean, bounding_box)
+        else:
+            shapely_ocean = Polygon()
 
         if use_ice and waves_data is not None:
             # Extract waves NaN mask (Land + Ice)

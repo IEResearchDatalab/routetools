@@ -363,7 +363,7 @@ def circumnavigate_and_smooth(
 
 def optimize_benchmark_instance(
     dict_instance: dict[str, Any],
-    penalty: float = 1e8,
+    penalty: float = 1e10,
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,
@@ -399,7 +399,7 @@ def optimize_benchmark_instance(
         The problem instance contains the following information:
         lat_start, lon_start, lat_end, lon_end, date_start, vel_ship, bounding_box, data
     penalty : float, optional
-        Penalty for land points, by default 1e8
+        Penalty for land points, by default 1e10
     K : int, optional
         Number of free Bézier control points. By default 6
     L : int, optional
