@@ -618,16 +618,19 @@ def optimize(
 
     # Compare the best curve with the initial one if provided
     if curve0 is not None:
-        cost_initial: float = cost_function(
-            vectorfield=vectorfield,
-            curve=curve0[jnp.newaxis, :, :],
-            wavefield=wavefield,
-            travel_stw=travel_stw,
-            travel_time=travel_time,
-            weight_l1=weight_l1,
-            weight_l2=weight_l2,
-            spherical_correction=spherical_correction,
-        ).item()
+        if cost_fn is not None:
+            cost_initial: float = cost_fn(curve0[jnp.newaxis, :, :]).item()
+        else:
+            cost_initial: float = cost_function(
+                vectorfield=vectorfield,
+                curve=curve0[jnp.newaxis, :, :],
+                wavefield=wavefield,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                weight_l1=weight_l1,
+                weight_l2=weight_l2,
+                spherical_correction=spherical_correction,
+            ).item()
         if land is not None and penalty > 0:
             cost_initial += land.penalization(
                 curve0[jnp.newaxis, :, :], penalty=penalty
