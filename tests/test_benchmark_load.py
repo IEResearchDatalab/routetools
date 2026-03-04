@@ -165,7 +165,7 @@ def test_load_benchmark_for_all_instances(tmp_path, instance_name):
     ],
 )
 def test_load_files_called_with_expected_parameters(
-    monkeypatch, use_currents, use_waves, route_days, expected_vars
+    monkeypatch, tmp_path, use_currents, use_waves, route_days, expected_vars
 ):
     """Ensure `load_real_instance` calls `load_files` with list_dates
     length == route_days
@@ -186,6 +186,24 @@ def test_load_files_called_with_expected_parameters(
 
     monkeypatch.setattr(load_mod, "load_files", fake_load_files)
 
+    # create a minimal data dir with the expected land geojson
+    # so Ocean can be instantiated
+    data_dir = Path(tmp_path) / "data"
+    (data_dir).mkdir(parents=True)
+    land_geo = {
+        "type": "GeometryCollection",
+        "geometries": [
+            {
+                "type": "Polygon",
+                "coordinates": [
+                    [[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]
+                ],
+            }
+        ],
+    }
+    with open(data_dir / "earth-seas-2km5-valid.geo.json", "w") as f:
+        json.dump(land_geo, f)
+
     # pick an instance that exists in DICT_INSTANCES
     instance_name = next(iter(DICT_INSTANCES.keys()))
 
@@ -193,7 +211,7 @@ def test_load_files_called_with_expected_parameters(
     load_mod.load_real_instance(
         instance_name,
         date_start="2023-01-01",
-        data_path="./data",
+        data_path=str(data_dir),
         use_currents=use_currents,
         use_waves=use_waves,
         route_days=route_days,
