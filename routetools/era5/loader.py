@@ -600,3 +600,169 @@ def load_era5_land_mask(
 
     return land
 
+
+def load_natural_earth_land_mask(
+    lon_range: tuple[float, float],
+    lat_range: tuple[float, float],
+    resolution: float = 0.01,
+    ne_resolution: str = "10m",
+    interpolate: int = 50,
+) -> "Land":
+    """Create a high-resolution land mask from Natural Earth shapefiles.
+
+    Uses cartopy's Natural Earth 1:10m land polygons rasterized onto a
+    regular grid.  This is much more accurate than the ERA5 wave-NaN
+    approach for narrow land features (Cape Cod, Aleutian Islands,
+    Channel Islands, narrow straits, etc.).
+
+    Parameters
+    ----------
+    lon_range : tuple[float, float]
+        ``(lon_min, lon_max)`` — longitude extent of the corridor in
+        degrees East.  Values > 180 are supported (unwrapped antimeridian).
+    lat_range : tuple[float, float]
+        ``(lat_min, lat_max)`` — latitude extent in degrees North.
+    resolution : float
+        Grid cell size in degrees.  Default 0.01° ≈ 1.1 km at the equator.
+    ne_resolution : str
+        Natural Earth resolution: ``"10m"``, ``"50m"``, or ``"110m"``.
+    interpolate : int
+        Number of sub-points inserted between waypoints for segment
+        checking (passed to ``Land``).  Default 50 gives ~1 km spacing
+        with L=100 waypoints, matching the 0.01° mask resolution.
+
+    Returns
+    -------
+    Land
+        A ``Land`` object compatible with CMA-ES.
+    """
+    import cartopy.io.shapereader as shpreader
+    from shapely.affinity import translate
+    from shapely.geometry import box
+    from shapely.validation import make_valid
+
+    from routetools.land import Land
+
+    # Load Natural Earth land polygons
+    shp_path = shpreader.natural_earth(
+        resolution=ne_resolution, category="physical", name="land"
+    )
+    reader = shpreader.Reader(shp_path)
+    land_geoms = list(reader.geometries())
+
+    lon_min, lon_max = float(lon_range[0]), float(lon_range[1])
+    lat_min, lat_max = float(lat_range[0]), float(lat_range[1])
+
+    # Build a bounding box with a small buffer for clipping
+    buf = 1.0  # degree buffer
+    clip_box = box(lon_min - buf, lat_min - buf, lon_max + buf, lat_max + buf)
+
+    # If the corridor uses longitudes > 180 (unwrapped antimeridian),
+    # we need shifted copies of the NE geometries (which are in [-180, 180]).
+    need_shift = lon_max > 180 or lon_min > 180
+
+    # Clip geometries to the region of interest for efficiency
+    clipped = []
+    for geom in land_geoms:
+        if geom is None or geom.is_empty:
+            continue
+
+        # Original geometry (NE coordinates in [-180, 180])
+        try:
+            g = make_valid(geom) if not geom.is_valid else geom
+            intersection = g.intersection(clip_box)
+            if not intersection.is_empty:
+                clipped.append(intersection)
+        except Exception as exc:
+            logger.debug("NE geom intersection failed: %s", exc)
+
+        # For antimeridian-crossing corridors, also shift by +360°
+        # so that NE lon -180..-120 becomes 180..240, etc.
+        if need_shift:
+            try:
+                shifted = translate(geom, xoff=360)
+                shifted = make_valid(shifted) if not shifted.is_valid else shifted
+                intersection = shifted.intersection(clip_box)
+                if not intersection.is_empty:
+                    clipped.append(intersection)
+            except Exception as exc:
+                logger.debug("NE shifted geom intersection failed: %s", exc)
+
+    if not clipped:
+        clipped = []
+
+    # Build the raster grid dimensions
+    n_lon = int(ceil((lon_max - lon_min) / resolution)) + 1
+    n_lat = int(ceil((lat_max - lat_min) / resolution)) + 1
+
+    # Rasterize using rasterio scan-line fill (O(pixels), very fast)
+    from rasterio.features import rasterize
+    from rasterio.transform import from_bounds
+
+    # rasterio transform: maps pixel (col, row) → (lon, lat).
+    # rows = lat axis (n_lat), cols = lon axis (n_lon).
+    # The Land object expects array shape (n_lon, n_lat) with
+    # axis-0 = lon, axis-1 = lat, so we rasterize with
+    # width=n_lon, height=n_lat, then transpose.
+    transform = from_bounds(lon_min, lat_min, lon_max, lat_max, n_lon, n_lat)
+    shapes = [(geom, 1) for geom in clipped if geom is not None and not geom.is_empty]
+
+    if shapes:
+        # rasterize returns (height=n_lat, width=n_lon) uint8 array
+        # Row 0 = lat_max (north) in rasterio convention.
+        raster = rasterize(
+            shapes,
+            out_shape=(n_lat, n_lon),
+            transform=transform,
+            fill=0,
+            dtype=np.uint8,
+            all_touched=True,  # mark cells touched by polygon boundary
+        )
+        # Flip latitude so row 0 = lat_min (south), matching
+        # Land.y = linspace(lat_min, lat_max, n_lat).
+        raster = raster[::-1, :]
+        # Transpose to (n_lon, n_lat) to match Land's (x=lon, y=lat) convention
+        land_array = raster.T.astype(np.float32)
+    else:
+        land_array = np.zeros((n_lon, n_lat), dtype=np.float32)
+
+    # Construct the Land object (same bypass pattern as load_era5_land_mask)
+    land = Land.__new__(Land)
+    land._array = jnp.array(land_array)
+    land.x = jnp.linspace(lon_min, lon_max, n_lon)
+    land.y = jnp.linspace(lat_min, lat_max, n_lat)
+    land.xmin = lon_min
+    land.xmax = lon_max
+    land.xnorm = (n_lon - 1) / (lon_max - lon_min) if lon_max > lon_min else 1.0
+    land.ymin = lat_min
+    land.ymax = lat_max
+    land.ynorm = (n_lat - 1) / (lat_max - lat_min) if lat_max > lat_min else 1.0
+    land.resolution = (1, 1)
+    land.random_seed = None
+    land.water_level = 0.5
+    land.shape = land_array.shape
+    land.interpolate = interpolate
+    land.outbounds_is_land = True
+    land.penalize_segments = True
+    land._map_mode = "nearest"
+    land._map_order = 0
+
+    land_indices = jnp.argwhere(land._array > land.water_level)
+    if land_indices.size > 0:
+        land._lats = land.y[land_indices[:, 1]]
+        land._lons = land.x[land_indices[:, 0]]
+    else:
+        land._lats = jnp.array([])
+        land._lons = jnp.array([])
+
+    n_land = int(np.sum(land_array > 0.5))
+    n_total = n_lon * n_lat
+    logger.info(
+        "Natural Earth land mask (%s): %d/%d cells are land (%.1f%%), "
+        "lon=[%.1f, %.1f], lat=[%.1f, %.1f], res=%.3f°, shape=%s",
+        ne_resolution, n_land, n_total, 100 * n_land / n_total,
+        lon_min, lon_max, lat_min, lat_max, resolution, land_array.shape,
+    )
+
+    return land
+

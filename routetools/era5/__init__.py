@@ -20,10 +20,12 @@ from routetools.era5.loader import (
     load_era5_vectorfield as load_era5_vectorfield,
     load_era5_wavefield as load_era5_wavefield,
     load_era5_windfield as load_era5_windfield,
+    load_natural_earth_land_mask as load_natural_earth_land_mask,
 )
 
 __all__ = [
     "load_era5_vectorfield",
     "load_era5_wavefield",
     "load_era5_windfield",
+    "load_natural_earth_land_mask",
 ]

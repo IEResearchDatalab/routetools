@@ -172,10 +172,10 @@ def main(
 
     # ---- Load fields per corridor (cache so we load each file once) ----
     from routetools.era5.loader import (
-        load_era5_land_mask,
         load_era5_vectorfield,
         load_era5_wavefield,
         load_era5_windfield,
+        load_natural_earth_land_mask,
     )
 
     _loaded_wind: dict[str, tuple] = {}   # corridor -> (windfield, epoch)
@@ -243,15 +243,32 @@ def main(
         return wvf, epoch
 
     def _get_land(corridor: str):
-        """Return Land mask for corridor (from wave NaN), or None."""
+        """Return Land mask for corridor (Natural Earth shapefiles)."""
         if corridor in _loaded_land:
             return _loaded_land[corridor]
-        wp = corridor_wave.get(corridor)
+        # Determine corridor extent from the ERA5 wave or wind file
+        wp = corridor_wave.get(corridor) or corridor_wind.get(corridor)
         if wp is None:
             _loaded_land[corridor] = None
             return None
-        typer.echo(f"Building land mask for {corridor} from {wp} …")
-        land = load_era5_land_mask(wp)
+        import xarray as xr
+        ds = xr.open_dataset(wp)
+        for cname in ("longitude", "lon"):
+            if cname in ds.coords:
+                lons = ds[cname].values
+                break
+        for cname in ("latitude", "lat"):
+            if cname in ds.coords:
+                lats = ds[cname].values
+                break
+        ds.close()
+        lon_range = (float(lons.min()), float(lons.max()))
+        lat_range = (float(lats.min()), float(lats.max()))
+        typer.echo(
+            f"Building Natural Earth land mask for {corridor} "
+            f"lon={lon_range}, lat={lat_range} …"
+        )
+        land = load_natural_earth_land_mask(lon_range, lat_range)
         _loaded_land[corridor] = land
         return land
 
