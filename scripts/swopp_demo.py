@@ -8,9 +8,9 @@ from routetools.plot import plot_curve
 
 
 def main(
-    instance_name: str = "ESSDR-USNYC",
-    date_start: str = "2023-01-08",
-    vel_ship: int = 4,
+    instance_name: str = "ESSDR-USNYS",
+    date_start: str = "2024-01-01",
+    vel_ship: int = 4,  # 8 knots
     data_path: str = "./data",
     penalty: float = 1e10,
     K: int = 10,
