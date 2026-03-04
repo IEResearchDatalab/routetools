@@ -79,7 +79,7 @@ DICT_PORTS = {
         "city": "New York",
         "country": "United States",
     },
-    "USNYCswopp": {
+    "USNYS": {  # New York SWOPP3 port, different from USNYC
         "lat": 40.6,
         "lon": -69.0,  # As defined by SWOPP3
         "city": "New York",
@@ -112,7 +112,7 @@ DICT_INSTANCES = {
         "PAONX-USNYC": {"date_start": "2023-01-01T00:00:00"},
         "USNYC-PAONX": {"date_start": "2023-01-01T00:00:00"},
         # SWOPP3
-        "ESSDR-USNYCswopp": {"date_start": "2023-01-01T00:00:00"},
-        "USLAX-JPTYO": {"date_start": "2023-01-01T00:00:00"},
+        "ESSDR-USNYS": {"date_start": "2024-01-01T00:00:00"},
+        "USLAX-JPTYO": {"date_start": "2024-01-01T00:00:00"},
     },
 }
