@@ -308,6 +308,7 @@ def _cma_evolution_strategy(
     spherical_correction: bool = False,
     time_offset: float = 0.0,
     cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+    land_margin: int = 0,
     verbose: bool = True,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
@@ -366,7 +367,12 @@ def _cma_evolution_strategy(
 
         # Land penalization
         if land is not None and penalty > 0:
-            land_count = land.penalization(curve, penalty=1)  # count only
+            # Skip the first/last `land_margin` waypoints (ports on coast)
+            if land_margin > 0 and curve.shape[1] > 2 * land_margin:
+                curve_check = curve[:, land_margin:-land_margin, :]
+            else:
+                curve_check = curve
+            land_count = land.penalization(curve_check, penalty=1)
             has_land = land_count > 0
             # Death penalty: land-crossing candidates get cost=1e10,
             # plus land_count as gradient signal so CMA-ES moves
@@ -448,6 +454,7 @@ def optimize(
     seed: float = jnp.nan,
     time_offset: float = 0.0,
     cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+    land_margin: int = 0,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
@@ -604,6 +611,7 @@ def optimize(
         spherical_correction=spherical_correction,
         time_offset=time_offset,
         cost_fn=cost_fn,
+        land_margin=land_margin,
         verbose=verbose,
     )
     time_end = time.time()
@@ -637,9 +645,12 @@ def optimize(
                 spherical_correction=spherical_correction,
             ).item()
         if land is not None and penalty > 0:
-            land_count = land.penalization(
-                curve0[jnp.newaxis, :, :], penalty=1
-            ).item()
+            c0_batch = curve0[jnp.newaxis, :, :]
+            if land_margin > 0 and c0_batch.shape[1] > 2 * land_margin:
+                c0_check = c0_batch[:, land_margin:-land_margin, :]
+            else:
+                c0_check = c0_batch
+            land_count = land.penalization(c0_check, penalty=1).item()
             if land_count > 0:
                 cost_initial = 1e10 + land_count
         if weather_penalty_weight > 0 and (
@@ -711,6 +722,7 @@ def optimize_with_increasing_penalization(
     seed: float = jnp.nan,
     time_offset: float = 0.0,
     cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+    land_margin: int = 0,
     verbose: bool = True,
 ) -> tuple[list[jnp.ndarray], list[float]]:
     """
@@ -825,6 +837,7 @@ def optimize_with_increasing_penalization(
             seed=seed,
             time_offset=time_offset,
             cost_fn=cost_fn,
+            land_margin=land_margin,
             verbose=verbose,
         )
         if verbose:
@@ -840,7 +853,11 @@ def optimize_with_increasing_penalization(
             force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         )
         # sigma0 = es.sigma0
-        if land(curve).any():
+        if land_margin > 0 and curve.shape[0] > 2 * land_margin:
+            curve_check = curve[land_margin:-land_margin, :]
+        else:
+            curve_check = curve
+        if land(curve_check).any():
             penalty += penalty_increment
             x0 = es.best.x
         else:
