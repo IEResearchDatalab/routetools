@@ -20,7 +20,7 @@ Naming convention::
 from __future__ import annotations
 
 import csv
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -171,7 +171,7 @@ def file_a_name(submission: int, casename: str) -> str:
     Returns
     -------
     str
-        Filename like ``IEUniversity-1-AOWPS.csv``.
+        Filename like ``IEUniversity-1-AO_WPS.csv``.
     """
     return f"{TEAM}-{submission}-{casename}.csv"
 

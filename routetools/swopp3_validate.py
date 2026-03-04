@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import csv
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 __all__ = [
@@ -52,6 +52,7 @@ _FILE_A_COLUMNS = [
 _FILE_B_COLUMNS = ["time_utc", "lat_deg", "lon_deg"]
 
 # Expected passage hours by route tag
+# Expected passage hours by route tag (reserved for future passage-time validation)
 _PASSAGE_HOURS = {"A": 354, "P": 583}  # Atlantic / Pacific
 
 

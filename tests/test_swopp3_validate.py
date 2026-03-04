@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from routetools.swopp3_validate import (
-    ValidationError,
     validate_case_pair_strategy,
     validate_case_pair_wps,
     validate_file_a,

@@ -114,11 +114,11 @@ class TestFileARow:
 # ---------------------------------------------------------------------------
 class TestNaming:
     def test_file_a_name(self):
-        assert file_a_name(1, "AOWPS") == "IEUniversity-1-AOWPS.csv"
+        assert file_a_name(1, "AO_WPS") == "IEUniversity-1-AO_WPS.csv"
 
     def test_file_b_name(self):
-        name = file_b_name(1, "AOWPS", _DEP)
-        assert name == "IEUniversity-1-AOWPS-20240101.csv"
+        name = file_b_name(1, "AO_WPS", _DEP)
+        assert name == "IEUniversity-1-AO_WPS-20240101.csv"
 
     def test_team(self):
         assert TEAM == "IEUniversity"
@@ -178,7 +178,7 @@ class TestWriteFileB:
     def test_mismatched_lengths_raises(self, tmp_path: Path):
         curve = _straight_curve(5)
         times = waypoint_times(curve, _DEP, passage_hours=10)
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError):
             write_file_b(curve, times[:3], tmp_path / "bad.csv")
 
     def test_lon_lat_order(self, tmp_path: Path):
