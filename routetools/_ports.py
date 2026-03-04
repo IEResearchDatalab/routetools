@@ -73,15 +73,15 @@ DICT_PORTS = {
         "city": "Long Beach",
         "country": "United States",
     },
-    # "USNYC": {
-    #    "lat": 40.53,
-    #    "lon": -73.80,
-    #    "city": "New York",
-    #    "country": "United States",
-    # },
     "USNYC": {
+        "lat": 40.53,
+        "lon": -73.80,
+        "city": "New York",
+        "country": "United States",
+    },
+    "USNYCswopp": {
         "lat": 40.6,
-        "lon": -69.0,
+        "lon": -69.0,  # As defined by SWOPP3
         "city": "New York",
         "country": "United States",
     },
@@ -112,7 +112,7 @@ DICT_INSTANCES = {
         "PAONX-USNYC": {"date_start": "2023-01-01T00:00:00"},
         "USNYC-PAONX": {"date_start": "2023-01-01T00:00:00"},
         # SWOPP3
-        "ESSDR-USNYC": {"date_start": "2023-01-01T00:00:00"},
+        "ESSDR-USNYCswopp": {"date_start": "2023-01-01T00:00:00"},
         "USLAX-JPTYO": {"date_start": "2023-01-01T00:00:00"},
     },
 }
