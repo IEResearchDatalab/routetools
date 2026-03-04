@@ -166,7 +166,6 @@ class TestNoWPS:
         mwa = rng.uniform(0, 180, n)
         v = rng.uniform(0, 14.5, n)
 
-        abs_errs = np.empty(n)
         ref_vals = np.array([swopp3.predict_no_wps(tws[i], twa[i], swh[i], mwa[i], v[i]) for i in range(n)])
         par_vals = predict_power_batch(tws, twa, swh, mwa, v, wps=False)
         abs_errs = np.abs(par_vals - ref_vals)
@@ -271,7 +270,6 @@ class TestWithWPS:
         mwa = rng.uniform(0, 180, n)
         v = rng.uniform(0, 14.5, n)
 
-        abs_errs = np.empty(n)
         ref_vals = np.array([swopp3.predict_with_wps(tws[i], twa[i], swh[i], mwa[i], v[i]) for i in range(n)])
         par_vals = predict_power_batch(tws, twa, swh, mwa, v, wps=True)
         abs_errs = np.abs(par_vals - ref_vals)
