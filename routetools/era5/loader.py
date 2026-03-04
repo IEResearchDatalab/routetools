@@ -575,7 +575,7 @@ def load_era5_land_mask(
     land.random_seed = None
     land.water_level = 0.5
     land.shape = land_array.shape
-    land.interpolate = 0        # no sub-sampling; grid is already fine
+    land.interpolate = 10       # insert 10 sub-points between waypoints to catch narrow land
     land.outbounds_is_land = True
     land.penalize_segments = True
     land._map_mode = "nearest"

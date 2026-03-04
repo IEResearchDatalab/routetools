@@ -339,7 +339,9 @@ def run_optimised_departure(
 
     if vectorfield is not None:
         # Lazy import to avoid circular dependency / heavy JAX load
-        from routetools.cmaes import optimize as cmaes_optimize
+        from routetools.cmaes import (
+            optimize_with_increasing_penalization as cmaes_optimize_land,
+        )
         from routetools.cost import cost_function_rise
 
         # Initialise from the great-circle route so CMA-ES starts near
@@ -369,21 +371,36 @@ def run_optimised_departure(
 
         defaults = dict(
             L=n_points,
-            curve0=gc_init,
             sigma0=0.1,
             cost_fn=_rise_cost,
-            penalty=1000,
+            penalty_init=1000,
+            penalty_increment=1000,
+            maxiter=10,
             verbose=False,
         )
         defaults.update(cmaes_kwargs)
 
-        curve, info = cmaes_optimize(
-            vectorfield=vectorfield,
-            src=src_opt,
-            dst=dst_opt,
-            land=land,
-            **defaults,
-        )
+        if land is not None:
+            ls_curves, ls_costs = cmaes_optimize_land(
+                vectorfield=vectorfield,
+                src=src_opt,
+                dst=dst_opt,
+                land=land,
+                **defaults,
+            )
+            curve = ls_curves[-1]  # last iteration (highest penalty)
+        else:
+            from routetools.cmaes import optimize as cmaes_optimize
+            defaults.pop("penalty_init", None)
+            defaults.pop("penalty_increment", None)
+            defaults.pop("maxiter", None)
+            defaults["curve0"] = gc_init
+            curve, _ = cmaes_optimize(
+                vectorfield=vectorfield,
+                src=src_opt,
+                dst=dst_opt,
+                **defaults,
+            )
     else:
         # No vectorfield → fall back to great circle
         curve = great_circle_route(src, dst, n_points=n_points)
