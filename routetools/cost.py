@@ -9,9 +9,19 @@ from jax import jit, lax
 from routetools._cost.haversine import (
     haversine_distance_from_curve as haversine_distance_from_curve,
 )
-from routetools._cost.haversine import haversine_meters_components
+from routetools._cost.haversine import EARTH_RADIUS, haversine_meters_components
 from routetools._cost.waves import wave_adjusted_speed
 from routetools.land import Land, move_curve_away_from_land
+from routetools.performance import (
+    A_W,
+    K_A,
+    K_H,
+    K_S,
+    K_W,
+    SAIL_DEAD_ZONE_DEG,
+    SAIL_QUADRATIC_CORRECTION,
+    predict_power_jax,
+)
 
 
 def angle_wrt_true_north(dx: jnp.ndarray, dy: jnp.ndarray) -> jnp.ndarray:
@@ -461,6 +471,118 @@ def cost_function_constant_cost_time_variant(
     # STW cost = ‖SOG - current‖² / 2 · dt_s
     cost = ((dxdt - uinterp) ** 2 + (dydt - vinterp) ** 2) / 2
     return cost * dt_s
+
+
+# ---------------------------------------------------------------------------
+# RISE performance-model cost (for SWOPP3)
+# ---------------------------------------------------------------------------
+@partial(
+    jit,
+    static_argnames=(
+        "windfield",
+        "wavefield",
+        "travel_time",
+        "wps",
+    ),
+)
+def cost_function_rise(
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ],
+    curve: jnp.ndarray,
+    travel_time: float,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    wps: bool = False,
+    time_offset: float = 0.0,
+) -> jnp.ndarray:
+    """Compute SWOPP3 energy consumption for a batch of fixed-time routes.
+
+    Uses the closed-form RISE performance model (hull drag, aerodynamic
+    drag, wave added resistance, wingsail thrust) evaluated entirely in
+    JAX so that the function is JIT-compilable and could support
+    gradient-based optimisation in the future.
+
+    Each segment takes ``dt = travel_time / (L-1)``.  Wind and waves are
+    sampled at each segment midpoint at its corresponding timestamp.
+
+    Parameters
+    ----------
+    windfield : Callable
+        ``(lon, lat, t) -> (u10, v10)`` where ``u10, v10`` are wind
+        components in m/s.  ``t`` is in the same unit as *travel_time*
+        (hours for ERA5).
+    curve : jnp.ndarray
+        Batch of trajectories, shape ``(B, L, 2)`` with ``(lon, lat)``
+        in degrees.
+    travel_time : float
+        Fixed total passage time (hours).
+    wavefield : Callable, optional
+        ``(lon, lat, t) -> (hs, mwd)`` where ``hs`` is significant wave
+        height in metres and ``mwd`` is mean wave direction (degrees
+        from North).
+    wps : bool
+        Whether wingsails are deployed.
+    time_offset : float
+        Departure offset in hours from the field's time origin.
+
+    Returns
+    -------
+    jnp.ndarray
+        Total energy in MWh per route, shape ``(B,)``.
+    """
+    n_seg = curve.shape[1] - 1
+    dt_h = travel_time / n_seg  # hours per segment
+
+    # ---- segment midpoints (position) ----
+    mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2  # (B, n_seg)
+    mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
+
+    # ---- segment midpoints (time) ----
+    seg_times = time_offset + (jnp.arange(n_seg) + 0.5) * dt_h  # (n_seg,)
+    curvet = jnp.broadcast_to(seg_times[None, :], mid_lon.shape)  # (B, n_seg)
+
+    # ---- segment bearings (Mercator approximation, all in JAX) ----
+    dlon = jnp.diff(curve[:, :, 0], axis=1)  # (B, n_seg)
+    dlat = jnp.diff(curve[:, :, 1], axis=1)
+    lat_mid_rad = jnp.radians(mid_lat)
+    dx_bear = dlon * jnp.cos(lat_mid_rad)  # eastward
+    dy_bear = dlat  # northward
+    bearing_deg = jnp.mod(jnp.degrees(jnp.arctan2(dx_bear, dy_bear)), 360.0)
+
+    # ---- segment distances (haversine, metres) & ship speed ----
+    dx_m, dy_m = haversine_meters_components(
+        curve[:, :-1, 1], curve[:, :-1, 0],
+        curve[:, 1:, 1], curve[:, 1:, 0],
+    )
+    seg_dist_m = jnp.sqrt(dx_m**2 + dy_m**2)  # (B, n_seg)
+    dt_s = dt_h * 3600.0
+    v_mps = seg_dist_m / dt_s  # ship speed m/s per segment
+
+    # ---- wind ----
+    u10, v10 = windfield(mid_lon, mid_lat, curvet)
+    tws = jnp.sqrt(u10**2 + v10**2)
+    # Wind FROM direction (meteorological convention)
+    wind_from_deg = jnp.mod(180.0 + jnp.degrees(jnp.arctan2(u10, v10)), 360.0)
+    twa = jnp.mod(wind_from_deg - bearing_deg, 360.0)
+
+    # ---- waves ----
+    if wavefield is not None:
+        hs, mwd = wavefield(mid_lon, mid_lat, curvet)
+        mwa = jnp.mod(mwd - bearing_deg, 360.0)
+    else:
+        hs = jnp.zeros_like(mid_lon)
+        mwa = jnp.zeros_like(mid_lon)
+
+    # ---- RISE power model (kW) ----
+    power_kw = predict_power_jax(tws, twa, hs, mwa, v_mps, wps=wps)
+
+    # ---- integrate: energy = Σ P_kW · Δt_h → kWh, then /1000 → MWh ----
+    energy_mwh = jnp.sum(power_kw, axis=1) * dt_h / 1000.0
+
+    return energy_mwh
 
 
 def interpolate_to_constant_cost(

@@ -340,6 +340,7 @@ def run_optimised_departure(
     if vectorfield is not None:
         # Lazy import to avoid circular dependency / heavy JAX load
         from routetools.cmaes import optimize as cmaes_optimize
+        from routetools.cost import cost_function_rise
 
         # Initialise from the great-circle route so CMA-ES starts near
         # the geodesic.
@@ -350,13 +351,27 @@ def run_optimised_departure(
         # curve stays in a consistent longitude range.
         src_opt = jnp.array([gc_init[0, 0], gc_init[0, 1]])
         dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
+
+        # Build a RISE-based cost closure for CMA-ES.
+        # This directly minimises SWOPP3 energy (MWh) instead of the
+        # ocean-current proxy ‖SOG − wind‖².
+        _wps = case["wps"]
+
+        def _rise_cost(curve_batch: jnp.ndarray) -> jnp.ndarray:
+            return cost_function_rise(
+                windfield=windfield,
+                curve=curve_batch,
+                travel_time=travel_time,
+                wavefield=wavefield,
+                wps=_wps,
+                time_offset=departure_offset_h,
+            )
+
         defaults = dict(
             L=n_points,
             curve0=gc_init,
-            travel_time=travel_time,
-            spherical_correction=True,
-            time_offset=departure_offset_h,
             sigma0=0.1,
+            cost_fn=_rise_cost,
             verbose=False,
         )
         defaults.update(cmaes_kwargs)
@@ -366,8 +381,6 @@ def run_optimised_departure(
             src=src_opt,
             dst=dst_opt,
             land=land,
-            wavefield=wavefield,
-            windfield=windfield,
             **defaults,
         )
     else:

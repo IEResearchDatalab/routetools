@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import math
 
+import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -299,3 +300,67 @@ def predict_power_batch(
         total = total - p_sail
 
     return np.maximum(total, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# JAX-compatible (JIT / autodiff) entry point
+# ---------------------------------------------------------------------------
+def predict_power_jax(
+    tws: jnp.ndarray,
+    twa: jnp.ndarray,
+    swh: jnp.ndarray,
+    mwa: jnp.ndarray,
+    v: jnp.ndarray,
+    wps: bool = False,
+) -> jnp.ndarray:
+    """JAX-compatible vectorized power prediction.
+
+    Identical physics to :func:`predict_power_batch` but uses ``jax.numpy``
+    throughout.  Fully compatible with ``jax.jit``, ``jax.vmap``, and
+    ``jax.grad``.
+
+    Parameters
+    ----------
+    tws : jnp.ndarray
+        True wind speed (m/s).
+    twa : jnp.ndarray
+        True wind angle (degrees), 0 = headwind, 180 = tailwind.
+    swh : jnp.ndarray
+        Significant wave height (m).
+    mwa : jnp.ndarray
+        Mean wave angle (degrees), same convention as TWA.
+    v : jnp.ndarray
+        Ship speed through water (m/s).
+    wps : bool
+        Whether to include wingsail thrust.  **Must be a static
+        (compile-time) value** when used inside ``jax.jit``.
+
+    Returns
+    -------
+    jnp.ndarray
+        Propulsive power in kW.
+    """
+    twa_rad = jnp.radians(twa)
+    mwa_rad = jnp.radians(mwa)
+
+    ux = tws * jnp.cos(twa_rad) + v
+    uy = tws * jnp.sin(twa_rad)
+    vr2 = ux**2 + uy**2
+    vr = jnp.sqrt(vr2)
+
+    p_hull = K_H * v**3
+    p_wind = K_A * v * (vr * ux - v**2)
+    p_wave = A_W * swh**2 * v**1.5 * jnp.exp(-K_W * jnp.abs(mwa_rad) ** 3)
+
+    total = p_hull + p_wind + p_wave
+
+    if wps:
+        awa_deg = jnp.degrees(jnp.arctan2(jnp.abs(uy), ux))
+        alpha = jnp.radians(jnp.maximum(awa_deg - SAIL_DEAD_ZONE_DEG, 0.0))
+        sin_a = jnp.sin(alpha)
+        c_awa = K_S * sin_a * (1.0 + SAIL_QUADRATIC_CORRECTION * sin_a**2)
+        p_sail = c_awa * vr2 * v
+        p_sail = jnp.where(awa_deg < SAIL_DEAD_ZONE_DEG, 0.0, p_sail)
+        total = total - p_sail
+
+    return jnp.maximum(total, 0.0)

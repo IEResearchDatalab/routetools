@@ -307,6 +307,7 @@ def _cma_evolution_strategy(
     keep_top: float = 0.0,
     spherical_correction: bool = False,
     time_offset: float = 0.0,
+    cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     verbose: bool = True,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
@@ -348,17 +349,20 @@ def _cma_evolution_strategy(
             force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         )
 
-        cost: jnp.ndarray = cost_function(
-            vectorfield=vectorfield,
-            curve=curve,
-            wavefield=wavefield,
-            travel_stw=travel_stw,
-            travel_time=travel_time,
-            weight_l1=weight_l1,
-            weight_l2=weight_l2,
-            spherical_correction=spherical_correction,
-            time_offset=time_offset,
-        )
+        if cost_fn is not None:
+            cost = cost_fn(curve)
+        else:
+            cost = cost_function(
+                vectorfield=vectorfield,
+                curve=curve,
+                wavefield=wavefield,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                weight_l1=weight_l1,
+                weight_l2=weight_l2,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
+            )
 
         # Land penalization
         if land is not None and penalty > 0:
@@ -438,6 +442,7 @@ def optimize(
     spherical_correction: bool = False,
     seed: float = jnp.nan,
     time_offset: float = 0.0,
+    cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
@@ -593,6 +598,7 @@ def optimize(
         keep_top=keep_top,
         spherical_correction=spherical_correction,
         time_offset=time_offset,
+        cost_fn=cost_fn,
         verbose=verbose,
     )
     time_end = time.time()
@@ -694,6 +700,7 @@ def optimize_with_increasing_penalization(
     spherical_correction: bool = False,
     seed: float = jnp.nan,
     time_offset: float = 0.0,
+    cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     verbose: bool = True,
 ) -> tuple[list[jnp.ndarray], list[float]]:
     """
@@ -807,6 +814,7 @@ def optimize_with_increasing_penalization(
             spherical_correction=spherical_correction,
             seed=seed,
             time_offset=time_offset,
+            cost_fn=cost_fn,
             verbose=verbose,
         )
         if verbose:
