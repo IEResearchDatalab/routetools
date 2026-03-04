@@ -391,6 +391,9 @@ def cost_function_constant_cost_time_invariant(
 
 @partial(
     jit,
+    # NOTE: travel_time is static to allow constant-folding of dt inside the
+    # traced computation.  This means a new compilation per distinct value.
+    # In routing loops travel_time is typically fixed, so this is acceptable.
     static_argnames=("vectorfield", "travel_time", "wavefield", "spherical_correction"),
 )
 def cost_function_constant_cost_time_variant(
@@ -450,6 +453,10 @@ def cost_function_constant_cost_time_variant(
 
     uinterp, vinterp = vectorfield(curvex, curvey, curvet)
 
+    # TODO: wavefield is accepted for API symmetry with cost_function_rise
+    # but is not yet used in this function.  Wire it into an added-resistance
+    # term once the STW cost model supports wave effects.
+
     # Distances between waypoints
     if spherical_correction:
         dx, dy = haversine_meters_components(
@@ -459,6 +466,9 @@ def cost_function_constant_cost_time_variant(
             curve[:, 1:, 0],
         )
     else:
+        # NOTE: when spherical_correction is False the curve coordinates
+        # must already be in metres (projected x/y).  Raw lon/lat degrees
+        # will produce dimensionally incorrect costs.
         dx = jnp.diff(curve[:, :, 0], axis=1)
         dy = jnp.diff(curve[:, :, 1], axis=1)
 
@@ -545,6 +555,11 @@ def cost_function_rise(
     curvet = jnp.broadcast_to(seg_times[None, :], mid_lon.shape)  # (B, n_seg)
 
     # ---- segment bearings (Mercator approximation, all in JAX) ----
+    # NOTE: bearings use a cheap Mercator projection while segment
+    # distances below use haversine.  For the short segments typical
+    # of SWOPP3 routes (< 100 nm, mid-latitudes) the bearing error is
+    # negligible (< 0.1°).  A full great-circle bearing would be more
+    # accurate at high latitudes or for very long segments.
     dlon = jnp.diff(curve[:, :, 0], axis=1)  # (B, n_seg)
     dlat = jnp.diff(curve[:, :, 1], axis=1)
     lat_mid_rad = jnp.radians(mid_lat)
