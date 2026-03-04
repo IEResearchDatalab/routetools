@@ -60,6 +60,7 @@ def load_real_instance(
     vel_ship: float | None = None,
     use_currents: bool = True,
     use_waves: bool = True,
+    route_days: int = 10,
 ) -> dict:
     """
     Load instance configuration and prepare data and parameters to optimize.
@@ -89,23 +90,22 @@ def load_real_instance(
         Whether to use ocean currents data, by default True
     use_waves : bool, optional
         Whether to use ocean waves data, by default True
+    route_days : int, optional
+        Number of days worth of data. If the route goes for longer,
+        it will repeat the last day, by default 10
 
     Returns
     -------
     dict
         Dictionary containing the instance configuration.
     """
-    dict_all_instances: dict = DICT_INSTANCES["instances"]
-
-    assert name_instance in dict_all_instances, f"Instance {name_instance} not found"
+    assert name_instance in DICT_INSTANCES, f"Instance {name_instance} not found"
 
     # TODO: Add the valid land file to the data_path
     if land_resolution == "1km":
         land_file_name = "earth-seas-1km-valid.geo.json"
     else:
         land_file_name = "earth-seas-2km5-valid.geo.json"
-
-    route_days = DICT_INSTANCES["route_days"]
 
     dict_instance = {}
 
@@ -129,11 +129,11 @@ def load_real_instance(
         name_alt = name_instance
 
     # Find if the instance is defined inside the dictionary, as is
-    if name_instance in dict_all_instances:
-        dict_instance.update(dict_all_instances[name_instance])
+    if name_instance in DICT_INSTANCES:
+        dict_instance.update(DICT_INSTANCES[name_instance])
     # Else, find if the reverse name works
-    elif name_alt in dict_all_instances:
-        dict_instance.update(dict_all_instances[name_alt])
+    elif name_alt in DICT_INSTANCES:
+        dict_instance.update(DICT_INSTANCES[name_alt])
 
     # Initialize the dictionary containing the instance configuration
     # Adds default parameters to avoid missing information

@@ -188,6 +188,9 @@ def load_benchmark_instance(
     instance_name: str,
     date_start: str = "2023-01-08",
     vel_ship: int = 6,
+    use_currents: bool = True,
+    use_waves: bool = True,
+    route_days: int = 10,
     bounding_border: int = 10,
     data_path: str = "./data",
 ) -> dict[str, Any]:
@@ -202,6 +205,13 @@ def load_benchmark_instance(
         Start date for the benchmark instance, by default "2023-01-08".
     vel_ship : int, optional
         Velocity of the ship in knots, by default 6.
+    use_currents : bool, optional
+        Whether to use ocean currents data, by default True.
+    use_waves : bool, optional
+        Whether to use ocean waves data, by default True.
+    route_days : int, optional
+        Number of days of ocean data to load. If the route goes for
+        longer, it will repeat the last day. By default 10.
     bounding_border: int, optional
         Border size for bounding box, by default 10.
     data_path : str, optional
@@ -224,6 +234,9 @@ def load_benchmark_instance(
         vel_ship=vel_ship,
         data_path=data_path,
         bounding_border=bounding_border,
+        use_currents=use_currents,
+        use_waves=use_waves,
+        route_days=route_days,
     )
 
     # Load ocean and land data
