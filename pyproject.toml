@@ -26,11 +26,12 @@ dependencies = [
     "seaborn>=0.13.2",
     "typer>=0.19.2",
     "h3==4.0.0b2",
-    "wrr-bench",
-    "wrr-utils",
     "borb @ https://files.pythonhosted.org/packages/7a/4e/b193d894ffb0fde0f773b0476d8b041528302fa86bccf2cc8006c79404e4/borb-3.0.1.tar.gz",
     "jupyter-server>=2.17.0",
     "statsmodels>=0.14.6",
+    "opencv-python>=4.13.0.92",
+    "netcdf4>=1.7.4",
+    "dask>=2026.1.2",
 ]
 
 [project.urls]
@@ -103,10 +104,6 @@ dev-dependencies = [
     "pre-commit",
     "ipykernel",
 ]
-
-[tool.uv.sources]
-wrr-bench = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routing-benchmarks.git", branch = "main" }
-wrr-utils = { git = "ssh://git@github.com/Weather-Routing-Research/weather-routing-research.git", branch = "main" }
 
 [project.optional-dependencies]
 cuda = ["jax[cuda]==0.8.1"]
