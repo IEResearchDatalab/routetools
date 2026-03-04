@@ -74,10 +74,10 @@ K_H: float = 969 / 226
 """Hull drag coefficient (≈ 4.28761).  ``P_hull = K_H · v³``."""
 
 K_A: float = 49 / 320
-"""Aerodynamic drag coefficient (= 0.153125).  ``P_wind = K_A · v · (VR · u_x − v²)``."""
+"""Aerodynamic drag coefficient (≈ 0.153125).  ``P_wind = K_A · v · (VR · u_x − v²)``."""
 
 A_W: float = 11.1395
-"""Wave added-resistance amplitude.  ``P_wave = A_W · SWH² · v^{1.5} · exp(…)``."""
+"""Wave added-resistance amplitude (exact).  ``P_wave = A_W · SWH² · v^{1.5} · exp(…)``."""
 
 K_W: float = 0.28935
 """Wave directional decay rate.  ``exp(−K_W · |MWA_rad|³)``."""
@@ -295,8 +295,6 @@ def predict_power_batch(
         sin_a = np.sin(alpha)
         c_awa = K_S * sin_a * (1.0 + SAIL_QUADRATIC_CORRECTION * sin_a**2)
         p_sail = c_awa * vr2 * v
-        # Zero out sail power in the dead zone
-        p_sail = np.where(awa_deg < SAIL_DEAD_ZONE_DEG, 0.0, p_sail)
         total = total - p_sail
 
     return np.maximum(total, 0.0)
@@ -311,6 +309,7 @@ def predict_power_jax(
     swh: jnp.ndarray,
     mwa: jnp.ndarray,
     v: jnp.ndarray,
+    *,
     wps: bool = False,
 ) -> jnp.ndarray:
     """JAX-compatible vectorized power prediction.
@@ -360,7 +359,6 @@ def predict_power_jax(
         sin_a = jnp.sin(alpha)
         c_awa = K_S * sin_a * (1.0 + SAIL_QUADRATIC_CORRECTION * sin_a**2)
         p_sail = c_awa * vr2 * v
-        p_sail = jnp.where(awa_deg < SAIL_DEAD_ZONE_DEG, 0.0, p_sail)
         total = total - p_sail
 
     return jnp.maximum(total, 0.0)
