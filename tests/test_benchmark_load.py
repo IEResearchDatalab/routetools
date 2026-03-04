@@ -137,3 +137,55 @@ def test_load_benchmark_for_all_instances(tmp_path, instance_name):
         )
     # Basic smoke checks
     assert_basic_output(out)
+
+
+@pytest.mark.parametrize(
+    "use_currents,use_waves,route_days,expected_vars",
+    [
+        (True, True, 3, ["currents", "waves"]),
+        (True, False, 4, ["currents"]),
+        (False, True, 5, ["waves"]),
+        (False, False, 2, []),
+    ],
+)
+def test_load_files_called_with_expected_parameters(
+    monkeypatch, use_currents, use_waves, route_days, expected_vars
+):
+    """Ensure `load_real_instance` calls `load_files` with list_dates
+    length == route_days
+    and weather_variables matching the requested flags.
+    """
+    from routetools.wrr_bench import load as load_mod
+
+    captured = {}
+
+    def fake_load_files(list_dates, data_path="./data", weather_variables=None):
+        # record inputs for assertions
+        captured["list_dates"] = list_dates
+        captured["weather_variables"] = (
+            list(weather_variables) if weather_variables is not None else []
+        )
+        # return empty dict so downstream code receives None for datasets
+        return {}
+
+    monkeypatch.setattr(load_mod, "load_files", fake_load_files)
+
+    # pick an instance that exists in DICT_INSTANCES
+    instance_name = next(iter(DICT_INSTANCES.keys()))
+
+    # Call the loader; it should invoke our fake_load_files
+    load_mod.load_real_instance(
+        instance_name,
+        date_start="2023-01-01",
+        data_path="./data",
+        use_currents=use_currents,
+        use_waves=use_waves,
+        route_days=route_days,
+        vel_ship=10.0,
+    )
+
+    # Assertions
+    assert "list_dates" in captured
+    assert len(captured["list_dates"]) == route_days
+    # weather_variables should match expected_vars (order: currents then waves)
+    assert captured.get("weather_variables", []) == expected_vars
