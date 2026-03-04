@@ -363,7 +363,7 @@ def circumnavigate_and_smooth(
 
 def optimize_benchmark_instance(
     dict_instance: dict[str, Any],
-    penalty: float = 1e8,
+    penalty: float = 1e10,
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,

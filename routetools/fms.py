@@ -122,7 +122,7 @@ def optimize_fms(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
-    penalty: float = 1e8,
+    penalty: float = 1e10,
     num_curves: int = 10,
     num_points: int = 200,
     travel_stw: float | None = None,

@@ -282,7 +282,7 @@ def _cma_evolution_strategy(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
-    penalty: float = 10,
+    penalty: float = 1e10,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     L: int = 64,
@@ -392,7 +392,7 @@ def optimize(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
-    penalty: float = 10,
+    penalty: float = 1e10,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     K: int = 6,

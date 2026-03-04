@@ -12,7 +12,7 @@ def main(
     date_start: str = "2023-01-08",
     vel_ship: int = 4,
     data_path: str = "./data",
-    penalty: float = 1e6,
+    penalty: float = 1e10,
     K: int = 10,
     L: int = 320,
     num_pieces: int = 3,
