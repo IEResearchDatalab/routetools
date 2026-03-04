@@ -140,7 +140,7 @@ def load_real_instance(
         or name_alt in DICT_INSTANCES
         or re.match(r"^[A-Z]{5}-[A-Z]{5}$", name_instance)
     ):
-        raise AssertionError(f"Instance {name_instance} not found")
+        raise KeyError(f"Instance {name_instance} not found")
 
     # Initialize the dictionary containing the instance configuration
     # Adds default parameters to avoid missing information
