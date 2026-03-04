@@ -31,8 +31,7 @@ Run only the first 3 departures (quick test):
 
 from __future__ import annotations
 
-import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -196,9 +195,9 @@ def main(
             ds.close()
             raise KeyError(f"No time coordinate found in {path}")
         ds.close()
-        # Convert numpy datetime64 -> Python datetime (UTC-naive)
+        # Convert numpy datetime64 -> Python datetime (UTC)
         ts = (epoch_np - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
-        return datetime.fromtimestamp(float(ts), tz=None)
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None)
 
     def _get_wind(corridor: str):
         """Return (windfield_closure, dataset_epoch) for corridor, or (None, None)."""

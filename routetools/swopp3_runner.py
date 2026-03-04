@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import time as _time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,7 +30,6 @@ import numpy as np
 
 from routetools.performance import predict_power_batch
 from routetools.swopp3 import (
-    PORTS,
     SWOPP3_CASES,
     case_endpoints,
     great_circle_route,
@@ -97,7 +96,7 @@ class DepartureResult:
 # ---------------------------------------------------------------------------
 # Ship bearing computation
 # ---------------------------------------------------------------------------
-def _segment_bearings_deg(curve: jnp.ndarray) -> np.ndarray:
+def segment_bearings_deg(curve: jnp.ndarray) -> np.ndarray:
     """Compute true-north bearing (degrees) at each segment midpoint.
 
     Parameters
@@ -180,7 +179,7 @@ def evaluate_energy(
     t_hours = departure_offset_h + seg_frac * passage_hours
 
     # ---- ship bearing ----
-    bearing_deg = _segment_bearings_deg(curve)  # (n_seg,)
+    bearing_deg = segment_bearings_deg(curve)  # (n_seg,)
 
     # ---- constant ship speed (m/s) ----
     distance_nm = sailed_distance_nm(curve)
@@ -555,6 +554,8 @@ def _write_case_outputs(
     passage_hours = case["passage_hours"]
 
     file_b_dir = output_dir / "tracks"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    file_b_dir.mkdir(parents=True, exist_ok=True)
     rows = []
 
     for res in results:

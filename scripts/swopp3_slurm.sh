@@ -8,6 +8,9 @@
 #SBATCH --output=output/swopp3_0125_rust/slurm_%j.out
 #SBATCH --error=output/swopp3_0125_rust/slurm_%j.err
 
+# NOTE: The SLURM log directory (output/swopp3_0125_rust/) must exist
+# before submission.  Run: mkdir -p output/swopp3_0125_rust
+
 # ── SWOPP3 full run on rust-HPC (0.125° ERA5 data, CPU mode) ──
 #
 # Submit:  sbatch scripts/swopp3_slurm.sh
@@ -24,8 +27,8 @@ source .venv/bin/activate
 # Force JAX to use CPU (avoid GPU OOM with large 0.125° grids)
 export JAX_PLATFORMS=cpu
 
-# Use all allocated CPUs for XLA parallelism
-export XLA_FLAGS="--xla_cpu_multi_thread_eigen=true --xla_force_host_platform_device_count=${SLURM_CPUS_PER_TASK}"
+# Use all allocated CPUs for XLA parallelism (append to preserve existing flags)
+export XLA_FLAGS="${XLA_FLAGS:-} --xla_cpu_multi_thread_eigen=true --xla_force_host_platform_device_count=${SLURM_CPUS_PER_TASK}"
 
 # ── Paths ──
 DATA_025="data/era5"

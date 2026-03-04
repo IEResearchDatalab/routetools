@@ -9,6 +9,9 @@
 #SBATCH --output=output/swopp3_0125_gpu/slurm_%j.out
 #SBATCH --error=output/swopp3_0125_gpu/slurm_%j.err
 
+# NOTE: The SLURM log directory (output/swopp3_0125_gpu/) must exist
+# before submission.  Run: mkdir -p output/swopp3_0125_gpu
+
 # ── SWOPP3 full run on rust-HPC (0.125° ERA5 data, GPU mode) ──
 #
 # This variant uses a single RTX 6000 Ada (48 GB).

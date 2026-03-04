@@ -13,14 +13,12 @@ Outputs PNG figures into ``<input-dir>/figures/``.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Optional
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import typer
@@ -31,9 +29,9 @@ app = typer.Typer(help="Visualize SWOPP3 route outputs.")
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _load_summary(input_dir: Path, case_id: str) -> pd.DataFrame:
+def _load_summary(input_dir: Path, case_id: str, submission: int = 1) -> pd.DataFrame:
     """Load the summary CSV for a case."""
-    path = input_dir / f"IEUniversity-1-{case_id}.csv"
+    path = input_dir / f"IEUniversity-{submission}-{case_id}.csv"
     return pd.read_csv(path, parse_dates=["departure_time_utc", "arrival_time_utc"])
 
 
@@ -41,15 +39,6 @@ def _load_track(input_dir: Path, filename: str) -> pd.DataFrame:
     """Load a single track (waypoints) CSV."""
     path = input_dir / "tracks" / filename
     return pd.read_csv(path, parse_dates=["time_utc"])
-
-
-def _wrap_lon_for_pacific(lon: np.ndarray) -> np.ndarray:
-    """Convert longitudes so Pacific routes don't wrap at ±180.
-
-    Shifts all longitudes to [0, 360) so the route from ~140°E to ~-121°
-    plots as 140→239 instead of crossing the antimeridian.
-    """
-    return np.where(lon < 0, lon + 360, lon)
 
 
 # ---------------------------------------------------------------------------

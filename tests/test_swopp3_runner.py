@@ -13,7 +13,7 @@ import pytest
 from routetools.swopp3 import SWOPP3_CASES, great_circle_route
 from routetools.swopp3_runner import (
     DepartureResult,
-    _segment_bearings_deg,
+    segment_bearings_deg,
     evaluate_energy,
     run_case,
     run_gc_departure,
@@ -60,30 +60,30 @@ def _constant_wavefield(hs: float = 2.0, mwd: float = 270.0):
 
 
 # ---------------------------------------------------------------------------
-# _segment_bearings_deg
+# segment_bearings_deg
 # ---------------------------------------------------------------------------
 class TestSegmentBearings:
     def test_eastward(self):
         """Eastward route → bearing ≈ 90°."""
         curve = jnp.array([[0.0, 0.0], [1.0, 0.0]])
-        b = _segment_bearings_deg(curve)
+        b = segment_bearings_deg(curve)
         assert len(b) == 1
         assert abs(b[0] - 90.0) < 1.0
 
     def test_northward(self):
         """Northward route → bearing ≈ 0° (or 360°)."""
         curve = jnp.array([[0.0, 0.0], [0.0, 1.0]])
-        b = _segment_bearings_deg(curve)
+        b = segment_bearings_deg(curve)
         assert abs(b[0] % 360.0) < 1.0
 
     def test_westward(self):
         curve = jnp.array([[1.0, 0.0], [0.0, 0.0]])
-        b = _segment_bearings_deg(curve)
+        b = segment_bearings_deg(curve)
         assert abs(b[0] - 270.0) < 1.0
 
     def test_multiple_segments(self):
         curve = jnp.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]])
-        b = _segment_bearings_deg(curve)
+        b = segment_bearings_deg(curve)
         assert len(b) == 2
         assert abs(b[0] - 90.0) < 1.0  # east
         assert abs(b[1] % 360.0) < 1.0  # north
