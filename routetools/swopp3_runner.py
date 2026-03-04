@@ -374,7 +374,7 @@ def run_optimised_departure(
             sigma0=0.1,
             cost_fn=_rise_cost,
             penalty=1000,
-            land_margin=5,
+            land_margin=2,
             verbose=False,
         )
         defaults.update(cmaes_kwargs)
