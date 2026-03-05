@@ -22,6 +22,10 @@ Tools:
 - [prettier](https://prettier.io/): format YAML and Markdown
 - [codespell](https://github.com/codespell-project/codespell): check spelling in source code
 
+## Documentation
+
+- [Parametric Performance Model](docs/parametric_model.md) — closed-form RISE model for ship power prediction (hull, wind, wave, and wingsail components).
+
 ## Installation
 
 ### Application
