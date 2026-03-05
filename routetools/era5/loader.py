@@ -581,7 +581,7 @@ def load_era5_land_mask(
     land.shape = land_array.shape
     land.interpolate = 10       # insert 10 sub-points between waypoints to catch narrow land
     land.outbounds_is_land = True
-    land.penalize_segments = True
+    land.penalize_segments = False
     land._map_mode = "nearest"
     land._map_order = 0
 
@@ -762,7 +762,7 @@ def load_natural_earth_land_mask(
     land.shape = land_array.shape
     land.interpolate = interpolate
     land.outbounds_is_land = True
-    land.penalize_segments = True
+    land.penalize_segments = False
     land._map_mode = "nearest"
     land._map_order = 0
 

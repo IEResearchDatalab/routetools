@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 CORRIDORS: dict[str, list[float]] = {
     # Atlantic: Santander (43.6, -4.0) → New York (40.6, -69.0)
     # Pad: +10° N/S, +5° E/W
-    "atlantic": [55, -80, 25, 10],
+    "atlantic": [60, -80, 25, 10],
     # Pacific: Tokyo (34.8, 140.0) → Los Angeles (34.4, -121.0)
     # Great-circle goes up to ~50°N; pad generously
     # Split into two boxes? No — ERA5 handles wrap-around.

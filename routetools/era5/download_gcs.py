@@ -28,7 +28,7 @@ GCS_ERA5_SINGLE_LEVEL = (
 # Route corridor bounds: {name: (lat_min, lat_max, lon_min, lon_max)}
 # Longitudes in 0..360 convention for the Pacific to handle antimeridian.
 CORRIDORS: dict[str, tuple[float, float, float, float]] = {
-    "atlantic": (25.0, 55.0, -80.0, 10.0),
+    "atlantic": (25.0, 60.0, -80.0, 10.0),
     "pacific": (15.0, 55.0, 120.0, 240.0),
 }
 

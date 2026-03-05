@@ -41,6 +41,7 @@ import matplotlib.pyplot as plt
 
 from routetools.cmaes import optimize
 from routetools.cost import haversine_distance_from_curve
+from routetools._ports import DICT_PORTS
 from routetools.era5 import (
     load_era5_wavefield,
     load_era5_windfield,
@@ -48,10 +49,6 @@ from routetools.era5 import (
 )
 from routetools.fms import optimize_fms
 from routetools.plot import plot_curve
-
-# Port coordinates (from routetools._ports)
-USNYC = {"lat": 40.53, "lon": -73.80}
-DEHAM = {"lat": 53.55, "lon": 9.99}
 
 
 def main() -> None:
@@ -118,20 +115,22 @@ def main() -> None:
     print(f"[ERA5] Loading waves from {wave_file}")
     wavefield = load_era5_wavefield(wave_file, departure_time=args.departure)
 
-    # Use the windfield as the vectorfield for the optimizer
-    vectorfield = windfield
+    # No ocean current data — use a zero vectorfield (SWOPP uses wind
+    # via the performance model, not as current in the cost function).
+    def vectorfield(lon, lat, t):
+        return jnp.zeros_like(lon), jnp.zeros_like(lon)
 
     # ── Build land mask ───────────────────────────────────────────────
-    # Atlantic corridor bounds (from CORRIDORS in download_cds.py)
+    # Atlantic corridor bounds (must cover Hamburg at ~54°N going around UK)
     lon_range = (-80.0, 10.0)
-    lat_range = (25.0, 55.0)
+    lat_range = (25.0, 60.0)
 
     print("[ERA5] Building Natural Earth land mask...")
     land = load_natural_earth_land_mask(lon_range=lon_range, lat_range=lat_range)
 
     # ── Source / destination ──────────────────────────────────────────
-    src = jnp.array([USNYC["lon"], USNYC["lat"]])
-    dst = jnp.array([DEHAM["lon"], DEHAM["lat"]])
+    src = jnp.array([DICT_PORTS["USNYC"]["lon"], DICT_PORTS["USNYC"]["lat"]])
+    dst = jnp.array([DICT_PORTS["DEHAM"]["lon"], DICT_PORTS["DEHAM"]["lat"]])
 
     # ── CMA-ES optimisation ──────────────────────────────────────────
     print("[CMA-ES] Optimising route USNYC → DEHAM ...")
@@ -146,7 +145,7 @@ def main() -> None:
         penalty=1e10,
         K=args.K,
         L=args.L,
-        num_pieces=3,
+        num_pieces=1,
         popsize=args.popsize,
         sigma0=1.0,
         tolfun=60.0,
