@@ -100,6 +100,32 @@ If your computer does not have a GPU, you can force JAX to use the CPU with `JAX
 JAX_PLATFORMS=cpu uv run scripts/single_run.py
 ```
 
+### ERA5 weather data pipeline
+
+The `routetools.era5` module provides real-world ERA5 wind and wave fields
+for weather routing.  Two download backends are available:
+
+- **GCS** (default) — Google Cloud archive, no API key required.
+- **CDS** — Copernicus Climate Data Store (requires `cdsapi` + API key).
+
+**1. Download ERA5 data** for the Atlantic corridor (USNYC ↔ DEHAM):
+
+```bash
+uv run scripts/download_era5.py --corridor atlantic --year 2023
+```
+
+This creates `data/era5/era5_wind_atlantic_2023.nc` and
+`data/era5/era5_waves_atlantic_2023.nc`.
+
+**2. Run the real-world benchmark** (New York → Hamburg, Jan 8 2023):
+
+```bash
+uv run scripts/era5_benchmark.py --departure 2023-01-08T00:00:00
+```
+
+See `scripts/download_era5.py --help` and `scripts/era5_benchmark.py --help`
+for all available options.
+
 ## Reproduce the results (paper)
 
 To reproduce the results from the paper, run the following command:
