@@ -8,6 +8,7 @@ stress tests.
 
 from __future__ import annotations
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -450,3 +451,73 @@ class TestPublicAPI:
         for i, tw in enumerate(tws):
             expected = parametric_no_wps(tw, 90, 2, 45, 8)
             assert abs(result[i] - expected) < 1e-10
+
+
+class TestJaxParity:
+    """Verify predict_power_jax matches predict_power_batch numerically."""
+
+    def test_parity_no_wps(self) -> None:
+        """JAX and NumPy outputs agree on a random grid (no WPS).
+
+        JAX defaults to float32; tolerances reflect the difference
+        vs NumPy float64.
+        """
+        from routetools.performance import predict_power_jax
+
+        rng = np.random.default_rng(2025)
+        n = 500
+        tws = rng.uniform(0, 30, n)
+        twa = rng.uniform(0, 180, n)
+        swh = rng.uniform(0, 10, n)
+        mwa = rng.uniform(0, 180, n)
+        v = rng.uniform(0, 14.5, n)
+
+        np_result = predict_power_batch(tws, twa, swh, mwa, v, wps=False)
+        jax_result = np.asarray(
+            predict_power_jax(
+                jnp.array(tws),
+                jnp.array(twa),
+                jnp.array(swh),
+                jnp.array(mwa),
+                jnp.array(v),
+                wps=False,
+            )
+        )
+
+        np.testing.assert_allclose(
+            jax_result, np_result, rtol=1e-5, atol=0.02,
+            err_msg="predict_power_jax (no WPS) diverges from predict_power_batch",
+        )
+
+    def test_parity_with_wps(self) -> None:
+        """JAX and NumPy outputs agree on a random grid (with WPS).
+
+        JAX defaults to float32; tolerances reflect the difference
+        vs NumPy float64.
+        """
+        from routetools.performance import predict_power_jax
+
+        rng = np.random.default_rng(2026)
+        n = 500
+        tws = rng.uniform(0, 30, n)
+        twa = rng.uniform(0, 180, n)
+        swh = rng.uniform(0, 10, n)
+        mwa = rng.uniform(0, 180, n)
+        v = rng.uniform(0, 14.5, n)
+
+        np_result = predict_power_batch(tws, twa, swh, mwa, v, wps=True)
+        jax_result = np.asarray(
+            predict_power_jax(
+                jnp.array(tws),
+                jnp.array(twa),
+                jnp.array(swh),
+                jnp.array(mwa),
+                jnp.array(v),
+                wps=True,
+            )
+        )
+
+        np.testing.assert_allclose(
+            jax_result, np_result, rtol=1e-5, atol=0.02,
+            err_msg="predict_power_jax (WPS) diverges from predict_power_batch",
+        )
