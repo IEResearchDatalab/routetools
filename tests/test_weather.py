@@ -281,6 +281,112 @@ class TestWeatherPenaltySmooth:
         assert jnp.allclose(pen, 0.0)
 
 
+class TestTimeVariation:
+    """Verify that weather is evaluated at the correct elapsed time."""
+
+    @staticmethod
+    def _time_varying_windfield():
+        """Wind field that varies only in time (not space).
+
+        TWS profile (piecewise-constant in time):
+          t < 1 day   → TWS = 10  (below 20 m/s limit)
+          1 ≤ t < 2   → TWS = 30  (above limit)
+          t ≥ 2 days  → TWS = 10  (below limit)
+
+        Implementation: u = TWS, v = 0 so TWS = |u|.
+        """
+        day = 86400.0  # seconds
+
+        def _field(lon, lat, t):
+            # t is elapsed time in seconds, shape (B, S)
+            high = (t >= 1 * day) & (t < 2 * day)
+            u = jnp.where(high, 30.0, 10.0)
+            v = jnp.zeros_like(u)
+            return u, v
+
+        return _field
+
+    def test_all_time_zero_misses_violation(self):
+        """Without travel info, all segments query t=0 → no violation."""
+        # 4 points → 3 segments, each ~1 day apart at constant speed
+        curve = _make_curve(n_points=4)
+        wf = self._time_varying_windfield()
+        # No travel info → t=0 for all segments → TWS=10 → no penalty
+        pen = weather_penalty(curve, windfield=wf, penalty=1.0)
+        assert jnp.allclose(pen, 0.0)
+
+    def test_with_travel_time_catches_violation(self):
+        """With travel_time, middle segment is at day 1 → violation."""
+        # 4 equally spaced points → 3 equal segments
+        curve = _make_curve(n_points=4)
+        wf = self._time_varying_windfield()
+        day = 86400.0
+        total_time = 3.0 * day  # 3 days total trip
+        # Segment midpoints at t = 0.5, 1.5, 2.5 days
+        # Only t=1.5 days (segment 2) → TWS=30 → 1 violation
+        pen = weather_penalty(
+            curve, windfield=wf, penalty=1.0,
+            travel_time=total_time, spherical_correction=False,
+        )
+        assert jnp.allclose(pen, 1.0)
+
+    def test_with_travel_stw_catches_violation(self):
+        """With travel_stw, middle segment triggers violation."""
+        # 4 points from (0,0) to (3,0) → 3 segments of length 1°
+        src = jnp.array([0.0, 0.0])
+        dst = jnp.array([3.0, 0.0])
+        curve = jnp.linspace(src, dst, 4)[jnp.newaxis]  # (1, 4, 2)
+        wf = self._time_varying_windfield()
+        day = 86400.0
+        # speed such that each segment of 1° takes exactly 1 day
+        # segment length = 1° (unitless, no spherical correction)
+        stw = 1.0 / day  # degrees per second
+        # Midpoints at t = 0.5, 1.5, 2.5 days → middle violates
+        pen = weather_penalty(
+            curve, windfield=wf, penalty=1.0,
+            travel_stw=stw, spherical_correction=False,
+        )
+        assert jnp.allclose(pen, 1.0)
+
+    def test_smooth_penalty_time_variation(self):
+        """Smooth penalty is non-zero only from the violating segment."""
+        curve = _make_curve(n_points=4)
+        wf = self._time_varying_windfield()
+        day = 86400.0
+        total_time = 3.0 * day
+        # Without time info → all at t=0 → TWS=10 → pen=0
+        pen_no_time = weather_penalty_smooth(
+            curve, windfield=wf, penalty=1.0, sharpness=1.0,
+        )
+        # With time info → middle segment at t=1.5d → TWS=30 → pen>0
+        pen_with_time = weather_penalty_smooth(
+            curve, windfield=wf, penalty=1.0, sharpness=1.0,
+            travel_time=total_time, spherical_correction=False,
+        )
+        assert jnp.allclose(pen_no_time, 0.0)
+        assert pen_with_time > 0
+        # Expected: excess = 30 - 20 = 10, one segment → 10² × 1 × 1 = 100
+        assert jnp.allclose(pen_with_time, 100.0, atol=1e-4)
+
+    def test_evaluate_weather_time_variation(self):
+        """evaluate_weather reports correct max TWS with time info."""
+        curve = _make_curve(n_points=4)
+        wf = self._time_varying_windfield()
+        day = 86400.0
+        total_time = 3.0 * day
+        stats_no_time = evaluate_weather(curve, windfield=wf)
+        stats_with_time = evaluate_weather(
+            curve, windfield=wf,
+            travel_time=total_time, spherical_correction=False,
+        )
+        # Without time: all at t=0 → TWS=10 → not exceeded
+        assert jnp.allclose(stats_no_time.max_tws, 10.0, atol=1e-5)
+        assert not stats_no_time.tws_exceeded[0]
+        # With time: max TWS = 30 → exceeded
+        assert jnp.allclose(stats_with_time.max_tws, 30.0, atol=1e-5)
+        assert stats_with_time.tws_exceeded[0]
+
+
 class TestEdgeCases:
     """Edge cases for curve shapes."""
 
