@@ -16,6 +16,7 @@ from jax import jit
 from routetools.cost import cost_function
 from routetools.land import Land
 from routetools.vectorfield import vectorfield_fourvortices
+from routetools.weather import weather_penalty as _weather_penalty
 
 
 @jit  # type: ignore[misc]
@@ -282,7 +283,14 @@ def _cma_evolution_strategy(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty: float = 1e10,
+    weather_penalty_weight: float = 0.0,
+    tws_limit: float = 20.0,
+    hs_limit: float = 7.0,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     L: int = 64,
@@ -298,6 +306,9 @@ def _cma_evolution_strategy(
     weight_l2: float = 0.0,
     keep_top: float = 0.0,
     spherical_correction: bool = False,
+    time_offset: float = 0.0,
+    cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+    land_margin: int = 0,
     verbose: bool = True,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
@@ -339,20 +350,45 @@ def _cma_evolution_strategy(
             force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         )
 
-        cost: jnp.ndarray = cost_function(
-            vectorfield=vectorfield,
-            curve=curve,
-            wavefield=wavefield,
-            travel_stw=travel_stw,
-            travel_time=travel_time,
-            weight_l1=weight_l1,
-            weight_l2=weight_l2,
-            spherical_correction=spherical_correction,
-        )
+        if cost_fn is not None:
+            cost = cost_fn(curve)
+        else:
+            cost = cost_function(
+                vectorfield=vectorfield,
+                curve=curve,
+                wavefield=wavefield,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                weight_l1=weight_l1,
+                weight_l2=weight_l2,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
+            )
 
         # Land penalization
         if land is not None and penalty > 0:
-            cost += land.penalization(curve, penalty=penalty)
+            # Skip the first/last `land_margin` waypoints (ports on coast)
+            if land_margin > 0 and curve.shape[1] > 2 * land_margin:
+                curve_check = curve[:, land_margin:-land_margin, :]
+            else:
+                curve_check = curve
+            land_count = land.penalization(curve_check, penalty=1)
+            has_land = land_count > 0
+            # Death penalty: land-crossing candidates get cost=penalty,
+            # plus land_count as gradient signal so CMA-ES moves
+            # toward fewer land points.
+            cost = jnp.where(has_land, penalty + land_count, cost)
+
+        # Weather constraint penalization
+        if weather_penalty_weight > 0 and (windfield is not None or wavefield is not None):
+            cost += _weather_penalty(
+                curve,
+                windfield=windfield,
+                wavefield=wavefield,
+                tws_limit=tws_limit,
+                hs_limit=hs_limit,
+                penalty=weather_penalty_weight,
+            )
 
         # Replace the worst solutions with the best found so far
         if keep_top > 0 and es.countiter > 1:
@@ -392,7 +428,14 @@ def optimize(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty: float = 1e10,
+    weather_penalty_weight: float = 0.0,
+    tws_limit: float = 20.0,
+    hs_limit: float = 7.0,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     K: int = 6,
@@ -409,6 +452,9 @@ def optimize(
     keep_top: float = 0.0,
     spherical_correction: bool = False,
     seed: float = jnp.nan,
+    time_offset: float = 0.0,
+    cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+    land_margin: int = 0,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
@@ -438,7 +484,15 @@ def optimize(
         A function that returns the height and direction of the wave field,
         by default None
     penalty : float, optional
-        Penalty for land points, by default 10
+        Large penalty applied to routes that intersect land (death-penalty
+        scheme), by default 1e10
+    weather_penalty_weight : float, optional
+        Penalty weight for weather constraint violations (TWS, Hs).
+        Set to 0 (default) to disable weather penalties.
+    tws_limit : float, optional
+        Maximum allowed true wind speed in m/s, by default 20.0
+    hs_limit : float, optional
+        Maximum allowed significant wave height in m, by default 7.0
     travel_stw : float, optional
         The boat will have this fixed speed through water (STW).
         If set, then `travel_time` must be None. By default None
@@ -504,24 +558,25 @@ def optimize(
         # Initial solution from provided curve
         x0 = curve_to_control(curve0, K=K, num_pieces=num_pieces)
         # Validate that, after conversion, it still does not cross land
-        curve_check = control_to_curve(
-            x0,
-            src,
-            dst,
-            L=L,
-            num_pieces=num_pieces,
-            force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
-        )
-        is_land = land(curve_check)
-        if land is not None and is_land.any():
-            ls_idx = jnp.where(is_land)[0].tolist()
-            warnings.warn(
-                "[WARNING] The provided initial curve0 crosses land "
-                "after conversion to control points. "
-                f"Indices on land (out of {is_land.size}): {ls_idx}",
-                category=UserWarning,
-                stacklevel=2,
+        if land is not None:
+            curve_check = control_to_curve(
+                x0,
+                src,
+                dst,
+                L=L,
+                num_pieces=num_pieces,
+                force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
             )
+            is_land = land(curve_check)
+            if is_land.any():
+                ls_idx = jnp.where(is_land)[0].tolist()
+                warnings.warn(
+                    "[WARNING] The provided initial curve0 crosses land "
+                    "after conversion to control points. "
+                    f"Indices on land (out of {is_land.size}): {ls_idx}",
+                    category=UserWarning,
+                    stacklevel=2,
+                )
 
     # Initial standard deviation to sample new solutions
     # One sigma is half the distance between src and dst
@@ -535,7 +590,11 @@ def optimize(
         x0=x0,
         land=land,
         wavefield=wavefield,
+        windfield=windfield,
         penalty=penalty,
+        weather_penalty_weight=weather_penalty_weight,
+        tws_limit=tws_limit,
+        hs_limit=hs_limit,
         travel_stw=travel_stw,
         travel_time=travel_time,
         L=L,
@@ -551,6 +610,9 @@ def optimize(
         seed=seed,
         keep_top=keep_top,
         spherical_correction=spherical_correction,
+        time_offset=time_offset,
+        cost_fn=cost_fn,
+        land_margin=land_margin,
         verbose=verbose,
     )
     time_end = time.time()
@@ -570,19 +632,39 @@ def optimize(
 
     # Compare the best curve with the initial one if provided
     if curve0 is not None:
-        cost_initial: float = cost_function(
-            vectorfield=vectorfield,
-            curve=curve0[jnp.newaxis, :, :],
-            wavefield=wavefield,
-            travel_stw=travel_stw,
-            travel_time=travel_time,
-            weight_l1=weight_l1,
-            weight_l2=weight_l2,
-            spherical_correction=spherical_correction,
-        ).item()
+        if cost_fn is not None:
+            cost_initial: float = cost_fn(curve0[jnp.newaxis, :, :]).item()
+        else:
+            cost_initial: float = cost_function(
+                vectorfield=vectorfield,
+                curve=curve0[jnp.newaxis, :, :],
+                wavefield=wavefield,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                weight_l1=weight_l1,
+                weight_l2=weight_l2,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
+            ).item()
         if land is not None and penalty > 0:
-            cost_initial += land.penalization(
-                curve0[jnp.newaxis, :, :], penalty=penalty
+            c0_batch = curve0[jnp.newaxis, :, :]
+            if land_margin > 0 and c0_batch.shape[1] > 2 * land_margin:
+                c0_check = c0_batch[:, land_margin:-land_margin, :]
+            else:
+                c0_check = c0_batch
+            land_count = land.penalization(c0_check, penalty=1).item()
+            if land_count > 0:
+                cost_initial = penalty + land_count
+        if weather_penalty_weight > 0 and (
+            windfield is not None or wavefield is not None
+        ):
+            cost_initial += _weather_penalty(
+                curve0[jnp.newaxis, :, :],
+                windfield=windfield,
+                wavefield=wavefield,
+                tws_limit=tws_limit,
+                hs_limit=hs_limit,
+                penalty=weather_penalty_weight,
             ).item()
         if cost_initial < cost_best:
             warnings.warn(
@@ -615,9 +697,16 @@ def optimize_with_increasing_penalization(
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
     | None = None,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     penalty_init: float = 0,
     penalty_increment: float = 10,
     maxiter: int = 10,
+    weather_penalty_weight: float = 0.0,
+    tws_limit: float = 20.0,
+    hs_limit: float = 7.0,
     travel_stw: float | None = None,
     travel_time: float | None = None,
     K: int = 6,
@@ -633,6 +722,9 @@ def optimize_with_increasing_penalization(
     weight_l2: float = 0.0,
     spherical_correction: bool = False,
     seed: float = jnp.nan,
+    time_offset: float = 0.0,
+    cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+    land_margin: int = 0,
     verbose: bool = True,
 ) -> tuple[list[jnp.ndarray], list[float]]:
     """
@@ -664,6 +756,13 @@ def optimize_with_increasing_penalization(
         Increment in the penalty for land points. By default 10
     maxiter : int, optional
         Maximum number of iterations. By default 10
+    weather_penalty_weight : float, optional
+        Penalty weight for weather constraint violations (TWS, Hs).
+        Set to 0 (default) to disable weather penalties.
+    tws_limit : float, optional
+        Maximum allowed true wind speed in m/s, by default 20.0
+    hs_limit : float, optional
+        Maximum allowed significant wave height in m, by default 7.0
     travel_stw : float, optional
         The boat will have this fixed speed through water (STW).
         If set, then `travel_time` must be None. By default None
@@ -720,7 +819,11 @@ def optimize_with_increasing_penalization(
             x0=x0,
             land=land,
             wavefield=wavefield,
+            windfield=windfield,
             penalty=penalty,
+            weather_penalty_weight=weather_penalty_weight,
+            tws_limit=tws_limit,
+            hs_limit=hs_limit,
             travel_stw=travel_stw,
             travel_time=travel_time,
             L=L,
@@ -734,6 +837,9 @@ def optimize_with_increasing_penalization(
             weight_l2=weight_l2,
             spherical_correction=spherical_correction,
             seed=seed,
+            time_offset=time_offset,
+            cost_fn=cost_fn,
+            land_margin=land_margin,
             verbose=verbose,
         )
         if verbose:
@@ -749,7 +855,11 @@ def optimize_with_increasing_penalization(
             force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         )
         # sigma0 = es.sigma0
-        if land(curve).any():
+        if land_margin > 0 and curve.shape[0] > 2 * land_margin:
+            curve_check = curve[land_margin:-land_margin, :]
+        else:
+            curve_check = curve
+        if land is not None and land(curve_check).any():
             penalty += penalty_increment
             x0 = es.best.x
         else:
