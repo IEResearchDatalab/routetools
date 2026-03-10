@@ -14,6 +14,10 @@ from routetools.swopp3_output import (
     file_a_name,
     file_a_row,
     file_b_name,
+    read_file_a_dataframe,
+    read_file_b_dataframe,
+    resolve_file_a_path,
+    resolve_file_b_path,
     sailed_distance_nm,
     waypoint_times,
     write_file_a,
@@ -163,6 +167,30 @@ class TestWriteFileA:
         assert out.exists()
 
 
+class TestFileAReaders:
+    def test_resolve_submission(self, tmp_path: Path):
+        rows = [file_a_row(_DEP, 10, 1.0, 1.0, 1.0, 100.0, "x.csv")]
+        p1 = tmp_path / file_a_name(1, "AO_WPS")
+        p2 = tmp_path / file_a_name(2, "AO_WPS")
+        write_file_a(rows, p1)
+        write_file_a(rows, p2)
+
+        assert resolve_file_a_path(tmp_path, "AO_WPS", submission=1) == p1
+        assert resolve_file_a_path(tmp_path, "AO_WPS") == p2
+
+    def test_read_file_a_dataframe(self, tmp_path: Path):
+        rows = [
+            file_a_row(_DEP, 10, 1.0, 1.0, 1.0, 100.0, "x.csv"),
+            file_a_row(_DEP + timedelta(days=1), 10, 2.0, 1.0, 1.0, 100.0, "y.csv"),
+        ]
+        write_file_a(rows, tmp_path / file_a_name(1, "AO_WPS"))
+
+        df = read_file_a_dataframe(tmp_path, "AO_WPS", submission=1)
+        assert len(df) == 2
+        assert "departure_time_utc" in df.columns
+        assert str(df["departure_time_utc"].dtype).startswith("datetime64")
+
+
 # ---------------------------------------------------------------------------
 # write_file_b
 # ---------------------------------------------------------------------------
@@ -202,3 +230,24 @@ class TestWriteFileB:
             row = next(reader)
         assert float(row["lon_deg"]) == pytest.approx(10.0, abs=1e-4)
         assert float(row["lat_deg"]) == pytest.approx(50.0, abs=1e-4)
+
+
+class TestFileBReaders:
+    def test_resolve_file_b_path(self, tmp_path: Path):
+        track = tmp_path / "tracks" / "track.csv"
+        curve = _straight_curve(2)
+        times = waypoint_times(curve, _DEP, passage_hours=1)
+        write_file_b(curve, times, track)
+
+        assert resolve_file_b_path(tmp_path, "track.csv") == track
+
+    def test_read_file_b_dataframe(self, tmp_path: Path):
+        track = tmp_path / "tracks" / "track.csv"
+        curve = _straight_curve(3)
+        times = waypoint_times(curve, _DEP, passage_hours=2)
+        write_file_b(curve, times, track)
+
+        df = read_file_b_dataframe(tmp_path, "track.csv")
+        assert len(df) == 3
+        assert "time_utc" in df.columns
+        assert str(df["time_utc"].dtype).startswith("datetime64")

@@ -31,7 +31,6 @@ Run only the first 3 departures (quick test):
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
@@ -113,8 +112,6 @@ def main(
     ),
 ) -> None:
     """Run SWOPP3 competition cases."""
-    import numpy as np
-
     from routetools.swopp3 import SWOPP3_CASES, departures_2024
     from routetools.swopp3_runner import run_case
 
@@ -167,6 +164,7 @@ def main(
 
     # ---- Load fields per corridor (cache so we load each file once) ----
     from routetools.era5.loader import (
+        load_dataset_epoch,
         load_era5_vectorfield,
         load_era5_wavefield,
         load_era5_windfield,
@@ -178,22 +176,6 @@ def main(
     _loaded_vf: dict[str, object] = {}  # corridor -> vectorfield
     _loaded_land: dict[str, object] = {}  # corridor -> Land
 
-    def _dataset_epoch(path: Path) -> datetime:
-        """Extract the first timestamp from a NetCDF dataset."""
-        import xarray as xr
-
-        with xr.open_dataset(path) as ds:
-            # Handle both 'time' and 'valid_time' coordinate names
-            for tname in ("time", "valid_time"):
-                if tname in ds.coords:
-                    epoch_np = ds[tname].values[0]
-                    break
-            else:
-                raise KeyError(f"No time coordinate found in {path}")
-        # Convert numpy datetime64 -> Python datetime (UTC)
-        ts = (epoch_np - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
-        return datetime.fromtimestamp(float(ts), tz=UTC).replace(tzinfo=None)
-
     def _get_wind(corridor: str):
         """Return (windfield_closure, dataset_epoch) for corridor, or (None, None)."""
         if corridor in _loaded_wind:
@@ -203,7 +185,7 @@ def main(
             _loaded_wind[corridor] = (None, None)
             return None, None
         typer.echo(f"Loading wind field for {corridor} from {wp} …")
-        epoch = _dataset_epoch(wp)
+        epoch = load_dataset_epoch(wp)
         wf = load_era5_windfield(wp)
         _loaded_wind[corridor] = (wf, epoch)
         return wf, epoch
@@ -231,7 +213,7 @@ def main(
             _loaded_wave[corridor] = (None, None)
             return None, None
         typer.echo(f"Loading wave field for {corridor} from {wp} …")
-        epoch = _dataset_epoch(wp)
+        epoch = load_dataset_epoch(wp)
         wvf = load_era5_wavefield(wp)
         _loaded_wave[corridor] = (wvf, epoch)
         return wvf, epoch

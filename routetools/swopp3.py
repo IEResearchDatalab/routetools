@@ -38,6 +38,7 @@ from datetime import UTC, datetime, timedelta
 
 import jax.numpy as jnp
 
+from routetools._cost.haversine import great_circle_route as _great_circle_route
 from routetools._ports import DICT_PORTS
 
 # ---------------------------------------------------------------------------
@@ -242,9 +243,6 @@ def case_travel_time_seconds(case_id: str) -> float:
     return float(SWOPP3_CASES[case_id]["passage_hours"] * 3600)
 
 
-# ---------------------------------------------------------------------------
-# Great-circle baseline
-# ---------------------------------------------------------------------------
 def great_circle_route(
     src: jnp.ndarray,
     dst: jnp.ndarray,
@@ -252,63 +250,7 @@ def great_circle_route(
 ) -> jnp.ndarray:
     """Compute a great-circle route between two points.
 
-    Uses spherical interpolation (SLERP) in Cartesian 3-D, then projects
-    back to ``(lon, lat)`` in degrees.  Handles the antimeridian correctly
-    (no 360° wrapping artifacts).
-
-    Parameters
-    ----------
-    src : jnp.ndarray
-        ``(lon, lat)`` in degrees, shape ``(2,)``.
-    dst : jnp.ndarray
-        ``(lon, lat)`` in degrees, shape ``(2,)``.
-    n_points : int
-        Number of waypoints (including endpoints).
-
-    Returns
-    -------
-    jnp.ndarray
-        Shape ``(n_points, 2)`` with ``(lon, lat)`` columns in degrees.
+    This wrapper preserves the public SWOPP3 API and delegates to
+    :func:`routetools._cost.haversine.great_circle_route`.
     """
-    # Convert to radians
-    lon1, lat1 = jnp.deg2rad(src[0]), jnp.deg2rad(src[1])
-    lon2, lat2 = jnp.deg2rad(dst[0]), jnp.deg2rad(dst[1])
-
-    # To Cartesian
-    x1 = jnp.cos(lat1) * jnp.cos(lon1)
-    y1 = jnp.cos(lat1) * jnp.sin(lon1)
-    z1 = jnp.sin(lat1)
-
-    x2 = jnp.cos(lat2) * jnp.cos(lon2)
-    y2 = jnp.cos(lat2) * jnp.sin(lon2)
-    z2 = jnp.sin(lat2)
-
-    # Central angle
-    dot = x1 * x2 + y1 * y2 + z1 * z2
-    omega = jnp.arccos(jnp.clip(dot, -1.0, 1.0))
-
-    # SLERP
-    t = jnp.linspace(0.0, 1.0, n_points)
-    sin_omega = jnp.sin(omega)
-    is_coincident = sin_omega < 1e-10
-
-    # For coincident points, fall back to linear interpolation (a=1-t, b=t)
-    safe_sin = jnp.where(is_coincident, 1.0, sin_omega)
-    a = jnp.where(is_coincident, 1.0 - t, jnp.sin((1.0 - t) * omega) / safe_sin)
-    b = jnp.where(is_coincident, t, jnp.sin(t * omega) / safe_sin)
-
-    x = a * x1 + b * x2
-    y = a * y1 + b * y2
-    z = a * z1 + b * z2
-
-    # Back to (lon, lat) degrees
-    lat = jnp.rad2deg(jnp.arcsin(jnp.clip(z, -1.0, 1.0)))
-    lon = jnp.rad2deg(jnp.arctan2(y, x))
-
-    # Unwrap longitude to avoid antimeridian discontinuities
-    # (differences > 180° are wrapped by ±360°)
-    dlon = jnp.diff(lon)
-    dlon_wrapped = (dlon + 180.0) % 360.0 - 180.0
-    lon = jnp.concatenate([lon[:1], lon[0] + jnp.cumsum(dlon_wrapped)])
-
-    return jnp.stack([lon, lat], axis=1)
+    return _great_circle_route(src, dst, n_points=n_points)

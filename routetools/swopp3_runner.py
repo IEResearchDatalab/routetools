@@ -26,9 +26,9 @@ from datetime import datetime
 from pathlib import Path
 
 import jax.numpy as jnp
-import numpy as np
 
-from routetools.performance import predict_power_batch
+from routetools.cost import evaluate_route_energy
+from routetools.cost import segment_bearings_deg as _segment_bearings_deg
 from routetools.swopp3 import (
     SWOPP3_CASES,
     case_endpoints,
@@ -46,6 +46,7 @@ from routetools.swopp3_output import (
 
 __all__ = [
     "DepartureResult",
+    "segment_bearings_deg",
     "evaluate_energy",
     "run_gc_departure",
     "run_optimised_departure",
@@ -96,32 +97,13 @@ class DepartureResult:
 # ---------------------------------------------------------------------------
 # Ship bearing computation
 # ---------------------------------------------------------------------------
-def segment_bearings_deg(curve: jnp.ndarray) -> np.ndarray:
-    """Compute true-north bearing (degrees) at each segment midpoint.
+def segment_bearings_deg(curve: jnp.ndarray) -> jnp.ndarray:
+    """Compute true-north bearing (degrees) for each route segment.
 
-    Parameters
-    ----------
-    curve : jnp.ndarray
-        Shape ``(L, 2)`` with ``(lon, lat)`` in degrees.
-
-    Returns
-    -------
-    np.ndarray
-        Shape ``(L-1,)`` bearing in degrees [0, 360).
+    This wrapper is kept for backwards compatibility and delegates to
+    :func:`routetools.cost.segment_bearings_deg`.
     """
-    lon = np.asarray(curve[:, 0], dtype=np.float64)
-    lat = np.asarray(curve[:, 1], dtype=np.float64)
-
-    dlon = np.diff(lon)
-    dlat = np.diff(lat)
-    lat_mid = np.radians((lat[:-1] + lat[1:]) / 2)
-
-    # Approximate bearing using Mercator projection
-    dx = dlon * np.cos(lat_mid)  # eastward component
-    dy = dlat  # northward component
-
-    bearing = np.degrees(np.arctan2(dx, dy)) % 360.0
-    return bearing
+    return _segment_bearings_deg(curve)
 
 
 # ---------------------------------------------------------------------------
@@ -138,92 +120,18 @@ def evaluate_energy(
 ) -> tuple[float, float, float]:
     """Evaluate energy consumption along a route.
 
-    Samples wind and wave conditions at each segment midpoint,
-    computes the corresponding power via the SWOPP3 performance model,
-    and integrates over time.
-
-    Parameters
-    ----------
-    curve : jnp.ndarray
-        Shape ``(L, 2)`` with ``(lon, lat)`` in degrees.
-    departure : datetime
-        Departure time (UTC).  Used for time indexing into the fields.
-    passage_hours : float
-        Total passage time in hours.
-    wps : bool
-        Whether wingsails are deployed.
-    windfield : FieldClosure, optional
-        ``(lon, lat, t) -> (u10, v10)`` in m/s.  ``t`` is hours since
-        the field's reference time.  If ``None``, assume zero wind.
-    wavefield : FieldClosure, optional
-        ``(lon, lat, t) -> (hs, mwd)`` where ``hs`` is in metres and
-        ``mwd`` is degrees from North.  If ``None``, assume calm seas.
-    departure_offset_h : float
-        Hours from the field's time origin to the departure.  When the
-        field was loaded with ``departure_time``, this is typically 0.
-
-    Returns
-    -------
-    tuple[float, float, float]
-        ``(energy_mwh, max_tws_mps, max_hs_m)``.
+    This wrapper preserves the SWOPP3 runner API and delegates to
+    :func:`routetools.cost.evaluate_route_energy`.
     """
-    L = curve.shape[0]
-    if L < 2:
-        raise ValueError(f"curve must have at least 2 points, got {L}")
-    n_seg = L - 1
-
-    # ---- segment midpoints (position) ----
-    mid_lon = np.asarray((curve[:-1, 0] + curve[1:, 0]) / 2, dtype=np.float64)
-    mid_lat = np.asarray((curve[:-1, 1] + curve[1:, 1]) / 2, dtype=np.float64)
-
-    # ---- segment midpoints (time) — hours since field origin ----
-    seg_frac = (np.arange(n_seg) + 0.5) / n_seg  # midpoint fractions
-    t_hours = departure_offset_h + seg_frac * passage_hours
-
-    # ---- ship bearing ----
-    bearing_deg = segment_bearings_deg(curve)  # (n_seg,)
-
-    # ---- constant ship speed (m/s) ----
-    distance_nm = sailed_distance_nm(curve)
-    v_mps = (distance_nm * 1852.0) / (passage_hours * 3600.0)  # m/s
-
-    # ---- wind ----
-    if windfield is not None:
-        u10, v10 = windfield(jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours))
-        u10 = np.asarray(u10, dtype=np.float64)
-        v10 = np.asarray(v10, dtype=np.float64)
-        tws = np.sqrt(u10**2 + v10**2)
-        # Wind FROM direction (meteorological): 180° + atan2(u10, v10)
-        wind_from_deg = (180.0 + np.degrees(np.arctan2(u10, v10))) % 360.0
-        twa = (wind_from_deg - bearing_deg) % 360.0
-    else:
-        tws = np.zeros(n_seg)
-        twa = np.zeros(n_seg)
-
-    # ---- waves ----
-    if wavefield is not None:
-        hs, mwd = wavefield(jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours))
-        hs = np.asarray(hs, dtype=np.float64)
-        mwd = np.asarray(mwd, dtype=np.float64)
-        mwa = (mwd - bearing_deg) % 360.0
-    else:
-        hs = np.zeros(n_seg)
-        mwa = np.zeros(n_seg)
-
-    # ---- power (kW) at each segment ----
-    v_arr = np.full(n_seg, v_mps)
-    power_kw = predict_power_batch(tws, twa, hs, mwa, v_arr, wps=wps)
-    power_kw_jax = jnp.asarray(power_kw)
-
-    # ---- integrate: energy = Σ P_kW · Δt_h (kWh), then → MWh ----
-    dt_hours = passage_hours / n_seg
-    energy_kwh = float(jnp.sum(power_kw_jax) * dt_hours)
-    energy_mwh = energy_kwh / 1000.0
-
-    max_tws_mps = float(np.max(tws)) if windfield is not None else 0.0
-    max_hs_m = float(np.max(hs)) if wavefield is not None else 0.0
-
-    return energy_mwh, max_tws_mps, max_hs_m
+    _ = departure
+    return evaluate_route_energy(
+        curve,
+        passage_hours,
+        wps=wps,
+        windfield=windfield,
+        wavefield=wavefield,
+        departure_offset_h=departure_offset_h,
+    )
 
 
 # ---------------------------------------------------------------------------

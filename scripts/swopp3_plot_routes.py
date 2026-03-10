@@ -21,6 +21,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import typer
 
+from routetools.swopp3_output import read_file_a_dataframe, read_file_b_dataframe
+
 app = typer.Typer(help="Visualize SWOPP3 route outputs.")
 
 # ---------------------------------------------------------------------------
@@ -33,43 +35,13 @@ def _load_summary(
     case_id: str,
     submission: int | None = None,
 ) -> pd.DataFrame:
-    """Load the summary CSV for a case.
-
-    If ``submission`` is ``None``, auto-detect the latest available
-    submission number for the given case.
-    """
-    if submission is None:
-        pattern = f"IEUniversity-*-{case_id}.csv"
-        candidates = sorted(input_dir.glob(pattern))
-        if not candidates:
-            raise FileNotFoundError(
-                f"No summary CSV found for case '{case_id}' in '{input_dir}'. "
-                f"Tried pattern '{pattern}'."
-            )
-
-        def _submission_key(path: Path) -> int:
-            parts = path.stem.split("-")
-            if len(parts) >= 3:
-                try:
-                    return int(parts[1])
-                except ValueError:
-                    return -1
-            return -1
-
-        candidates.sort(key=lambda p: (_submission_key(p), p.name))
-        path = candidates[-1]
-    else:
-        path = input_dir / f"IEUniversity-{submission}-{case_id}.csv"
-        if not path.exists():
-            raise FileNotFoundError(f"Summary CSV not found: {path}")
-
-    return pd.read_csv(path, parse_dates=["departure_time_utc", "arrival_time_utc"])
+    """Load a case summary table from File A CSV."""
+    return read_file_a_dataframe(input_dir, case_id, submission=submission)
 
 
 def _load_track(input_dir: Path, filename: str) -> pd.DataFrame:
     """Load a single track (waypoints) CSV."""
-    path = input_dir / "tracks" / filename
-    return pd.read_csv(path, parse_dates=["time_utc"])
+    return read_file_b_dataframe(input_dir, filename)
 
 
 # ---------------------------------------------------------------------------

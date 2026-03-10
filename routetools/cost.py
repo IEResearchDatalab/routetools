@@ -4,19 +4,139 @@ from collections.abc import Callable
 from functools import partial
 
 import jax.numpy as jnp
+import numpy as np
 from jax import jit, lax
 
 from routetools._cost.haversine import (
+    curve_distance_nm,
+    haversine_meters_components,
+)
+from routetools._cost.haversine import (
     haversine_distance_from_curve as haversine_distance_from_curve,
 )
-from routetools._cost.haversine import haversine_meters_components
 from routetools._cost.waves import wave_adjusted_speed
 from routetools.land import Land, move_curve_away_from_land
 
 try:
-    from routetools.performance import predict_power_jax
+    from routetools.performance import predict_power_batch, predict_power_jax
 except ModuleNotFoundError:
+    predict_power_batch = None
     predict_power_jax = None
+
+
+def segment_bearings_deg(curve: jnp.ndarray) -> np.ndarray:
+    """Compute true-north bearing (degrees) for each route segment.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        Shape ``(L, 2)`` with ``(lon, lat)`` in degrees.
+
+    Returns
+    -------
+    np.ndarray
+        Shape ``(L-1,)`` bearing in degrees on ``[0, 360)``.
+    """
+    lon = np.asarray(curve[:, 0], dtype=np.float64)
+    lat = np.asarray(curve[:, 1], dtype=np.float64)
+
+    dlon = np.diff(lon)
+    dlat = np.diff(lat)
+    lat_mid = np.radians((lat[:-1] + lat[1:]) / 2)
+
+    dx = dlon * np.cos(lat_mid)
+    dy = dlat
+    return np.degrees(np.arctan2(dx, dy)) % 360.0
+
+
+def evaluate_route_energy(
+    curve: jnp.ndarray,
+    passage_hours: float,
+    wps: bool,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    departure_offset_h: float = 0.0,
+) -> tuple[float, float, float]:
+    """Evaluate total route energy in MWh with optional wind and wave fields.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        Shape ``(L, 2)`` with ``(lon, lat)`` in degrees.
+    passage_hours : float
+        Total passage time in hours.
+    wps : bool
+        Whether wingsails are deployed.
+    windfield : Callable, optional
+        ``(lon, lat, t) -> (u10, v10)`` in m/s.
+    wavefield : Callable, optional
+        ``(lon, lat, t) -> (hs, mwd)`` where ``hs`` is in metres and ``mwd``
+        is degrees from North.
+    departure_offset_h : float
+        Hours from the field time origin to departure.
+
+    Returns
+    -------
+    tuple[float, float, float]
+        ``(energy_mwh, max_tws_mps, max_hs_m)``.
+    """
+    if predict_power_batch is None:
+        raise ModuleNotFoundError(
+            "routetools.performance is required for evaluate_route_energy."
+        )
+
+    n_points = curve.shape[0]
+    if n_points < 2:
+        raise ValueError(f"curve must have at least 2 points, got {n_points}")
+    n_seg = n_points - 1
+
+    mid_lon = np.asarray((curve[:-1, 0] + curve[1:, 0]) / 2, dtype=np.float64)
+    mid_lat = np.asarray((curve[:-1, 1] + curve[1:, 1]) / 2, dtype=np.float64)
+
+    seg_frac = (np.arange(n_seg) + 0.5) / n_seg
+    t_hours = departure_offset_h + seg_frac * passage_hours
+
+    bearing_deg = segment_bearings_deg(curve)
+
+    distance_nm = curve_distance_nm(curve)
+    v_mps = (distance_nm * 1852.0) / (passage_hours * 3600.0)
+
+    if windfield is not None:
+        u10, v10 = windfield(jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours))
+        u10 = np.asarray(u10, dtype=np.float64)
+        v10 = np.asarray(v10, dtype=np.float64)
+        tws = np.sqrt(u10**2 + v10**2)
+        wind_from_deg = (180.0 + np.degrees(np.arctan2(u10, v10))) % 360.0
+        twa = (wind_from_deg - bearing_deg) % 360.0
+    else:
+        tws = np.zeros(n_seg)
+        twa = np.zeros(n_seg)
+
+    if wavefield is not None:
+        hs, mwd = wavefield(jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours))
+        hs = np.asarray(hs, dtype=np.float64)
+        mwd = np.asarray(mwd, dtype=np.float64)
+        mwa = (mwd - bearing_deg) % 360.0
+    else:
+        hs = np.zeros(n_seg)
+        mwa = np.zeros(n_seg)
+
+    v_arr = np.full(n_seg, v_mps)
+    power_kw = predict_power_batch(tws, twa, hs, mwa, v_arr, wps=wps)
+
+    dt_hours = passage_hours / n_seg
+    energy_kwh = float(jnp.sum(jnp.asarray(power_kw)) * dt_hours)
+    energy_mwh = energy_kwh / 1000.0
+
+    max_tws_mps = float(np.max(tws)) if windfield is not None else 0.0
+    max_hs_m = float(np.max(hs)) if wavefield is not None else 0.0
+    return energy_mwh, max_tws_mps, max_hs_m
 
 
 def angle_wrt_true_north(dx: jnp.ndarray, dy: jnp.ndarray) -> jnp.ndarray:
