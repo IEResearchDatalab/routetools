@@ -74,10 +74,16 @@ K_H: float = 969 / 226
 """Hull drag coefficient (≈ 4.28761).  ``P_hull = K_H · v³``."""
 
 K_A: float = 49 / 320
-"""Aerodynamic drag coefficient (≈ 0.153125).  ``P_wind = K_A · v · (VR · u_x − v²)``."""
+"""Aerodynamic drag coefficient (≈ 0.153125).
+
+``P_wind = K_A · v · (VR · u_x − v²)``.
+"""
 
 A_W: float = 11.1395
-"""Wave added-resistance amplitude (exact).  ``P_wave = A_W · SWH² · v^{1.5} · exp(…)``."""
+"""Wave added-resistance amplitude (exact).
+
+``P_wave = A_W · SWH² · v^{1.5} · exp(…)``.
+"""
 
 K_W: float = 0.28935
 """Wave directional decay rate.  ``exp(−K_W · |MWA_rad|³)``."""

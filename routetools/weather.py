@@ -117,8 +117,10 @@ def _segment_midpoints(
     # Compute segment distances
     if spherical_correction:
         dx, dy = haversine_meters_components(
-            curve[:, :-1, 1], curve[:, :-1, 0],
-            curve[:, 1:, 1], curve[:, 1:, 0],
+            curve[:, :-1, 1],
+            curve[:, :-1, 0],
+            curve[:, 1:, 1],
+            curve[:, 1:, 0],
         )
     else:
         dx = jnp.diff(curve[:, :, 0], axis=1)
@@ -209,7 +211,9 @@ def evaluate_weather(
 
     # Midpoints of each segment
     mid_lon, mid_lat, t_mid = _segment_midpoints(
-        curve, travel_stw=travel_stw, travel_time=travel_time,
+        curve,
+        travel_stw=travel_stw,
+        travel_time=travel_time,
         spherical_correction=spherical_correction,
     )
 
@@ -291,7 +295,9 @@ def weather_penalty(
         Penalty per route, shape ``(B,)``.
     """
     mid_lon, mid_lat, t_mid = _segment_midpoints(
-        curve, travel_stw=travel_stw, travel_time=travel_time,
+        curve,
+        travel_stw=travel_stw,
+        travel_time=travel_time,
         spherical_correction=spherical_correction,
     )
 
@@ -370,7 +376,9 @@ def weather_penalty_smooth(
         Smooth penalty per route, shape ``(B,)``.
     """
     mid_lon, mid_lat, t_mid = _segment_midpoints(
-        curve, travel_stw=travel_stw, travel_time=travel_time,
+        curve,
+        travel_stw=travel_stw,
+        travel_time=travel_time,
         spherical_correction=spherical_correction,
     )
 
