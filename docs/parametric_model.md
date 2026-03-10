@@ -285,11 +285,12 @@ solving for $K_s = P_{\text{sail}} / (V_R^2 \cdot v \cdot C(\alpha))$ yields
 the decimal 0.85903125 exactly. This is a terminating decimal:
 
 $$
-0.85903125 = \frac{85903125}{10^8} = \frac{27489}{32000}
+0.85903125 = \frac{85903125}{10^8} = \frac{27489}{32000} = \frac{3 \cdot 7^2 \cdot 11 \cdot 17}{2^8 \cdot 5^3}
 $$
 
-In other words, $K_s = 27489/32000$ — a ratio of relatively small integers,
-suggesting it was likely chosen analytically rather than fitted numerically.
+In other words, $K_s = 27489/32000$ — a ratio with a power-of-ten
+denominator, confirming it was likely chosen analytically rather than
+fitted numerically.
 
 ### Key Properties
 
@@ -351,7 +352,7 @@ Tested against the reference binary on 50,000 random inputs:
 | Air drag coefficient      | $K_a$  | 0.153125    | $49/320$                        |
 | Wave amplitude            | $A_w$  | 11.1395     | fitted                          |
 | Wave directional decay    | $K_w$  | 0.28935…    | $125/432 = 5^3/(2^4 \cdot 3^3)$ |
-| Sail thrust coefficient   | $K_s$  | 0.85903125  | exact                           |
+| Sail thrust coefficient   | $K_s$  | 0.85903125  | $27489/32000$                   |
 | Sail dead zone angle      | —      | 10°         | exact                           |
 | Sail quadratic correction | —      | 3/20 = 0.15 | exact                           |
 
