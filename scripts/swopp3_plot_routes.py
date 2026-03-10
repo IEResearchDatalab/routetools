@@ -28,9 +28,41 @@ app = typer.Typer(help="Visualize SWOPP3 route outputs.")
 # ---------------------------------------------------------------------------
 
 
-def _load_summary(input_dir: Path, case_id: str, submission: int = 1) -> pd.DataFrame:
-    """Load the summary CSV for a case."""
-    path = input_dir / f"IEUniversity-{submission}-{case_id}.csv"
+def _load_summary(
+    input_dir: Path,
+    case_id: str,
+    submission: int | None = None,
+) -> pd.DataFrame:
+    """Load the summary CSV for a case.
+
+    If ``submission`` is ``None``, auto-detect the latest available
+    submission number for the given case.
+    """
+    if submission is None:
+        pattern = f"IEUniversity-*-{case_id}.csv"
+        candidates = sorted(input_dir.glob(pattern))
+        if not candidates:
+            raise FileNotFoundError(
+                f"No summary CSV found for case '{case_id}' in '{input_dir}'. "
+                f"Tried pattern '{pattern}'."
+            )
+
+        def _submission_key(path: Path) -> int:
+            parts = path.stem.split("-")
+            if len(parts) >= 3:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    return -1
+            return -1
+
+        candidates.sort(key=lambda p: (_submission_key(p), p.name))
+        path = candidates[-1]
+    else:
+        path = input_dir / f"IEUniversity-{submission}-{case_id}.csv"
+        if not path.exists():
+            raise FileNotFoundError(f"Summary CSV not found: {path}")
+
     return pd.read_csv(path, parse_dates=["departure_time_utc", "arrival_time_utc"])
 
 
@@ -50,6 +82,7 @@ def plot_corridor_spaghetti(
     corridor: str,
     wps: bool,
     fig_dir: Path,
+    submission: int | None = None,
     n_departures: int = 366,
     sample_step: int = 1,
 ) -> None:
@@ -62,8 +95,8 @@ def plot_corridor_spaghetti(
     gc_case = f"{'A' if corridor == 'atlantic' else 'P'}GC_{wps_label}"
     opt_case = f"{'A' if corridor == 'atlantic' else 'P'}O_{wps_label}"
 
-    gc_summary = _load_summary(input_dir, gc_case)
-    opt_summary = _load_summary(input_dir, opt_case)
+    gc_summary = _load_summary(input_dir, gc_case, submission=submission)
+    opt_summary = _load_summary(input_dir, opt_case, submission=submission)
 
     # Use central_longitude to avoid antimeridian wrapping issues
     if corridor == "pacific":
@@ -179,7 +212,11 @@ def plot_corridor_spaghetti(
 # ---------------------------------------------------------------------------
 
 
-def plot_energy_comparison(input_dir: Path, fig_dir: Path) -> None:
+def plot_energy_comparison(
+    input_dir: Path,
+    fig_dir: Path,
+    submission: int | None = None,
+) -> None:
     """Box plots comparing energy across all 8 cases."""
     cases_order = [
         "AGC_noWPS",
@@ -214,7 +251,7 @@ def plot_energy_comparison(input_dir: Path, fig_dir: Path) -> None:
 
     data = []
     for cid in cases_order:
-        df = _load_summary(input_dir, cid)
+        df = _load_summary(input_dir, cid, submission=submission)
         data.append(df["energy_cons_mwh"].values)
 
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -284,7 +321,11 @@ def plot_energy_comparison(input_dir: Path, fig_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def plot_energy_timeseries(input_dir: Path, fig_dir: Path) -> None:
+def plot_energy_timeseries(
+    input_dir: Path,
+    fig_dir: Path,
+    submission: int | None = None,
+) -> None:
     """Plot energy consumption over time for each corridor."""
     for corridor in ["atlantic", "pacific"]:
         prefix = "A" if corridor == "atlantic" else "P"
@@ -295,8 +336,8 @@ def plot_energy_timeseries(input_dir: Path, fig_dir: Path) -> None:
             gc_case = f"{prefix}GC_{wps_label}"
             opt_case = f"{prefix}O_{wps_label}"
 
-            gc_df = _load_summary(input_dir, gc_case)
-            opt_df = _load_summary(input_dir, opt_case)
+            gc_df = _load_summary(input_dir, gc_case, submission=submission)
+            opt_df = _load_summary(input_dir, opt_case, submission=submission)
 
             dates = gc_df["departure_time_utc"]
             ax.fill_between(
@@ -353,7 +394,11 @@ def plot_energy_timeseries(input_dir: Path, fig_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def plot_seasonal_routes(input_dir: Path, fig_dir: Path) -> None:
+def plot_seasonal_routes(
+    input_dir: Path,
+    fig_dir: Path,
+    submission: int | None = None,
+) -> None:
     """Plot representative routes for different seasons on a single map."""
     for corridor in ["atlantic", "pacific"]:
         prefix = "A" if corridor == "atlantic" else "P"
@@ -371,8 +416,8 @@ def plot_seasonal_routes(input_dir: Path, fig_dir: Path) -> None:
             opt_case = f"{prefix}O_{wps_label}"
             gc_case = f"{prefix}GC_{wps_label}"
 
-            opt_df = _load_summary(input_dir, opt_case)
-            gc_df = _load_summary(input_dir, gc_case)
+            opt_df = _load_summary(input_dir, opt_case, submission=submission)
+            gc_df = _load_summary(input_dir, gc_case, submission=submission)
 
             # Pick best, worst, and median departures
             best_idx = opt_df["energy_cons_mwh"].idxmin()
@@ -443,7 +488,11 @@ def plot_seasonal_routes(input_dir: Path, fig_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def plot_distance_vs_energy(input_dir: Path, fig_dir: Path) -> None:
+def plot_distance_vs_energy(
+    input_dir: Path,
+    fig_dir: Path,
+    submission: int | None = None,
+) -> None:
     """Scatter plot of sailed distance vs energy, colored by departure month."""
     for corridor in ["atlantic", "pacific"]:
         prefix = "A" if corridor == "atlantic" else "P"
@@ -455,8 +504,8 @@ def plot_distance_vs_energy(input_dir: Path, fig_dir: Path) -> None:
             opt_case = f"{prefix}O_{wps_label}"
             gc_case = f"{prefix}GC_{wps_label}"
 
-            opt_df = _load_summary(input_dir, opt_case)
-            gc_df = _load_summary(input_dir, gc_case)
+            opt_df = _load_summary(input_dir, opt_case, submission=submission)
+            gc_df = _load_summary(input_dir, gc_case, submission=submission)
 
             months = pd.to_datetime(opt_df["departure_time_utc"]).dt.month
             sc = ax.scatter(
@@ -534,6 +583,12 @@ def main(
         "-i",
         help="Directory containing SWOPP3 output CSVs.",
     ),
+    submission: int | None = typer.Option(  # noqa: B008
+        None,
+        "--submission",
+        "-s",
+        help="Submission number to plot (default: auto-detect latest per case).",
+    ),
     sample_step: int = typer.Option(  # noqa: B008
         1,
         "--sample-step",
@@ -557,24 +612,25 @@ def main(
                 corridor,
                 wps,
                 fig_dir,
+                submission=submission,
                 sample_step=sample_step,
             )
 
     # 2. Energy box plots
     print("\n[2/5] Energy comparison box plots...")
-    plot_energy_comparison(input_dir, fig_dir)
+    plot_energy_comparison(input_dir, fig_dir, submission=submission)
 
     # 3. Energy time series
     print("\n[3/5] Energy time series...")
-    plot_energy_timeseries(input_dir, fig_dir)
+    plot_energy_timeseries(input_dir, fig_dir, submission=submission)
 
     # 4. Seasonal representative routes
     print("\n[4/5] Seasonal representative routes...")
-    plot_seasonal_routes(input_dir, fig_dir)
+    plot_seasonal_routes(input_dir, fig_dir, submission=submission)
 
     # 5. Distance vs Energy
     print("\n[5/5] Distance vs Energy scatter...")
-    plot_distance_vs_energy(input_dir, fig_dir)
+    plot_distance_vs_energy(input_dir, fig_dir, submission=submission)
 
     print(f"\nDone — {len(list(fig_dir.glob('*.png')))} figures in {fig_dir}")
 

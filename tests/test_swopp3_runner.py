@@ -176,6 +176,12 @@ class TestEvaluateEnergy:
         )
         assert max_tws == pytest.approx(12.5, abs=0.5)
 
+    def test_curve_with_single_point_raises(self):
+        """Routes with fewer than two points are invalid for segment-based energy."""
+        curve = jnp.array([[0.0, 0.0]])
+        with pytest.raises(ValueError, match="at least 2 points"):
+            evaluate_energy(curve, _DEP, 354.0, wps=False)
+
 
 # ---------------------------------------------------------------------------
 # run_gc_departure
@@ -209,6 +215,48 @@ class TestRunOptimisedDeparture:
         assert isinstance(result, DepartureResult)
         assert result.curve.shape == (20, 2)
         assert result.energy_mwh > 0
+
+    def test_vectorfield_defaults_to_windfield_for_rise_cost(self, monkeypatch):
+        """When windfield is missing, vectorfield should feed RISE energy cost."""
+        captured: dict[str, object] = {}
+
+        def fake_cost_function_rise(
+            *,
+            windfield,
+            curve,
+            travel_time,
+            wavefield,
+            wps,
+            time_offset,
+        ):
+            captured["windfield"] = windfield
+            return jnp.zeros(curve.shape[0], dtype=jnp.float32)
+
+        def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
+            # Force one evaluation of the injected cost closure.
+            _ = kwargs["cost_fn"](jnp.zeros((1, kwargs["L"], 2), dtype=jnp.float32))
+            return great_circle_route(src, dst, n_points=kwargs["L"]), {"cost": 0.0}
+
+        monkeypatch.setattr(
+            "routetools.cost.cost_function_rise",
+            fake_cost_function_rise,
+        )
+        monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
+
+        with pytest.warns(
+            UserWarning,
+            match="defaulting windfield to vectorfield",
+        ):
+            result = run_optimised_departure(
+                "AO_WPS",
+                _DEP,
+                vectorfield=_zero_windfield,
+                windfield=None,
+                n_points=20,
+            )
+
+        assert isinstance(result, DepartureResult)
+        assert captured["windfield"] is _zero_windfield
 
 
 # ---------------------------------------------------------------------------

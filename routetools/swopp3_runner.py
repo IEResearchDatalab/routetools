@@ -213,10 +213,11 @@ def evaluate_energy(
     # ---- power (kW) at each segment ----
     v_arr = np.full(n_seg, v_mps)
     power_kw = predict_power_batch(tws, twa, hs, mwa, v_arr, wps=wps)
+    power_kw_jax = jnp.asarray(power_kw)
 
     # ---- integrate: energy = Σ P_kW · Δt_h (kWh), then → MWh ----
     dt_hours = passage_hours / n_seg
-    energy_kwh = float(jnp.sum(power_kw) * dt_hours)
+    energy_kwh = float(jnp.sum(power_kw_jax) * dt_hours)
     energy_mwh = energy_kwh / 1000.0
 
     max_tws_mps = float(np.max(tws)) if windfield is not None else 0.0
@@ -339,10 +340,11 @@ def run_optimised_departure(
             import warnings
 
             warnings.warn(
-                "vectorfield provided without windfield; energy evaluation "
-                "will assume zero wind.",
+                "vectorfield provided without windfield; defaulting "
+                "windfield to vectorfield for RISE energy cost.",
                 stacklevel=2,
             )
+            windfield = vectorfield
         # Lazy import to avoid circular dependency / heavy JAX load
         from routetools.cmaes import optimize as cmaes_optimize
         from routetools.cost import cost_function_rise
