@@ -116,7 +116,7 @@ def _prepare_grid(
 
     # Compute departure offset
     if departure_time is not None:
-        if isinstance(departure_time, (str, datetime)):
+        if isinstance(departure_time, str | datetime):
             departure_time = np.datetime64(departure_time)
         departure_offset_h = float((departure_time - t0_np) / np.timedelta64(1, "h"))
     else:
@@ -188,7 +188,7 @@ def _build_field_closure(
         ts: jnp.ndarray | int | float,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # Normalise ts
-        if isinstance(ts, (int, float)):
+        if isinstance(ts, int | float):
             ts = jnp.array([ts], dtype=jnp.float32)
         ts = jnp.atleast_1d(ts)
 

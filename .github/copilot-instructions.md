@@ -2,6 +2,8 @@
 
 This repository implements weather-routing optimization with JAX and CMA-ES. Keep changes focused, reproducible, and validated.
 
+Write and reason in English.
+
 ## Required Workflow
 
 1. Read relevant source files and matching tests before editing.

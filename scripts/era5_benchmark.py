@@ -141,6 +141,7 @@ def main() -> None:
         dst=dst,
         land=land,
         wavefield=wavefield,
+        windfield=windfield,
         travel_stw=args.vel_ship,
         travel_time=None,
         penalty=1e10,
