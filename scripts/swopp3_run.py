@@ -31,9 +31,8 @@ Run only the first 3 departures (quick test):
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -42,44 +41,44 @@ app = typer.Typer(help="SWOPP3 competition runner.")
 
 @app.command()
 def main(
-    cases: Optional[list[str]] = typer.Option(
+    cases: list[str] | None = typer.Option(
         None,
         "--cases",
         "-c",
         help="Case IDs to run (e.g. AGC_WPS PO_noWPS).  Default: all 8.",
     ),
-    strategy: Optional[str] = typer.Option(
+    strategy: str | None = typer.Option(
         None,
         "--strategy",
         "-s",
         help="Filter by strategy: 'gc' or 'optimised'.  Default: both.",
     ),
-    wind_path: Optional[Path] = typer.Option(
+    wind_path: Path | None = typer.Option(
         None,
         "--wind-path",
         help="Path to ERA5 wind NetCDF (single corridor, used for all cases).",
     ),
-    wave_path: Optional[Path] = typer.Option(
+    wave_path: Path | None = typer.Option(
         None,
         "--wave-path",
         help="Path to ERA5 wave NetCDF (single corridor, used for all cases).",
     ),
-    wind_path_atlantic: Optional[Path] = typer.Option(
+    wind_path_atlantic: Path | None = typer.Option(
         None,
         "--wind-path-atlantic",
         help="Path to ERA5 wind NetCDF for Atlantic corridor.",
     ),
-    wave_path_atlantic: Optional[Path] = typer.Option(
+    wave_path_atlantic: Path | None = typer.Option(
         None,
         "--wave-path-atlantic",
         help="Path to ERA5 wave NetCDF for Atlantic corridor.",
     ),
-    wind_path_pacific: Optional[Path] = typer.Option(
+    wind_path_pacific: Path | None = typer.Option(
         None,
         "--wind-path-pacific",
         help="Path to ERA5 wind NetCDF for Pacific corridor.",
     ),
-    wave_path_pacific: Optional[Path] = typer.Option(
+    wave_path_pacific: Path | None = typer.Option(
         None,
         "--wave-path-pacific",
         help="Path to ERA5 wave NetCDF for Pacific corridor.",
@@ -100,7 +99,7 @@ def main(
         "--n-points",
         help="Number of route waypoints.",
     ),
-    max_departures: Optional[int] = typer.Option(
+    max_departures: int | None = typer.Option(
         None,
         "--max-departures",
         "-n",
@@ -131,8 +130,7 @@ def main(
 
     if strategy is not None:
         case_ids = [
-            cid for cid in case_ids
-            if SWOPP3_CASES[cid]["strategy"] == strategy
+            cid for cid in case_ids if SWOPP3_CASES[cid]["strategy"] == strategy
         ]
         if not case_ids:
             typer.echo(f"No cases match strategy '{strategy}'", err=True)
@@ -143,9 +141,7 @@ def main(
     if max_departures is not None:
         departures = departures[:max_departures]
 
-    typer.echo(
-        f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)"
-    )
+    typer.echo(f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)")
 
     # ---- Build per-corridor field map ----
     # Resolve which wind/wave paths to use for each corridor.
@@ -177,14 +173,15 @@ def main(
         load_natural_earth_land_mask,
     )
 
-    _loaded_wind: dict[str, tuple] = {}   # corridor -> (windfield, epoch)
-    _loaded_wave: dict[str, tuple] = {}   # corridor -> (wavefield, epoch)
-    _loaded_vf: dict[str, object] = {}    # corridor -> vectorfield
+    _loaded_wind: dict[str, tuple] = {}  # corridor -> (windfield, epoch)
+    _loaded_wave: dict[str, tuple] = {}  # corridor -> (wavefield, epoch)
+    _loaded_vf: dict[str, object] = {}  # corridor -> vectorfield
     _loaded_land: dict[str, object] = {}  # corridor -> Land
 
     def _dataset_epoch(path: Path) -> datetime:
         """Extract the first timestamp from a NetCDF dataset."""
         import xarray as xr
+
         with xr.open_dataset(path) as ds:
             # Handle both 'time' and 'valid_time' coordinate names
             for tname in ("time", "valid_time"):
@@ -195,7 +192,7 @@ def main(
                 raise KeyError(f"No time coordinate found in {path}")
         # Convert numpy datetime64 -> Python datetime (UTC)
         ts = (epoch_np - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
-        return datetime.fromtimestamp(float(ts), tz=timezone.utc).replace(tzinfo=None)
+        return datetime.fromtimestamp(float(ts), tz=UTC).replace(tzinfo=None)
 
     def _get_wind(corridor: str):
         """Return (windfield_closure, dataset_epoch) for corridor, or (None, None)."""
@@ -249,6 +246,7 @@ def main(
             _loaded_land[corridor] = None
             return None
         import xarray as xr
+
         with xr.open_dataset(wp) as ds:
             for cname in ("longitude", "lon"):
                 if cname in ds.coords:
@@ -278,7 +276,9 @@ def main(
         corridor = case["route"]  # "atlantic" or "pacific"
         typer.echo(f"\n{'='*60}")
         typer.echo(f"Case {cid}: {case['label']}")
-        typer.echo(f"  strategy={case['strategy']}  wps={case['wps']}  route={corridor}")
+        typer.echo(
+            f"  strategy={case['strategy']}  wps={case['wps']}  route={corridor}"
+        )
         typer.echo(f"{'='*60}")
 
         windfield, wind_epoch = _get_wind(corridor)

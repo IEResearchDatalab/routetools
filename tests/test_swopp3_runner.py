@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -13,17 +13,17 @@ import pytest
 from routetools.swopp3 import SWOPP3_CASES, great_circle_route
 from routetools.swopp3_runner import (
     DepartureResult,
-    segment_bearings_deg,
     evaluate_energy,
     run_case,
     run_gc_departure,
     run_optimised_departure,
+    segment_bearings_deg,
 )
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-_DEP = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+_DEP = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 _N = 50  # waypoints for tests
 
 
@@ -54,8 +54,10 @@ def _constant_windfield(tws: float = 10.0, direction_deg: float = 270.0):
 
 def _constant_wavefield(hs: float = 2.0, mwd: float = 270.0):
     """Wave field with constant hs and direction."""
+
     def _field(lon, lat, t):
         return jnp.full_like(lon, hs), jnp.full_like(lon, mwd)
+
     return _field
 
 
@@ -97,7 +99,10 @@ class TestEvaluateEnergy:
         """With zero wind and waves, energy should be pure hull drag."""
         curve = _atlantic_gc()
         energy, max_tws, max_hs = evaluate_energy(
-            curve, _DEP, 354.0, wps=False,
+            curve,
+            _DEP,
+            354.0,
+            wps=False,
             windfield=_zero_windfield,
         )
         assert energy > 0, "Hull drag should produce positive energy"
@@ -108,7 +113,10 @@ class TestEvaluateEnergy:
         """With no fields at all (None), everything is zero wind/wave."""
         curve = _atlantic_gc()
         energy, max_tws, max_hs = evaluate_energy(
-            curve, _DEP, 354.0, wps=False,
+            curve,
+            _DEP,
+            354.0,
+            wps=False,
         )
         assert energy > 0  # hull drag only
 
@@ -118,25 +126,40 @@ class TestEvaluateEnergy:
         wf = _constant_windfield(tws=15.0, direction_deg=180.0)
 
         e_no_wps, _, _ = evaluate_energy(
-            curve, _DEP, 354.0, wps=False, windfield=wf,
+            curve,
+            _DEP,
+            354.0,
+            wps=False,
+            windfield=wf,
         )
         e_wps, _, _ = evaluate_energy(
-            curve, _DEP, 354.0, wps=True, windfield=wf,
+            curve,
+            _DEP,
+            354.0,
+            wps=True,
+            windfield=wf,
         )
-        assert e_wps <= e_no_wps + 1e-6, (
-            f"WPS energy {e_wps} should be ≤ noWPS energy {e_no_wps}"
-        )
+        assert (
+            e_wps <= e_no_wps + 1e-6
+        ), f"WPS energy {e_wps} should be ≤ noWPS energy {e_no_wps}"
 
     def test_with_wavefield(self):
         """Wavefield should increase energy (added resistance)."""
         curve = _atlantic_gc()
 
         e_calm, _, _ = evaluate_energy(
-            curve, _DEP, 354.0, wps=False,
+            curve,
+            _DEP,
+            354.0,
+            wps=False,
         )
         wv = _constant_wavefield(hs=4.0, mwd=270.0)
         e_waves, _, max_hs = evaluate_energy(
-            curve, _DEP, 354.0, wps=False, wavefield=wv,
+            curve,
+            _DEP,
+            354.0,
+            wps=False,
+            wavefield=wv,
         )
         assert e_waves > e_calm, "Waves should add resistance"
         assert max_hs == pytest.approx(4.0, abs=0.1)
@@ -145,7 +168,11 @@ class TestEvaluateEnergy:
         curve = _atlantic_gc(20)
         wf = _constant_windfield(tws=12.5, direction_deg=0.0)
         _, max_tws, _ = evaluate_energy(
-            curve, _DEP, 354.0, wps=False, windfield=wf,
+            curve,
+            _DEP,
+            354.0,
+            wps=False,
+            windfield=wf,
         )
         assert max_tws == pytest.approx(12.5, abs=0.5)
 
@@ -192,7 +219,10 @@ class TestRunCase:
         """Run a GC case with 2 departures, no output dir."""
         deps = [_DEP, _DEP + timedelta(days=1)]
         results = run_case(
-            "AGC_noWPS", deps, n_points=20, verbose=False,
+            "AGC_noWPS",
+            deps,
+            n_points=20,
+            verbose=False,
         )
         assert len(results) == 2
         assert all(isinstance(r, DepartureResult) for r in results)
@@ -241,7 +271,10 @@ class TestRunCase:
         """Smoke test: every case can run with 1 departure."""
         for case_id in SWOPP3_CASES:
             results = run_case(
-                case_id, [_DEP], n_points=10, verbose=False,
+                case_id,
+                [_DEP],
+                n_points=10,
+                verbose=False,
             )
             assert len(results) == 1
             assert results[0].energy_mwh > 0

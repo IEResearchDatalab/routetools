@@ -22,7 +22,7 @@ from __future__ import annotations
 import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -169,9 +169,7 @@ def evaluate_energy(
     """
     L = curve.shape[0]
     if L < 2:
-        raise ValueError(
-            f"curve must have at least 2 points, got {L}"
-        )
+        raise ValueError(f"curve must have at least 2 points, got {L}")
     n_seg = L - 1
 
     # ---- segment midpoints (position) ----
@@ -191,9 +189,7 @@ def evaluate_energy(
 
     # ---- wind ----
     if windfield is not None:
-        u10, v10 = windfield(
-            jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours)
-        )
+        u10, v10 = windfield(jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours))
         u10 = np.asarray(u10, dtype=np.float64)
         v10 = np.asarray(v10, dtype=np.float64)
         tws = np.sqrt(u10**2 + v10**2)
@@ -206,9 +202,7 @@ def evaluate_energy(
 
     # ---- waves ----
     if wavefield is not None:
-        hs, mwd = wavefield(
-            jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours)
-        )
+        hs, mwd = wavefield(jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours))
         hs = np.asarray(hs, dtype=np.float64)
         mwd = np.asarray(mwd, dtype=np.float64)
         mwa = (mwd - bearing_deg) % 360.0
@@ -343,6 +337,7 @@ def run_optimised_departure(
     if vectorfield is not None:
         if windfield is None:
             import warnings
+
             warnings.warn(
                 "vectorfield provided without windfield; energy evaluation "
                 "will assume zero wind.",
@@ -504,9 +499,7 @@ def run_case(
                 if hasattr(dataset_epoch, "tzinfo") and dataset_epoch.tzinfo
                 else dataset_epoch
             )
-            departure_offset_h = (
-                dep_naive - epoch_naive
-            ).total_seconds() / 3600.0
+            departure_offset_h = (dep_naive - epoch_naive).total_seconds() / 3600.0
         else:
             departure_offset_h = 0.0
 
@@ -544,7 +537,10 @@ def run_case(
     if output_dir is not None:
         output_dir = Path(output_dir)
         _write_case_outputs(
-            case_id, results, output_dir, submission=submission,
+            case_id,
+            results,
+            output_dir,
+            submission=submission,
         )
 
     return results
