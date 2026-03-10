@@ -13,11 +13,14 @@ import numpy as np
 import pytest
 
 from routetools.performance import (
-    K_A,
     K_H,
     predict_power,
     predict_power_batch,
+)
+from routetools.performance import (
     predict_power_no_wps as parametric_no_wps,
+)
+from routetools.performance import (
     predict_power_with_wps as parametric_with_wps,
 )
 

@@ -7,14 +7,14 @@ from the SWOPP3 performance model binary (`swopp3_performance_model`).
 
 The SWOPP3 performance model is calibrated for a specific vessel:
 
-| Property | Value |
-|----------|-------|
-| Type | Single-skeg general cargo ship |
-| Length overall ($L$) | 88 m |
-| Estimated beam ($B$) | ~15 m |
-| Estimated wetted surface ($S$) | ~2200 m² |
-| Propulsion | CPP, electric |
-| Wingsails | 4 × 138 m² rigid (552 m² total) |
+| Property                       | Value                           |
+| ------------------------------ | ------------------------------- |
+| Type                           | Single-skeg general cargo ship  |
+| Length overall ($L$)           | 88 m                            |
+| Estimated beam ($B$)           | ~15 m                           |
+| Estimated wetted surface ($S$) | ~2200 m²                        |
+| Propulsion                     | CPP, electric                   |
+| Wingsails                      | 4 × 138 m² rigid (552 m² total) |
 
 All coefficients below are derived from these specifications.
 
@@ -22,20 +22,20 @@ All coefficients below are derived from these specifications.
 
 The SWOPP3 model exposes two scalar functions:
 
-| Function | Description |
-|----------|-------------|
-| `predict_no_wps(tws, twa, swh, mwa, v)` | Power without Wind Propulsion System |
+| Function                                  | Description                               |
+| ----------------------------------------- | ----------------------------------------- |
+| `predict_no_wps(tws, twa, swh, mwa, v)`   | Power without Wind Propulsion System      |
 | `predict_with_wps(tws, twa, swh, mwa, v)` | Power with Wind Propulsion System (sails) |
 
 Both return propulsion power in **kW** and accept:
 
-| Parameter | Symbol | Unit | Range |
-|-----------|--------|------|-------|
-| True wind speed | $\text{tws}$ | m/s | $[0, 30]$ |
-| True wind angle | $\text{twa}$ | deg | $[0, 180]$ (symmetric) |
-| Significant wave height | $\text{swh}$ | m | $[0, 10]$ |
-| Mean wave angle | $\text{mwa}$ | deg | $[0, 180]$ (symmetric) |
-| Ship speed | $v$ | m/s | $[0, 14.5]$ |
+| Parameter               | Symbol       | Unit | Range                  |
+| ----------------------- | ------------ | ---- | ---------------------- |
+| True wind speed         | $\text{tws}$ | m/s  | $[0, 30]$              |
+| True wind angle         | $\text{twa}$ | deg  | $[0, 180]$ (symmetric) |
+| Significant wave height | $\text{swh}$ | m    | $[0, 10]$              |
+| Mean wave angle         | $\text{mwa}$ | deg  | $[0, 180]$ (symmetric) |
+| Ship speed              | $v$          | m/s  | $[0, 14.5]$            |
 
 ## `predict_no_wps` — Closed-Form Model
 
@@ -84,8 +84,8 @@ where $\Delta$ is displacement and $L$ is the length of the vessel.
 
 **References:**
 
-- Molland, A.F., Turnock, S.R., Hudson, D.A. (2017). *Ship Resistance and Propulsion*, 2nd ed. Cambridge University Press. Chapter 3. [doi:10.1017/9781316494196](https://doi.org/10.1017/9781316494196)
-- Holtrop, J., Mennen, G.G.J. (1982). "An approximate power prediction method." *International Shipbuilding Progress*, 29(335), 166–170. [doi:10.3233/ISP-1982-2933501](https://doi.org/10.3233/ISP-1982-2933501)
+- Molland, A.F., Turnock, S.R., Hudson, D.A. (2017). _Ship Resistance and Propulsion_, 2nd ed. Cambridge University Press. Chapter 3. [doi:10.1017/9781316494196](https://doi.org/10.1017/9781316494196)
+- Holtrop, J., Mennen, G.G.J. (1982). "An approximate power prediction method." _International Shipbuilding Progress_, 29(335), 166–170. [doi:10.3233/ISP-1982-2933501](https://doi.org/10.3233/ISP-1982-2933501)
 
 ### Aerodynamic (Wind) Resistance
 
@@ -153,8 +153,8 @@ Here $C_X$ is the longitudinal aerodynamic force coefficient, $A_x$ is the proje
 
 **References:**
 
-- Blendermann, W. (1994). "Parameter identification of wind loads on ships." *Journal of Wind Engineering and Industrial Aerodynamics*, 51(3), 339–351. [doi:10.1016/0167-6105(94)90067-1](https://doi.org/10.1016/0167-6105(94)90067-1)
-- Fujiwara, T., Ueno, M., Nimura, T. (1998). "Estimation of wind forces and moments acting on ships." *Journal of the Society of Naval Architects of Japan*, 183, 77–90. [doi:10.2534/jjasnaoe1968.1998.77](https://doi.org/10.2534/jjasnaoe1968.1998.77)
+- Blendermann, W. (1994). "Parameter identification of wind loads on ships." _Journal of Wind Engineering and Industrial Aerodynamics_, 51(3), 339–351. [doi:10.1016/0167-6105(94)90067-1](<https://doi.org/10.1016/0167-6105(94)90067-1>)
+- Fujiwara, T., Ueno, M., Nimura, T. (1998). "Estimation of wind forces and moments acting on ships." _Journal of the Society of Naval Architects of Japan_, 183, 77–90. [doi:10.2534/jjasnaoe1968.1998.77](https://doi.org/10.2534/jjasnaoe1968.1998.77)
 - ITTC (2014). "Recommended Procedures and Guidelines: Speed and Power Trials." 7.5-04-01-01.1. [ittc.info](https://www.ittc.info/media/8370/75-04-01-011.pdf)
 
 ### Wave-Added Resistance
@@ -200,13 +200,13 @@ added resistance in waves all share the same dimensional structure:
 
 All three frameworks agree on the $H^2$ dependence (a direct consequence of
 linear wave theory, where wave energy $\propto H^2$). They differ on the speed
-dependence *of the resistance*:
+dependence _of the resistance_:
 
-| Framework | $R_{\text{aw}}$ speed dependence | $P_{\text{wave}}$ speed dependence |
-|---|---|---|
-| ITTC Stawave-2 | $\propto v^0$ | $\propto H^2 \cdot v^1$ |
-| Gerritsma-Beukelman (motions-based) | $\propto v^{0.5\text{--}1}$ (varies with encounter frequency) | $\propto H^2 \cdot v^{1.5\text{--}2}$ |
-| Experimental regressions | $\propto v^{0.5\text{--}1.5}$ | $\propto H^2 \cdot v^{1.5\text{--}2.5}$ |
+| Framework                           | $R_{\text{aw}}$ speed dependence                              | $P_{\text{wave}}$ speed dependence      |
+| ----------------------------------- | ------------------------------------------------------------- | --------------------------------------- |
+| ITTC Stawave-2                      | $\propto v^0$                                                 | $\propto H^2 \cdot v^1$                 |
+| Gerritsma-Beukelman (motions-based) | $\propto v^{0.5\text{--}1}$ (varies with encounter frequency) | $\propto H^2 \cdot v^{1.5\text{--}2}$   |
+| Experimental regressions            | $\propto v^{0.5\text{--}1.5}$                                 | $\propto H^2 \cdot v^{1.5\text{--}2.5}$ |
 
 The SWOPP3 model uses $P_{\text{wave}} \propto v^{3/2}$, which implies a
 resistance that grows as $R_{\text{aw}} \propto v^{1/2}$. This sits between
@@ -221,20 +221,20 @@ in following seas, where the ship rides with the wave crests.
 
 **References:**
 
-- Gerritsma, J., Beukelman, W. (1972). "Analysis of the resistance increase in waves of a fast cargo ship." *International Shipbuilding Progress*, 19(217), 285–293. [doi:10.3233/ISP-1972-1921701](https://journals.sagepub.com/doi/abs/10.3233/ISP-1972-1921701)
-- Salvesen, N. (1978). "Added resistance of ships in waves." *Journal of Hydronautics*, 12(1), 24–34. [doi:10.2514/3.63110](https://doi.org/10.2514/3.63110)
-- Faltinsen, O.M., Minsaas, K.J., Liapis, N., Skjørdal, S.O. (1980). "Prediction of resistance and propulsion of a ship in a seaway." *Proc. 13th Symposium on Naval Hydrodynamics*, Tokyo, 505–529. ([Conference proceedings, no DOI available](https://scispace.com/pdf/prediction-of-resistance-and-propulsion-of-a-ship-in-a-lzk79rkb4j.pdf))
+- Gerritsma, J., Beukelman, W. (1972). "Analysis of the resistance increase in waves of a fast cargo ship." _International Shipbuilding Progress_, 19(217), 285–293. [doi:10.3233/ISP-1972-1921701](https://journals.sagepub.com/doi/abs/10.3233/ISP-1972-1921701)
+- Salvesen, N. (1978). "Added resistance of ships in waves." _Journal of Hydronautics_, 12(1), 24–34. [doi:10.2514/3.63110](https://doi.org/10.2514/3.63110)
+- Faltinsen, O.M., Minsaas, K.J., Liapis, N., Skjørdal, S.O. (1980). "Prediction of resistance and propulsion of a ship in a seaway." _Proc. 13th Symposium on Naval Hydrodynamics_, Tokyo, 505–529. ([Conference proceedings, no DOI available](https://scispace.com/pdf/prediction-of-resistance-and-propulsion-of-a-ship-in-a-lzk79rkb4j.pdf))
 
 ### Accuracy
 
 Tested against the reference binary on 10,000 random inputs:
 
-| Metric | Value |
-|--------|-------|
+| Metric              | Value    |
+| ------------------- | -------- |
 | Mean absolute error | 0.008 kW |
-| p99 absolute error | 0.064 kW |
-| Max absolute error | 0.114 kW |
-| Max relative error | 0.031% |
+| p99 absolute error  | 0.064 kW |
+| Max absolute error  | 0.114 kW |
+| Max relative error  | 0.031%   |
 
 ---
 
@@ -285,12 +285,11 @@ solving for $K_s = P_{\text{sail}} / (V_R^2 \cdot v \cdot C(\alpha))$ yields
 the decimal 0.85903125 exactly. This is a terminating decimal:
 
 $$
-0.85903125 = \frac{85903125}{10^8} = \frac{6872250}{2^5 \cdot 5^8} = \frac{13745}{16000}
+0.85903125 = \frac{85903125}{10^8} = \frac{27489}{32000}
 $$
 
-In other words, $K_s = 13745/16000$ — a ratio of small integers with a
-power-of-two denominator, confirming it was likely chosen analytically
-rather than fitted numerically.
+In other words, $K_s = 27489/32000$ — a ratio of relatively small integers,
+suggesting it was likely chosen analytically rather than fitted numerically.
 
 ### Key Properties
 
@@ -335,35 +334,35 @@ the $A_w$ constant in the wave term.
 
 Tested against the reference binary on 50,000 random inputs:
 
-| Metric | Value |
-|--------|-------|
-| Mean absolute error | 0.004 kW |
-| p99 absolute error | 0.030 kW |
-| Max absolute error | 0.050 kW |
-| Errors > 0.1 kW | 0 / 50,000 |
+| Metric              | Value      |
+| ------------------- | ---------- |
+| Mean absolute error | 0.004 kW   |
+| p99 absolute error  | 0.030 kW   |
+| Max absolute error  | 0.050 kW   |
+| Errors > 0.1 kW     | 0 / 50,000 |
 
 ---
 
 ## Summary of Constants
 
-| Constant | Symbol | Value | Exact |
-|----------|--------|-------|-------|
-| Hull coefficient | $K_h$ | 4.28761… | $969/226$ |
-| Air drag coefficient | $K_a$ | 0.153125 | $49/320$ |
-| Wave amplitude | $A_w$ | 11.1395 | fitted |
-| Wave directional decay | $K_w$ | 0.28935… | $125/432 = 5^3/(2^4 \cdot 3^3)$ |
-| Sail thrust coefficient | $K_s$ | 0.85903125 | exact |
-| Sail dead zone angle | — | 10° | exact |
-| Sail quadratic correction | — | 3/20 = 0.15 | exact |
+| Constant                  | Symbol | Value       | Exact                           |
+| ------------------------- | ------ | ----------- | ------------------------------- |
+| Hull coefficient          | $K_h$  | 4.28761…    | $969/226$                       |
+| Air drag coefficient      | $K_a$  | 0.153125    | $49/320$                        |
+| Wave amplitude            | $A_w$  | 11.1395     | fitted                          |
+| Wave directional decay    | $K_w$  | 0.28935…    | $125/432 = 5^3/(2^4 \cdot 3^3)$ |
+| Sail thrust coefficient   | $K_s$  | 0.85903125  | exact                           |
+| Sail dead zone angle      | —      | 10°         | exact                           |
+| Sail quadratic correction | —      | 3/20 = 0.15 | exact                           |
 
 ## Physical Coefficients (88 m Cargo Vessel)
 
-| Coefficient | Symbol | Derived Value | Typical Range | Source |
-|-------------|--------|---------------|---------------|--------|
-| Total resistance | $C_T$ | 0.0038 | 0.002–0.005 | $K_h / (\frac{1}{2} \rho_w S / 1000)$, $S \approx 2200\;\text{m}^2$ |
-| Wind drag × area | $C_D A_T$ | 250 m² | — | $K_a / (\frac{1}{2} \rho_a / 1000)$ |
-| Wind drag | $C_D$ | ~0.7 | 0.6–0.9 | Assuming $A_T \approx 357\;\text{m}^2$ |
-| Wingsail lift | $C_L$ | 2.54 | 2–4 | $K_s / (\frac{1}{2} \rho_a \cdot 552 / 1000)$ |
+| Coefficient      | Symbol    | Derived Value | Typical Range | Source                                                              |
+| ---------------- | --------- | ------------- | ------------- | ------------------------------------------------------------------- |
+| Total resistance | $C_T$     | 0.0038        | 0.002–0.005   | $K_h / (\frac{1}{2} \rho_w S / 1000)$, $S \approx 2200\;\text{m}^2$ |
+| Wind drag × area | $C_D A_T$ | 250 m²        | —             | $K_a / (\frac{1}{2} \rho_a / 1000)$                                 |
+| Wind drag        | $C_D$     | ~0.7          | 0.6–0.9       | Assuming $A_T \approx 357\;\text{m}^2$                              |
+| Wingsail lift    | $C_L$     | 2.54          | 2–4           | $K_s / (\frac{1}{2} \rho_a \cdot 552 / 1000)$                       |
 
 Where $\rho_w = 1025 \;\text{kg/m}^3$, $\rho_a = 1.225 \;\text{kg/m}^3$.
 
@@ -373,11 +372,11 @@ At typical service speed ($v = 8\;\text{kn}$), wave-added resistance exceeds
 hull resistance at surprisingly low wave heights:
 
 | SWH (m) | $P_{\text{wave}}$ / $P_{\text{hull}}$ | $P_{\text{wave}}$ share |
-|---------|---------------------------------------|-------------------------|
-| 1.0 | 0.31 | 24% |
-| 1.8 | 1.00 | 50% (crossover) |
-| 3.0 | 2.78 | 74% |
-| 4.0 | 4.98 | 83% |
+| ------- | ------------------------------------- | ----------------------- |
+| 1.0     | 0.31                                  | 24%                     |
+| 1.8     | 1.00                                  | 50% (crossover)         |
+| 3.0     | 2.78                                  | 74%                     |
+| 4.0     | 4.98                                  | 83%                     |
 
 (Head seas, $\text{mwa} = 0°$.)
 This is consistent with the SWOPP3 binary itself — wave dominance
