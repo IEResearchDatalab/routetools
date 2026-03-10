@@ -1,14 +1,14 @@
-name: pre-commit-pr
+name: post-commit-push
 
 on:
-  pull_request:
+  push:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  pre-commit:
+  post-commit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,5 +30,5 @@ jobs:
           uv pip install pip
       - uses: pre-commit/action@v3.0.1
         with:
-          # Ejecutar solo en ficheros que hayan cambiado https://github.com/pre-commit/action/issues/7
-          extra_args: --color=always --from-ref ${{ github.event.pull_request.base.sha }} --to-ref ${{ github.event.pull_request.head.sha }}
+          # Run hooks after commits are pushed
+          extra_args: --color=always --all-files --hook-stage post-commit
