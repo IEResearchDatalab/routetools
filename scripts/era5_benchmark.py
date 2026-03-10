@@ -111,7 +111,7 @@ def main() -> None:
 
     # ── Load ERA5 fields ──────────────────────────────────────────────
     print(f"[ERA5] Loading wind from {wind_file}")
-    load_era5_windfield(wind_file, departure_time=args.departure)
+    windfield = load_era5_windfield(wind_file, departure_time=args.departure)
 
     print(f"[ERA5] Loading waves from {wave_file}")
     wavefield = load_era5_wavefield(wave_file, departure_time=args.departure)
