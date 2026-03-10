@@ -12,7 +12,7 @@ authors = [{ name = "Weather Routing Research", email = "daniel.precioso@ie.edu"
 version = "0.1.0"
 dependencies = [
     "pandas",
-    "fastapi",
+    "fastapi[standard]",
     "uvicorn",
     "typer-slim",
     "jax[cuda]==0.8.1",
