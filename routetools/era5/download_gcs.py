@@ -14,15 +14,18 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    import xarray as xr
 
 logger = logging.getLogger(__name__)
 
 # Google Cloud Storage paths for ERA5 (ARCO-ERA5, 0.25° hourly)
 GCS_ERA5_SINGLE_LEVEL = (
-    "gs://gcp-public-data-arco-era5/ar/"
-    "full_37-1h-0p25deg-chunk-1.zarr-v3"
+    "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3"
 )
 
 # Route corridor bounds: {name: (lat_min, lat_max, lon_min, lon_max)}
@@ -55,7 +58,7 @@ def _ensure_deps() -> None:
         )
 
 
-def _open_era5_zarr(variables: list[str]) -> "xarray.Dataset":  # type: ignore[name-defined]
+def _open_era5_zarr(variables: list[str]) -> xr.Dataset:
     """Open the ERA5 Zarr store on GCS and select the given variables."""
     import gcsfs
     import xarray as xr
@@ -67,11 +70,11 @@ def _open_era5_zarr(variables: list[str]) -> "xarray.Dataset":  # type: ignore[n
 
 
 def _select_corridor(
-    ds: "xarray.Dataset",  # type: ignore[name-defined]
+    ds: xr.Dataset,
     corridor: str,
     year: str = "2024",
     time_step: int = 6,
-) -> "xarray.Dataset":  # type: ignore[name-defined]
+) -> xr.Dataset:
     """Subset dataset to a corridor, year, and temporal step.
 
     Parameters
@@ -121,12 +124,8 @@ def _select_corridor(
         import xarray as xr
 
         lon_min_360 = lon_min % 360  # -80 → 280
-        part_west = ds.sel(
-            {lat_dim: lat_slice, lon_dim: slice(lon_min_360, 360.0)}
-        )
-        part_east = ds.sel(
-            {lat_dim: lat_slice, lon_dim: slice(0.0, lon_max)}
-        )
+        part_west = ds.sel({lat_dim: lat_slice, lon_dim: slice(lon_min_360, 360.0)})
+        part_east = ds.sel({lat_dim: lat_slice, lon_dim: slice(0.0, lon_max)})
         ds = xr.concat([part_west, part_east], dim=lon_dim)
         # Relabel longitudes to [-180, 180) convention
         new_lons = ds[lon_dim].values.copy()
@@ -139,14 +138,10 @@ def _select_corridor(
             ds = ds.assign_coords({lon_dim: np.mod(lons, 360)})
             ds = ds.sortby(lon_dim)
 
-        ds = ds.sel(
-            {lat_dim: lat_slice, lon_dim: slice(lon_min, lon_max)}
-        )
+        ds = ds.sel({lat_dim: lat_slice, lon_dim: slice(lon_min, lon_max)})
     else:
         # Both corridor and dataset are in compatible ranges
-        ds = ds.sel(
-            {lat_dim: lat_slice, lon_dim: slice(lon_min, lon_max)}
-        )
+        ds = ds.sel({lat_dim: lat_slice, lon_dim: slice(lon_min, lon_max)})
 
     return ds
 
@@ -266,13 +261,17 @@ def download_all_gcs(
     for corridor in corridors:
         files.append(
             download_era5_wind_gcs(
-                output_dir=output_dir, corridor=corridor, year=year,
+                output_dir=output_dir,
+                corridor=corridor,
+                year=year,
                 time_step=time_step,
             )
         )
         files.append(
             download_era5_waves_gcs(
-                output_dir=output_dir, corridor=corridor, year=year,
+                output_dir=output_dir,
+                corridor=corridor,
+                year=year,
                 time_step=time_step,
             )
         )

@@ -10,14 +10,14 @@
 
 import warnings
 
+from routetools.wrr_bench.load import load_real_instance
+from routetools.wrr_bench.ocean import Ocean
+
 warnings.warn(
     "routetools.wrr_bench is deprecated and will be removed in a future release. "
     "Use routetools.era5 instead for real-world weather data.",
     DeprecationWarning,
     stacklevel=2,
 )
-
-from routetools.wrr_bench.load import load_real_instance
-from routetools.wrr_bench.ocean import Ocean
 
 __all__ = ["load_real_instance", "Ocean"]

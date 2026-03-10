@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ DEFAULT_DAYS = [f"{d:02d}" for d in range(1, 32)]
 DEFAULT_TIMES = [f"{h:02d}:00" for h in range(0, 24, 6)]  # 6-hourly
 
 
-def _ensure_cdsapi() -> "cdsapi.Client":  # type: ignore[name-defined]
+def _ensure_cdsapi() -> Any:
     """Import and return a CDS API client, raising a clear error if missing."""
     try:
         import cdsapi

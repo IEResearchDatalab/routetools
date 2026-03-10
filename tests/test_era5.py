@@ -15,7 +15,6 @@ import numpy as np
 import pytest
 import xarray as xr
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: small synthetic ERA5-like NetCDF files
 # ---------------------------------------------------------------------------
@@ -25,8 +24,12 @@ def _make_wind_nc(path: Path) -> None:
     """Create a small synthetic ERA5 wind NetCDF file."""
     # 4 time steps (6-hourly over one day), 5 lats, 6 lons
     times = np.array(
-        ["2024-01-15T00:00", "2024-01-15T06:00",
-         "2024-01-15T12:00", "2024-01-15T18:00"],
+        [
+            "2024-01-15T00:00",
+            "2024-01-15T06:00",
+            "2024-01-15T12:00",
+            "2024-01-15T18:00",
+        ],
         dtype="datetime64[ns]",
     )
     lats = np.array([30.0, 35.0, 40.0, 45.0, 50.0])
@@ -58,8 +61,12 @@ def _make_wind_nc(path: Path) -> None:
 def _make_wave_nc(path: Path) -> None:
     """Create a small synthetic ERA5 wave NetCDF file."""
     times = np.array(
-        ["2024-01-15T00:00", "2024-01-15T06:00",
-         "2024-01-15T12:00", "2024-01-15T18:00"],
+        [
+            "2024-01-15T00:00",
+            "2024-01-15T06:00",
+            "2024-01-15T12:00",
+            "2024-01-15T18:00",
+        ],
         dtype="datetime64[ns]",
     )
     lats = np.array([30.0, 35.0, 40.0, 45.0, 50.0])
@@ -196,9 +203,7 @@ class TestLoadERA5Windfield:
             _make_wind_nc(nc_path)
 
             # Departure at 12:00 (third time step, index 2)
-            wf = load_era5_windfield(
-                nc_path, departure_time="2024-01-15T12:00"
-            )
+            wf = load_era5_windfield(nc_path, departure_time="2024-01-15T12:00")
 
             lon = jnp.array([-50.0])
             lat = jnp.array([40.0])
@@ -344,8 +349,8 @@ class TestLoadERA5LandMask:
         mwd = np.ones((1, 5, 6), dtype=np.float32) * 180.0
 
         # Mark some cells as land (NaN)
-        swh[0, 0, 0] = np.nan   # (lat=30, lon=-70) → land
-        swh[0, 2, 3] = np.nan   # (lat=40, lon=-40) → land
+        swh[0, 0, 0] = np.nan  # (lat=30, lon=-70) → land
+        swh[0, 2, 3] = np.nan  # (lat=40, lon=-40) → land
         mwd[0, 0, 0] = np.nan
         mwd[0, 2, 3] = np.nan
 
@@ -385,8 +390,12 @@ class TestLoadERA5LandMask:
         lats = np.array([30.0, 35.0])
         lons = np.array([-70.0, -60.0])
         ds = xr.Dataset(
-            {"temperature": (["time", "latitude", "longitude"],
-                             np.ones((1, 2, 2), dtype=np.float32))},
+            {
+                "temperature": (
+                    ["time", "latitude", "longitude"],
+                    np.ones((1, 2, 2), dtype=np.float32),
+                )
+            },
             coords={"time": times, "latitude": lats, "longitude": lons},
         )
         nc_path = tmp_path / "no_wave.nc"

@@ -14,10 +14,13 @@ import pytest
 
 from routetools.performance import (
     K_H,
-    K_A,
     predict_power,
     predict_power_batch,
+)
+from routetools.performance import (
     predict_power_no_wps as parametric_no_wps,
+)
+from routetools.performance import (
     predict_power_with_wps as parametric_with_wps,
 )
 
@@ -44,17 +47,18 @@ class TestNoWPS:
 
     # ------ Structured grid ------
     @pytest.mark.parametrize(
-        "tws", [0, 2, 5, 10, 15, 20, 25, 30],
+        "tws",
+        [0, 2, 5, 10, 15, 20, 25, 30],
     )
     @pytest.mark.parametrize(
-        "twa", [0, 30, 60, 90, 120, 150, 180],
+        "twa",
+        [0, 30, 60, 90, 120, 150, 180],
     )
     @pytest.mark.parametrize(
-        "v", [0, 2, 5, 8, 10, 12, 14],
+        "v",
+        [0, 2, 5, 8, 10, 12, 14],
     )
-    def test_structured_grid_calm_sea(
-        self, tws: float, twa: float, v: float
-    ) -> None:
+    def test_structured_grid_calm_sea(self, tws: float, twa: float, v: float) -> None:
         """No waves (swh=0, mwa=0): hull + wind only."""
         ref = swopp3.predict_no_wps(tws, twa, 0.0, 0.0, v)
         par = parametric_no_wps(tws, twa, 0.0, 0.0, v)
@@ -64,17 +68,18 @@ class TestNoWPS:
         )
 
     @pytest.mark.parametrize(
-        "swh", [0, 1, 2, 4, 6, 8],
+        "swh",
+        [0, 1, 2, 4, 6, 8],
     )
     @pytest.mark.parametrize(
-        "mwa", [0, 45, 90, 135, 180],
+        "mwa",
+        [0, 45, 90, 135, 180],
     )
     @pytest.mark.parametrize(
-        "v", [0, 3, 7, 10, 14],
+        "v",
+        [0, 3, 7, 10, 14],
     )
-    def test_structured_grid_wave_only(
-        self, swh: float, mwa: float, v: float
-    ) -> None:
+    def test_structured_grid_wave_only(self, swh: float, mwa: float, v: float) -> None:
         """No wind (tws=0): hull + wave only."""
         ref = swopp3.predict_no_wps(0.0, 0.0, swh, mwa, v)
         par = parametric_no_wps(0.0, 0.0, swh, mwa, v)
@@ -167,7 +172,12 @@ class TestNoWPS:
         mwa = rng.uniform(0, 180, n)
         v = rng.uniform(0, 14.5, n)
 
-        ref_vals = np.array([swopp3.predict_no_wps(tws[i], twa[i], swh[i], mwa[i], v[i]) for i in range(n)])
+        ref_vals = np.array(
+            [
+                swopp3.predict_no_wps(tws[i], twa[i], swh[i], mwa[i], v[i])
+                for i in range(n)
+            ]
+        )
         par_vals = predict_power_batch(tws, twa, swh, mwa, v, wps=False)
         abs_errs = np.abs(par_vals - ref_vals)
 
@@ -222,13 +232,16 @@ class TestWithWPS:
         )
 
     @pytest.mark.parametrize(
-        "tws", [0, 5, 10, 15, 20, 25, 30],
+        "tws",
+        [0, 5, 10, 15, 20, 25, 30],
     )
     @pytest.mark.parametrize(
-        "twa", [0, 45, 90, 135, 180],
+        "twa",
+        [0, 45, 90, 135, 180],
     )
     @pytest.mark.parametrize(
-        "v", [0, 4, 8, 12],
+        "v",
+        [0, 4, 8, 12],
     )
     def test_grid_on_nodes(
         self,
@@ -271,7 +284,12 @@ class TestWithWPS:
         mwa = rng.uniform(0, 180, n)
         v = rng.uniform(0, 14.5, n)
 
-        ref_vals = np.array([swopp3.predict_with_wps(tws[i], twa[i], swh[i], mwa[i], v[i]) for i in range(n)])
+        ref_vals = np.array(
+            [
+                swopp3.predict_with_wps(tws[i], twa[i], swh[i], mwa[i], v[i])
+                for i in range(n)
+            ]
+        )
         par_vals = predict_power_batch(tws, twa, swh, mwa, v, wps=True)
         abs_errs = np.abs(par_vals - ref_vals)
 
@@ -303,9 +321,9 @@ class TestDecomposition:
             # Hull-only = no wind, no waves
             ref = swopp3.predict_no_wps(0, 0, 0, 0, v)
             expected = K_H * v**3
-            assert abs(ref - expected) < 0.01, (
-                f"v={v}: ref={ref:.4f}, K_h·v³={expected:.4f}"
-            )
+            assert (
+                abs(ref - expected) < 0.01
+            ), f"v={v}: ref={ref:.4f}, K_h·v³={expected:.4f}"
 
     def test_additivity_wind_wave(self) -> None:
         """Wind and wave components are additive (no cross-terms)."""
@@ -325,17 +343,23 @@ class TestDecomposition:
 
             # Only compare if not clamped
             if p_all > 0 and combined > 0:
-                assert abs(p_all - combined) < 0.01, (
-                    f"Additivity fail: combined={combined:.4f}, ref={p_all:.4f}"
-                )
+                assert (
+                    abs(p_all - combined) < 0.01
+                ), f"Additivity fail: combined={combined:.4f}, ref={p_all:.4f}"
 
     def test_wave_swh_squared(self) -> None:
         """Wave power ∝ swh² at fixed (mwa, v)."""
         v = 8.0
         mwa = 45.0
-        p1 = swopp3.predict_no_wps(0, 0, 1.0, mwa, v) - swopp3.predict_no_wps(0, 0, 0, 0, v)
-        p2 = swopp3.predict_no_wps(0, 0, 2.0, mwa, v) - swopp3.predict_no_wps(0, 0, 0, 0, v)
-        p4 = swopp3.predict_no_wps(0, 0, 4.0, mwa, v) - swopp3.predict_no_wps(0, 0, 0, 0, v)
+        p1 = swopp3.predict_no_wps(0, 0, 1.0, mwa, v) - swopp3.predict_no_wps(
+            0, 0, 0, 0, v
+        )
+        p2 = swopp3.predict_no_wps(0, 0, 2.0, mwa, v) - swopp3.predict_no_wps(
+            0, 0, 0, 0, v
+        )
+        p4 = swopp3.predict_no_wps(0, 0, 4.0, mwa, v) - swopp3.predict_no_wps(
+            0, 0, 0, 0, v
+        )
         assert abs(p2 / p1 - 4.0) < 1e-6, f"ratio p2/p1 = {p2/p1:.6f}, expected 4"
         assert abs(p4 / p1 - 16.0) < 1e-6, f"ratio p4/p1 = {p4/p1:.6f}, expected 16"
 
@@ -346,15 +370,17 @@ class TestDecomposition:
         powers = []
         speeds = [4.0, 6.0, 8.0, 10.0]
         for v in speeds:
-            p = swopp3.predict_no_wps(0, 0, swh, mwa, v) - swopp3.predict_no_wps(0, 0, 0, 0, v)
+            p = swopp3.predict_no_wps(0, 0, swh, mwa, v) - swopp3.predict_no_wps(
+                0, 0, 0, 0, v
+            )
             powers.append(p)
 
         for i in range(1, len(speeds)):
             ratio = powers[i] / powers[0]
             expected = (speeds[i] / speeds[0]) ** 1.5
-            assert abs(ratio - expected) < 1e-4, (
-                f"v={speeds[i]}: ratio={ratio:.6f}, expected={expected:.6f}"
-            )
+            assert (
+                abs(ratio - expected) < 1e-4
+            ), f"v={speeds[i]}: ratio={ratio:.6f}, expected={expected:.6f}"
 
     def test_sail_wave_independent(self) -> None:
         """Sail power P_sail(tws,twa,v) is independent of waves.
@@ -422,9 +448,9 @@ class TestPublicAPI:
         batch = predict_power_batch(tws, twa, swh, mwa, v, wps=False)
         for i in range(n):
             scalar = parametric_no_wps(tws[i], twa[i], swh[i], mwa[i], v[i])
-            assert abs(batch[i] - scalar) < 1e-10, (
-                f"i={i}: batch={batch[i]:.6f}, scalar={scalar:.6f}"
-            )
+            assert (
+                abs(batch[i] - scalar) < 1e-10
+            ), f"i={i}: batch={batch[i]:.6f}, scalar={scalar:.6f}"
 
     def test_batch_matches_scalar_wps(self) -> None:
         """Batch output matches scalar loop for WPS mode."""
@@ -439,9 +465,9 @@ class TestPublicAPI:
         batch = predict_power_batch(tws, twa, swh, mwa, v, wps=True)
         for i in range(n):
             scalar = parametric_with_wps(tws[i], twa[i], swh[i], mwa[i], v[i])
-            assert abs(batch[i] - scalar) < 1e-10, (
-                f"i={i}: batch={batch[i]:.6f}, scalar={scalar:.6f}"
-            )
+            assert (
+                abs(batch[i] - scalar) < 1e-10
+            ), f"i={i}: batch={batch[i]:.6f}, scalar={scalar:.6f}"
 
     def test_batch_broadcasting(self) -> None:
         """Batch supports broadcasting (scalar v with array tws)."""
@@ -485,7 +511,10 @@ class TestJaxParity:
         )
 
         np.testing.assert_allclose(
-            jax_result, np_result, rtol=1e-5, atol=0.02,
+            jax_result,
+            np_result,
+            rtol=1e-5,
+            atol=0.02,
             err_msg="predict_power_jax (no WPS) diverges from predict_power_batch",
         )
 
@@ -518,6 +547,9 @@ class TestJaxParity:
         )
 
         np.testing.assert_allclose(
-            jax_result, np_result, rtol=1e-5, atol=0.02,
+            jax_result,
+            np_result,
+            rtol=1e-5,
+            atol=0.02,
             err_msg="predict_power_jax (WPS) diverges from predict_power_batch",
         )

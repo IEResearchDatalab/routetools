@@ -18,8 +18,14 @@ JAX-compatible field closures matching the interface expected by
 
 from routetools.era5.loader import (
     load_era5_vectorfield as load_era5_vectorfield,
+)
+from routetools.era5.loader import (
     load_era5_wavefield as load_era5_wavefield,
+)
+from routetools.era5.loader import (
     load_era5_windfield as load_era5_windfield,
+)
+from routetools.era5.loader import (
     load_natural_earth_land_mask as load_natural_earth_land_mask,
 )
 
