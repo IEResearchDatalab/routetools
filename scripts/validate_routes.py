@@ -40,6 +40,27 @@ from pathlib import Path
 import numpy as np
 
 
+def _check_optional_deps() -> None:
+    """Check that cartopy and shapely are installed."""
+    missing: list[str] = []
+    try:
+        import cartopy.io.shapereader  # noqa: F401
+    except ImportError:
+        missing.append("cartopy")
+    try:
+        from shapely import geometry  # noqa: F401
+    except ImportError:
+        missing.append("shapely")
+    if missing:
+        pkgs = ", ".join(missing)
+        sys.stderr.write(
+            f"Error: optional dependency(ies) not installed: {pkgs}.\n"
+            "Install them with:\n"
+            "    uv pip install cartopy shapely\n"
+        )
+        sys.exit(1)
+
+
 def _load_track(path: Path) -> np.ndarray:
     """Load a track CSV and return an (N, 2) array of (lon, lat)."""
     lons, lats = [], []
@@ -96,9 +117,7 @@ def _build_land_geometries(
         return [unary_union(geoms)] if geoms else []
 
 
-def _interpolate_segment(
-    p1: np.ndarray, p2: np.ndarray, density: int
-) -> np.ndarray:
+def _interpolate_segment(p1: np.ndarray, p2: np.ndarray, density: int) -> np.ndarray:
     """Linearly interpolate between two points, returning (density+1, 2)."""
     t = np.linspace(0, 1, density + 1)[:, None]
     return p1 + t * (p2 - p1)
@@ -127,34 +146,36 @@ def validate_track(
         from_coord, to_coord, land_points, land_fraction}``.
     """
     from shapely.geometry import LineString, Point
+    from shapely.prepared import prep
 
     violations = []
     n = len(waypoints)
+    prepared_land = prep(land_union)
 
     for i in range(n - 1):
         p1, p2 = waypoints[i], waypoints[i + 1]
         segment_line = LineString([p1, p2])
 
-        if not segment_line.intersects(land_union):
+        if not prepared_land.intersects(segment_line):
             continue
 
-        # Count how many sub-points fall on land
+        # Count how many sub-points fall on land (including boundary)
         sub_pts = _interpolate_segment(p1, p2, density)
-        on_land = sum(
-            1 for pt in sub_pts if land_union.contains(Point(pt[0], pt[1]))
-        )
+        on_land = sum(1 for pt in sub_pts if prepared_land.covers(Point(pt[0], pt[1])))
         fraction = on_land / len(sub_pts)
 
-        violations.append({
-            "segment": i,
-            "from_idx": i,
-            "to_idx": i + 1,
-            "from_coord": (float(p1[0]), float(p1[1])),
-            "to_coord": (float(p2[0]), float(p2[1])),
-            "land_points": on_land,
-            "total_points": len(sub_pts),
-            "land_fraction": round(fraction, 4),
-        })
+        violations.append(
+            {
+                "segment": i,
+                "from_idx": i,
+                "to_idx": i + 1,
+                "from_coord": (float(p1[0]), float(p1[1])),
+                "to_coord": (float(p2[0]), float(p2[1])),
+                "land_points": on_land,
+                "total_points": len(sub_pts),
+                "land_fraction": round(fraction, 4),
+            }
+        )
 
     return violations
 
@@ -170,6 +191,7 @@ def validate_file(
 
 
 def main() -> None:
+    """CLI entry-point for land-intersection validation."""
     parser = argparse.ArgumentParser(
         description="Validate SWOPP3 routes for land intersection.",
     )
@@ -195,6 +217,12 @@ def main() -> None:
         help="Skip great-circle baseline files (names containing 'GC').",
     )
     args = parser.parse_args()
+
+    if args.density < 1:
+        print("Error: --density must be >= 1.", file=sys.stderr)
+        sys.exit(1)
+
+    _check_optional_deps()
 
     # Collect track files
     if args.path.is_dir():
@@ -227,8 +255,10 @@ def main() -> None:
         all_lons.extend(wp[:, 0].tolist())
         all_lats.extend(wp[:, 1].tolist())
     bounds = (
-        min(all_lons) - 2, min(all_lats) - 2,
-        max(all_lons) + 2, max(all_lats) + 2,
+        min(all_lons) - 2,
+        min(all_lats) - 2,
+        max(all_lons) + 2,
+        max(all_lats) + 2,
     )
 
     print(f"Loading Natural Earth land polygons for bbox {bounds} ...")

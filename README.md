@@ -42,7 +42,17 @@ Install package and pinned dependencies with the [`uv`](https://docs.astral.sh/u
    uv sync
    ```
 
-4. Run any command or Python script with `uv run`, for instance:
+4. (Optional) Install the SWOPP3 performance model:
+
+   ```{bash}
+   uv sync --extra swopp3
+   ```
+
+   The pre-built wheels are shipped in `release_package/wheels/` and `uv`
+   resolves them automatically via `find-links`. Wheels are available for
+   Python 3.10 – 3.13 on Linux (manylinux) and Windows (win_amd64).
+
+5. Run any command or Python script with `uv run`, for instance:
 
    ```{bash}
    uv run routetools/cmaes.py
