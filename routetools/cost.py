@@ -9,19 +9,14 @@ from jax import jit, lax
 from routetools._cost.haversine import (
     haversine_distance_from_curve as haversine_distance_from_curve,
 )
-from routetools._cost.haversine import EARTH_RADIUS, haversine_meters_components
+from routetools._cost.haversine import haversine_meters_components
 from routetools._cost.waves import wave_adjusted_speed
 from routetools.land import Land, move_curve_away_from_land
-from routetools.performance import (
-    A_W,
-    K_A,
-    K_H,
-    K_S,
-    K_W,
-    SAIL_DEAD_ZONE_DEG,
-    SAIL_QUADRATIC_CORRECTION,
-    predict_power_jax,
-)
+
+try:
+    from routetools.performance import predict_power_jax
+except ModuleNotFoundError:
+    predict_power_jax = None
 
 
 def angle_wrt_true_north(dx: jnp.ndarray, dy: jnp.ndarray) -> jnp.ndarray:
@@ -86,19 +81,24 @@ def cost_function(
         vector field.
     curve : jnp.ndarray
         A batch of trajectories (an array of shape B x L x 2).
-        Coordinates are (lon, lat) or (x, y).
+        Coordinates are ordered as ``(lon, lat)`` for geographic fields, or
+        ``(x, y)`` for projected planar fields.
     travel_stw : float, optional
         The boat will have this fixed speed through water (STW). If applying the
         spherical correction, this speed is in meters per second.
     travel_time : float, optional
-        The boat can regulate its STW but must complete the path in exactly this time.
-        If applying the spherical correction, this time is in seconds.
+        The boat can regulate its STW but must complete the path in exactly this
+        time. Units must match the vector field time axis (for ERA5, hours).
     weight_l1 : float, optional
         Weight for the L1 norm in the combined cost. Default is 1.0.
     weight_l2 : float, optional
         Weight for the L2 norm in the combined cost. Default is 0.0.
     spherical_correction : bool, optional
-        Whether to apply spherical correction to distances. Default is False.
+        Whether to apply spherical correction to distances. If False, coordinates
+        are expected to already be in projected metric units.
+    time_offset : float, optional
+        Offset added to segment timestamps before querying time-variant fields.
+        Units must match ``travel_time`` (for ERA5, hours).
 
     Returns
     -------
@@ -391,10 +391,7 @@ def cost_function_constant_cost_time_invariant(
 
 @partial(
     jit,
-    # NOTE: travel_time is static to allow constant-folding of dt inside the
-    # traced computation.  This means a new compilation per distinct value.
-    # In routing loops travel_time is typically fixed, so this is acceptable.
-    static_argnames=("vectorfield", "travel_time", "wavefield", "spherical_correction"),
+    static_argnames=("vectorfield", "wavefield", "spherical_correction"),
 )
 def cost_function_constant_cost_time_variant(
     vectorfield: Callable[
@@ -418,26 +415,31 @@ def cost_function_constant_cost_time_variant(
     Parameters
     ----------
     vectorfield : Callable
-        ``(lon, lat, t) -> (u, v)`` with ``t`` in the same units as
+        ``(lon, lat, t) -> (u, v)`` where ``lon, lat`` are in degrees,
+        ``u, v`` are in m/s, and ``t`` is in the same units as
         *travel_time* (typically hours for ERA5).
     curve : jnp.ndarray
-        Batch of trajectories, shape ``(B, L, 2)``.
+        Batch of trajectories, shape ``(B, L, 2)``. Coordinates are
+        ``(lon, lat)`` when ``spherical_correction=True`` and projected
+        ``(x, y)`` in metres when ``spherical_correction=False``.
     travel_time : float
-        Fixed total passage time.
+        Fixed total passage time (hours for ERA5).
     wavefield : Callable, optional
-        ``(lon, lat, t) -> (height, direction)``.
+        ``(lon, lat, t) -> (height, direction)``. Currently unused in this
+        function and kept for API symmetry.
     spherical_correction : bool
-        Whether to compute distances on the sphere.
+        Whether to compute distances on the sphere. If False, ``curve``
+        coordinates must already be in metres.
     time_offset : float
-        Offset added to segment timestamps before querying the field.
+        Offset added to segment timestamps before querying the field (hours).
         For ERA5 this is the departure's offset in hours from the
-        dataset epoch (2024-01-01T00:00).  Not a ``static_argname``
-        so changing it does not trigger JIT recompilation.
+        dataset epoch (2024-01-01T00:00).
 
     Returns
     -------
     jnp.ndarray
-        Cost per segment, shape ``(B, L-1)``.
+        Cost per segment, shape ``(B, L-1)``. With SI inputs this has
+        units of m^2/s.
     """
     n_seg = curve.shape[1] - 1
     dt = travel_time / n_seg
@@ -526,7 +528,7 @@ def cost_function_rise(
         (hours for ERA5).
     curve : jnp.ndarray
         Batch of trajectories, shape ``(B, L, 2)`` with ``(lon, lat)``
-        in degrees.
+        in degrees. Coordinate order must match the wind/wave fields.
     travel_time : float
         Fixed total passage time (hours).
     wavefield : Callable, optional
@@ -543,6 +545,11 @@ def cost_function_rise(
     jnp.ndarray
         Total energy in MWh per route, shape ``(B,)``.
     """
+    if predict_power_jax is None:
+        raise ModuleNotFoundError(
+            "routetools.performance is required for cost_function_rise."
+        )
+
     n_seg = curve.shape[1] - 1
     dt_h = travel_time / n_seg  # hours per segment
 
@@ -554,23 +561,25 @@ def cost_function_rise(
     seg_times = time_offset + (jnp.arange(n_seg) + 0.5) * dt_h  # (n_seg,)
     curvet = jnp.broadcast_to(seg_times[None, :], mid_lon.shape)  # (B, n_seg)
 
-    # ---- segment bearings (Mercator approximation, all in JAX) ----
-    # NOTE: bearings use a cheap Mercator projection while segment
-    # distances below use haversine.  For the short segments typical
-    # of SWOPP3 routes (< 100 nm, mid-latitudes) the bearing error is
-    # negligible (< 0.1°).  A full great-circle bearing would be more
-    # accurate at high latitudes or for very long segments.
-    dlon = jnp.diff(curve[:, :, 0], axis=1)  # (B, n_seg)
-    dlat = jnp.diff(curve[:, :, 1], axis=1)
-    lat_mid_rad = jnp.radians(mid_lat)
-    dx_bear = dlon * jnp.cos(lat_mid_rad)  # eastward
-    dy_bear = dlat  # northward
-    bearing_deg = jnp.mod(jnp.degrees(jnp.arctan2(dx_bear, dy_bear)), 360.0)
+    # ---- segment bearings (great-circle, all in JAX) ----
+    lon1_rad = jnp.radians(curve[:, :-1, 0])
+    lon2_rad = jnp.radians(curve[:, 1:, 0])
+    lat1_rad = jnp.radians(curve[:, :-1, 1])
+    lat2_rad = jnp.radians(curve[:, 1:, 1])
+    dlon_rad = lon2_rad - lon1_rad
+    x = jnp.sin(dlon_rad) * jnp.cos(lat2_rad)
+    y = jnp.cos(lat1_rad) * jnp.sin(lat2_rad) - jnp.sin(lat1_rad) * jnp.cos(
+        lat2_rad
+    ) * jnp.cos(dlon_rad)
+    bearing_rad = jnp.arctan2(x, y)
+    bearing_deg = jnp.mod(jnp.degrees(bearing_rad), 360.0)
 
     # ---- segment distances (haversine, metres) & ship speed ----
     dx_m, dy_m = haversine_meters_components(
-        curve[:, :-1, 1], curve[:, :-1, 0],
-        curve[:, 1:, 1], curve[:, 1:, 0],
+        curve[:, :-1, 1],
+        curve[:, :-1, 0],
+        curve[:, 1:, 1],
+        curve[:, 1:, 0],
     )
     seg_dist_m = jnp.sqrt(dx_m**2 + dy_m**2)  # (B, n_seg)
     dt_s = dt_h * 3600.0
