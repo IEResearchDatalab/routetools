@@ -188,7 +188,7 @@ def _build_field_closure(
         ts: jnp.ndarray | int | float,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # Normalise ts
-        if isinstance(ts, int | float):
+        if isinstance(ts, (int, float)):
             ts = jnp.array([ts], dtype=jnp.float32)
         ts = jnp.atleast_1d(ts)
 
