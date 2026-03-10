@@ -29,10 +29,15 @@ dependencies = [
     "borb @ https://files.pythonhosted.org/packages/7a/4e/b193d894ffb0fde0f773b0476d8b041528302fa86bccf2cc8006c79404e4/borb-3.0.1.tar.gz",
     "jupyter-server>=2.17.0",
     "statsmodels>=0.14.6",
+    "scipy>=1.12.0",
+    "netCDF4>=1.6.0",
     "opencv-python>=4.13.0.92",
-    "netcdf4>=1.7.4",
-    "dask>=2026.1.2",
 ]
+
+[project.optional-dependencies]
+cuda = ["jax[cuda]==0.8.1"]
+era5-cds = ["cdsapi>=0.7.0"]
+era5-gcs = ["gcsfs>=2024.1.0", "zarr>=2.17.0"]
 
 [project.urls]
 homepage = "https://github.com/Weather-Routing-Research/cmaes_bezier_demo"
@@ -41,7 +46,7 @@ homepage = "https://github.com/Weather-Routing-Research/cmaes_bezier_demo"
 main = "routetools.main:main"
 
 [tool.setuptools]
-packages = ["routetools"]
+packages = ["routetools", "routetools.era5", "routetools._cost", "routetools.wrr_bench"]
 
 [tool.setuptools_scm]
 # Configure setuptools_scm to write a version file and provide a fallback when
@@ -105,7 +110,5 @@ dev-dependencies = [
     "ipykernel",
 ]
 
-[project.optional-dependencies]
-cuda = ["jax[cuda]==0.8.1"]
 
 
