@@ -60,6 +60,7 @@ CORRIDORS = ("atlantic", "pacific")
 
 
 def main() -> None:
+    """Parse CLI arguments and download ERA5 files for selected corridors."""
     parser = argparse.ArgumentParser(
         description="Download ERA5 wind and wave data for SWOPP3 corridors.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -100,7 +101,10 @@ def main() -> None:
 
     logger.info(
         "Backend=%s  Year=%s  Corridors=%s  Output=%s",
-        args.backend, args.year, corridors, output_dir,
+        args.backend,
+        args.year,
+        corridors,
+        output_dir,
     )
 
     if args.backend == "gcs":

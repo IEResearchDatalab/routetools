@@ -39,9 +39,9 @@ from pathlib import Path
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
+from routetools._ports import DICT_PORTS
 from routetools.cmaes import optimize
 from routetools.cost import haversine_distance_from_curve
-from routetools._ports import DICT_PORTS
 from routetools.era5 import (
     load_era5_wavefield,
     load_era5_windfield,
@@ -52,6 +52,7 @@ from routetools.plot import plot_curve
 
 
 def main() -> None:
+    """Run an end-to-end ERA5 benchmark from USNYC to DEHAM."""
     parser = argparse.ArgumentParser(
         description="ERA5-based benchmark: USNYC → DEHAM.",
     )
@@ -110,7 +111,7 @@ def main() -> None:
 
     # ── Load ERA5 fields ──────────────────────────────────────────────
     print(f"[ERA5] Loading wind from {wind_file}")
-    windfield = load_era5_windfield(wind_file, departure_time=args.departure)
+    load_era5_windfield(wind_file, departure_time=args.departure)
 
     print(f"[ERA5] Loading waves from {wave_file}")
     wavefield = load_era5_wavefield(wave_file, departure_time=args.departure)
@@ -186,9 +187,7 @@ def main() -> None:
     print(f"\n{'Route':<12} {'Cost (h)':>10} {'Distance (km)':>14}")
     print("-" * 38)
     print(f"{'CMA-ES':<12} {dict_cmaes['cost'] / 3600:>10.1f} {dist_cmaes:>14.0f}")
-    print(
-        f"{'FMS':<12} {sum(dict_fms['cost']) / 3600:>10.1f} {dist_fms:>14.0f}"
-    )
+    print(f"{'FMS':<12} {sum(dict_fms['cost']) / 3600:>10.1f} {dist_fms:>14.0f}")
 
     # ── Plot ─────────────────────────────────────────────────────────
     fig, ax = plot_curve(
