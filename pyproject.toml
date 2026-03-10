@@ -31,6 +31,7 @@ dependencies = [
     "netCDF4>=1.6.0",
     "opencv-python>=4.13.0.92",
     "dask>=2024.1.0",
+    "cartopy>=0.25.0",
 ]
 
 [project.optional-dependencies]
