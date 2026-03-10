@@ -380,7 +380,9 @@ def _cma_evolution_strategy(
             cost = jnp.where(has_land, penalty + land_count, cost)
 
         # Weather constraint penalization
-        if weather_penalty_weight > 0 and (windfield is not None or wavefield is not None):
+        if weather_penalty_weight > 0 and (
+            windfield is not None or wavefield is not None
+        ):
             cost += _weather_penalty(
                 curve,
                 windfield=windfield,
