@@ -1,16 +1,16 @@
 """Tests for routetools.swopp3_output — File A / File B formatters."""
 
 import csv
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import jax.numpy as jnp
 import pytest
 
 from routetools.swopp3_output import (
-    TEAM,
     _FILE_A_COLUMNS,
     _FILE_B_COLUMNS,
+    TEAM,
     file_a_name,
     file_a_row,
     file_b_name,
@@ -31,7 +31,7 @@ def _straight_curve(n: int = 10) -> jnp.ndarray:
     return jnp.linspace(src, dst, n)
 
 
-_DEP = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+_DEP = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------

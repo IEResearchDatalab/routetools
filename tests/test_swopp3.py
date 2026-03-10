@@ -1,6 +1,6 @@
 """Tests for routetools.swopp3 — SWOPP3 configuration and helpers."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import jax.numpy as jnp
 import pytest
@@ -64,8 +64,16 @@ class TestRoutes:
 # ---------------------------------------------------------------------------
 # 8 SWOPP3 cases
 # ---------------------------------------------------------------------------
-_CASE_IDS = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS",
-             "PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+_CASE_IDS = [
+    "AO_WPS",
+    "AO_noWPS",
+    "AGC_WPS",
+    "AGC_noWPS",
+    "PO_WPS",
+    "PO_noWPS",
+    "PGC_WPS",
+    "PGC_noWPS",
+]
 
 _ATLANTIC_CASES = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
 _PACIFIC_CASES = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
@@ -81,8 +89,16 @@ class TestCases:
     @pytest.mark.parametrize("cid", _CASE_IDS)
     def test_case_has_required_keys(self, cid):
         case = SWOPP3_CASES[cid]
-        for key in ("name", "label", "src_port", "dst_port",
-                     "passage_hours", "route", "strategy", "wps"):
+        for key in (
+            "name",
+            "label",
+            "src_port",
+            "dst_port",
+            "passage_hours",
+            "route",
+            "strategy",
+            "wps",
+        ):
             assert key in case, f"{cid} missing key {key}"
 
     @pytest.mark.parametrize("cid", _CASE_IDS)
@@ -132,12 +148,12 @@ class TestDepartures:
 
     def test_first_departure(self):
         deps = departures_2024()
-        expected = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        expected = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         assert deps[0] == expected
 
     def test_last_departure(self):
         deps = departures_2024()
-        expected = datetime(2024, 12, 31, 12, 0, 0, tzinfo=timezone.utc)
+        expected = datetime(2024, 12, 31, 12, 0, 0, tzinfo=UTC)
         assert deps[-1] == expected
 
     def test_all_noon_utc(self):
@@ -234,7 +250,9 @@ class TestGreatCircle:
         # Route should go eastward across the Pacific (longitudes > 140 or < -121)
         # The key test: no sudden 360° jumps between consecutive points
         dlon = jnp.diff(route[:, 0])
-        assert jnp.all(jnp.abs(dlon) < 10.0), "Large longitude jump detected — antimeridian bug"
+        assert jnp.all(
+            jnp.abs(dlon) < 10.0
+        ), "Large longitude jump detected — antimeridian bug"
 
     def test_coincident_points(self):
         """Degenerate case: src == dst."""
@@ -252,4 +270,6 @@ class TestGreatCircle:
         route = great_circle_route(src, dst, n_points=100)
         max_lat = jnp.max(route[:, 1])
         # GC route from Santander to NYC curves north — max latitude > both endpoints
-        assert max_lat > max(43.6, 40.53), f"max_lat {max_lat} should exceed endpoint lats"
+        assert max_lat > max(
+            43.6, 40.53
+        ), f"max_lat {max_lat} should exceed endpoint lats"

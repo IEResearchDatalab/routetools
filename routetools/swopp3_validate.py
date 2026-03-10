@@ -65,6 +65,7 @@ class ValidationError:
         self.message = message
 
     def __repr__(self) -> str:
+        """Return a readable representation for debugging output."""
         loc = f"row {self.row}" if self.row is not None else "file"
         return f"ValidationError({self.file}, {loc}: {self.message})"
 
@@ -97,7 +98,9 @@ def validate_file_a(
     # ---- Naming convention ----
     pattern = re.compile(rf"^{_TEAM}-\d+-\w+\.csv$")
     if not pattern.match(fname):
-        errors.append(ValidationError(fname, None, f"Name '{fname}' doesn't match pattern"))
+        errors.append(
+            ValidationError(fname, None, f"Name '{fname}' doesn't match pattern")
+        )
 
     if not path.exists():
         errors.append(ValidationError(fname, None, "File not found"))
@@ -123,7 +126,9 @@ def validate_file_a(
     # ---- Row count ----
     if len(rows) != expected_rows:
         errors.append(
-            ValidationError(fname, None, f"Expected {expected_rows} rows, got {len(rows)}")
+            ValidationError(
+                fname, None, f"Expected {expected_rows} rows, got {len(rows)}"
+            )
         )
 
     for i, row in enumerate(rows, 1):
@@ -138,18 +143,31 @@ def validate_file_a(
             try:
                 datetime.strptime(row[col], _DTFMT)
             except (ValueError, KeyError):
-                errors.append(ValidationError(fname, i, f"Bad datetime in '{col}': {row.get(col)}"))
+                errors.append(
+                    ValidationError(
+                        fname, i, f"Bad datetime in '{col}': {row.get(col)}"
+                    )
+                )
 
         # ---- Numeric fields ----
-        for col in ("energy_cons_mwh", "max_wind_mps", "max_hs_m", "sailed_distance_nm"):
+        for col in (
+            "energy_cons_mwh",
+            "max_wind_mps",
+            "max_hs_m",
+            "sailed_distance_nm",
+        ):
             try:
                 v = float(row[col])
                 if v != v:  # NaN check
                     errors.append(ValidationError(fname, i, f"NaN in '{col}'"))
                 if v < 0:
-                    errors.append(ValidationError(fname, i, f"Negative value in '{col}': {v}"))
+                    errors.append(
+                        ValidationError(fname, i, f"Negative value in '{col}': {v}")
+                    )
             except (ValueError, KeyError):
-                errors.append(ValidationError(fname, i, f"Non-numeric '{col}': {row.get(col)}"))
+                errors.append(
+                    ValidationError(fname, i, f"Non-numeric '{col}': {row.get(col)}")
+                )
 
         # ---- Passage time vs arrival - departure ----
         try:
@@ -157,14 +175,16 @@ def validate_file_a(
             arr = datetime.strptime(row["arrival_time_utc"], _DTFMT)
             passage_h = (arr - dep).total_seconds() / 3600
             if passage_h <= 0:
-                errors.append(ValidationError(fname, i, f"Arrival before departure"))
+                errors.append(ValidationError(fname, i, "Arrival before departure"))
         except (ValueError, KeyError):
             pass  # already reported above
 
         # ---- details_filename ----
         details = row.get("details_filename", "")
         if details and not details.endswith(".csv"):
-            errors.append(ValidationError(fname, i, f"details_filename not .csv: {details}"))
+            errors.append(
+                ValidationError(fname, i, f"details_filename not .csv: {details}")
+            )
 
     return errors
 
@@ -213,7 +233,9 @@ def validate_file_b(
 
     if len(rows) < min_waypoints:
         errors.append(
-            ValidationError(fname, None, f"Only {len(rows)} waypoints (min {min_waypoints})")
+            ValidationError(
+                fname, None, f"Only {len(rows)} waypoints (min {min_waypoints})"
+            )
         )
 
     prev_time = None
@@ -222,10 +244,14 @@ def validate_file_b(
         try:
             t = datetime.strptime(row["time_utc"], _DTFMT)
             if prev_time is not None and t <= prev_time:
-                errors.append(ValidationError(fname, i, "Timestamps not strictly increasing"))
+                errors.append(
+                    ValidationError(fname, i, "Timestamps not strictly increasing")
+                )
             prev_time = t
         except (ValueError, KeyError):
-            errors.append(ValidationError(fname, i, f"Bad time_utc: {row.get('time_utc')}"))
+            errors.append(
+                ValidationError(fname, i, f"Bad time_utc: {row.get('time_utc')}")
+            )
 
         # ---- Coordinates ----
         for col, lo, hi in [("lat_deg", -90, 90), ("lon_deg", -360, 360)]:
@@ -234,9 +260,15 @@ def validate_file_b(
                 if v != v:
                     errors.append(ValidationError(fname, i, f"NaN in '{col}'"))
                 elif v < lo or v > hi:
-                    errors.append(ValidationError(fname, i, f"'{col}'={v} out of range [{lo},{hi}]"))
+                    errors.append(
+                        ValidationError(
+                            fname, i, f"'{col}'={v} out of range [{lo},{hi}]"
+                        )
+                    )
             except (ValueError, KeyError):
-                errors.append(ValidationError(fname, i, f"Non-numeric '{col}': {row.get(col)}"))
+                errors.append(
+                    ValidationError(fname, i, f"Non-numeric '{col}': {row.get(col)}")
+                )
 
     return errors
 
@@ -277,7 +309,9 @@ def validate_case_pair_wps(
         wps_e = _load_energies(Path(wps_path))
         nowps_e = _load_energies(Path(nowps_path))
     except (FileNotFoundError, KeyError, ValueError) as exc:
-        errors.append(ValidationError(str(wps_path), None, f"Cannot load energies: {exc}"))
+        errors.append(
+            ValidationError(str(wps_path), None, f"Cannot load energies: {exc}")
+        )
         return errors
     n = min(len(wps_e), len(nowps_e))
     violations = 0
@@ -314,7 +348,9 @@ def validate_case_pair_strategy(
         opt_e = _load_energies(Path(opt_path))
         gc_e = _load_energies(Path(gc_path))
     except (FileNotFoundError, KeyError, ValueError) as exc:
-        errors.append(ValidationError(str(opt_path), None, f"Cannot load energies: {exc}"))
+        errors.append(
+            ValidationError(str(opt_path), None, f"Cannot load energies: {exc}")
+        )
         return errors
     n = min(len(opt_e), len(gc_e))
     worse = sum(1 for i in range(n) if opt_e[i] > gc_e[i] + 1e-6)
@@ -361,8 +397,14 @@ def validate_submission_dir(
     errors: list[ValidationError] = []
 
     case_names = [
-        "AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS",
-        "PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS",
+        "AO_WPS",
+        "AO_noWPS",
+        "AGC_WPS",
+        "AGC_noWPS",
+        "PO_WPS",
+        "PO_noWPS",
+        "PGC_WPS",
+        "PGC_noWPS",
     ]
 
     # ---- File A ----
@@ -379,7 +421,7 @@ def validate_submission_dir(
         if fa.exists():
             with fa.open() as f:
                 reader = csv.DictReader(f)
-                for row_i, row in enumerate(reader, 1):
+                for _row_i, row in enumerate(reader, 1):
                     fb_name = row.get("details_filename", "")
                     if fb_name:
                         fb_path = output_dir / "tracks" / fb_name
@@ -424,7 +466,7 @@ def validate_submission_dir(
 
     # ---- Summary ----
     if verbose:
-        print(f"\n{'='*50}")
+        print(f"\n{'=' * 50}")
         if errors:
             print(f"VALIDATION FAILED: {len(errors)} issue(s)")
             for e in errors[:20]:

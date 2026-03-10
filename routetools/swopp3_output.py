@@ -94,8 +94,7 @@ def waypoint_times(
         return [departure]
     total_seconds = passage_hours * 3600.0
     return [
-        departure + timedelta(seconds=total_seconds * i / (L - 1))
-        for i in range(L)
+        departure + timedelta(seconds=total_seconds * i / (L - 1)) for i in range(L)
     ]
 
 
@@ -261,9 +260,11 @@ def write_file_b(
         writer = csv.DictWriter(f, fieldnames=_FILE_B_COLUMNS)
         writer.writeheader()
         for i in range(L):
-            writer.writerow({
-                "time_utc": times[i].strftime(_DTFMT),
-                "lat_deg": f"{float(curve[i, 1]):.6f}",
-                "lon_deg": f"{float(curve[i, 0]):.6f}",
-            })
+            writer.writerow(
+                {
+                    "time_utc": times[i].strftime(_DTFMT),
+                    "lat_deg": f"{float(curve[i, 1]):.6f}",
+                    "lon_deg": f"{float(curve[i, 0]):.6f}",
+                }
+            )
     return path

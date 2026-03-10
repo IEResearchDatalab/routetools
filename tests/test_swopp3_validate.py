@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from routetools.swopp3_validate import (
@@ -15,11 +15,16 @@ from routetools.swopp3_validate import (
 )
 
 _DTFMT = "%Y-%m-%d %H:%M:%S"
-_DEP = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+_DEP = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 _FILE_A_COLS = [
-    "departure_time_utc", "arrival_time_utc", "energy_cons_mwh",
-    "max_wind_mps", "max_hs_m", "sailed_distance_nm", "details_filename",
+    "departure_time_utc",
+    "arrival_time_utc",
+    "energy_cons_mwh",
+    "max_wind_mps",
+    "max_hs_m",
+    "sailed_distance_nm",
+    "details_filename",
 ]
 
 _FILE_B_COLS = ["time_utc", "lat_deg", "lon_deg"]
@@ -34,15 +39,19 @@ def _write_file_a(path: Path, n: int = 2) -> None:
         for i in range(n):
             dep = _DEP + timedelta(days=i)
             arr = dep + timedelta(hours=354)
-            writer.writerow({
-                "departure_time_utc": dep.strftime(_DTFMT),
-                "arrival_time_utc": arr.strftime(_DTFMT),
-                "energy_cons_mwh": f"{10.0 + i:.6f}",
-                "max_wind_mps": f"{15.0:.4f}",
-                "max_hs_m": f"{3.0:.4f}",
-                "sailed_distance_nm": f"{2800.0:.4f}",
-                "details_filename": f"IEUniversity-1-TEST-{dep.strftime('%Y%m%d')}.csv",
-            })
+            writer.writerow(
+                {
+                    "departure_time_utc": dep.strftime(_DTFMT),
+                    "arrival_time_utc": arr.strftime(_DTFMT),
+                    "energy_cons_mwh": f"{10.0 + i:.6f}",
+                    "max_wind_mps": f"{15.0:.4f}",
+                    "max_hs_m": f"{3.0:.4f}",
+                    "sailed_distance_nm": f"{2800.0:.4f}",
+                    "details_filename": (
+                        f"IEUniversity-1-TEST-{dep.strftime('%Y%m%d')}.csv"
+                    ),
+                }
+            )
 
 
 def _write_file_b(path: Path, n_waypoints: int = 5) -> None:
@@ -53,11 +62,13 @@ def _write_file_b(path: Path, n_waypoints: int = 5) -> None:
         writer.writeheader()
         for i in range(n_waypoints):
             t = _DEP + timedelta(hours=i * 10)
-            writer.writerow({
-                "time_utc": t.strftime(_DTFMT),
-                "lat_deg": f"{43.6 - i * 0.5:.6f}",
-                "lon_deg": f"{-4.0 - i * 10:.6f}",
-            })
+            writer.writerow(
+                {
+                    "time_utc": t.strftime(_DTFMT),
+                    "lat_deg": f"{43.6 - i * 0.5:.6f}",
+                    "lon_deg": f"{-4.0 - i * 10:.6f}",
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -97,15 +108,17 @@ class TestValidateFileA:
         with fa.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=_FILE_A_COLS)
             writer.writeheader()
-            writer.writerow({
-                "departure_time_utc": "not-a-date",
-                "arrival_time_utc": "2024-01-01 12:00:00",
-                "energy_cons_mwh": "10.0",
-                "max_wind_mps": "5.0",
-                "max_hs_m": "2.0",
-                "sailed_distance_nm": "2800",
-                "details_filename": "track.csv",
-            })
+            writer.writerow(
+                {
+                    "departure_time_utc": "not-a-date",
+                    "arrival_time_utc": "2024-01-01 12:00:00",
+                    "energy_cons_mwh": "10.0",
+                    "max_wind_mps": "5.0",
+                    "max_hs_m": "2.0",
+                    "sailed_distance_nm": "2800",
+                    "details_filename": "track.csv",
+                }
+            )
         errs = validate_file_a(fa, expected_rows=1)
         assert any("Bad datetime" in e.message for e in errs)
 
@@ -115,15 +128,17 @@ class TestValidateFileA:
         with fa.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=_FILE_A_COLS)
             writer.writeheader()
-            writer.writerow({
-                "departure_time_utc": "2024-01-01 12:00:00",
-                "arrival_time_utc": "2024-01-16 18:00:00",
-                "energy_cons_mwh": "nan",
-                "max_wind_mps": "5.0",
-                "max_hs_m": "2.0",
-                "sailed_distance_nm": "2800",
-                "details_filename": "track.csv",
-            })
+            writer.writerow(
+                {
+                    "departure_time_utc": "2024-01-01 12:00:00",
+                    "arrival_time_utc": "2024-01-16 18:00:00",
+                    "energy_cons_mwh": "nan",
+                    "max_wind_mps": "5.0",
+                    "max_hs_m": "2.0",
+                    "sailed_distance_nm": "2800",
+                    "details_filename": "track.csv",
+                }
+            )
         errs = validate_file_a(fa, expected_rows=1)
         assert any("NaN" in e.message for e in errs)
 
@@ -161,8 +176,12 @@ class TestValidateFileB:
         with fb.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=_FILE_B_COLS)
             writer.writeheader()
-            writer.writerow({"time_utc": "2024-01-02 12:00:00", "lat_deg": "43", "lon_deg": "-4"})
-            writer.writerow({"time_utc": "2024-01-01 12:00:00", "lat_deg": "42", "lon_deg": "-5"})
+            writer.writerow(
+                {"time_utc": "2024-01-02 12:00:00", "lat_deg": "43", "lon_deg": "-4"}
+            )
+            writer.writerow(
+                {"time_utc": "2024-01-01 12:00:00", "lat_deg": "42", "lon_deg": "-5"}
+            )
         errs = validate_file_b(fb)
         assert any("not strictly increasing" in e.message for e in errs)
 
@@ -172,7 +191,9 @@ class TestValidateFileB:
         with fb.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=_FILE_B_COLS)
             writer.writeheader()
-            writer.writerow({"time_utc": "2024-01-01 12:00:00", "lat_deg": "100", "lon_deg": "-4"})
+            writer.writerow(
+                {"time_utc": "2024-01-01 12:00:00", "lat_deg": "100", "lon_deg": "-4"}
+            )
         errs = validate_file_b(fb)
         assert any("out of range" in e.message for e in errs)
 
@@ -211,15 +232,17 @@ def _write_file_a_custom(path: Path, energies: list[float]) -> None:
         for i, e in enumerate(energies):
             dep = _DEP + timedelta(days=i)
             arr = dep + timedelta(hours=354)
-            writer.writerow({
-                "departure_time_utc": dep.strftime(_DTFMT),
-                "arrival_time_utc": arr.strftime(_DTFMT),
-                "energy_cons_mwh": f"{e:.6f}",
-                "max_wind_mps": "15.0000",
-                "max_hs_m": "3.0000",
-                "sailed_distance_nm": "2800.0000",
-                "details_filename": f"track_{i}.csv",
-            })
+            writer.writerow(
+                {
+                    "departure_time_utc": dep.strftime(_DTFMT),
+                    "arrival_time_utc": arr.strftime(_DTFMT),
+                    "energy_cons_mwh": f"{e:.6f}",
+                    "max_wind_mps": "15.0000",
+                    "max_hs_m": "3.0000",
+                    "sailed_distance_nm": "2800.0000",
+                    "details_filename": f"track_{i}.csv",
+                }
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -267,4 +290,6 @@ class TestValidateCasePairStrategy:
         _write_file_a_custom(gc, gc_energies)
         errs = validate_case_pair_strategy(opt, gc)
         assert len(errs) == 1
-        assert "worse" in errs[0].message.lower() or "optimised" in errs[0].message.lower()
+        assert (
+            "worse" in errs[0].message.lower() or "optimised" in errs[0].message.lower()
+        )

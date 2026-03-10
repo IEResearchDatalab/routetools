@@ -34,7 +34,7 @@ AO_WPS: 366 departures, 354h passage
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jax.numpy as jnp
 
@@ -187,7 +187,7 @@ def departures_2024() -> list[datetime]:
         366 timezone-aware ``datetime`` objects (UTC), one per day from
         2024-01-01 12:00 UTC through 2024-12-31 12:00 UTC.
     """
-    start = datetime(_YEAR, 1, 1, _DEPARTURE_HOUR, tzinfo=timezone.utc)
+    start = datetime(_YEAR, 1, 1, _DEPARTURE_HOUR, tzinfo=UTC)
     return [start + timedelta(days=d) for d in range(366)]
 
 
