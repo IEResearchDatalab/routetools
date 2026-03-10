@@ -222,6 +222,15 @@ class TestValidateCasePairWPS:
         assert len(errs) == 1
         assert "WPS energy > noWPS" in errs[0].message
 
+    def test_missing_file_returns_validation_error(self, tmp_path: Path):
+        """Missing input should be reported as ValidationError, not exception."""
+        wps = tmp_path / "IEUniversity-1-AGC_WPS.csv"
+        nowps = tmp_path / "IEUniversity-1-AGC_noWPS.csv"
+        _write_file_a_custom(wps, [12.0, 13.0])
+        errs = validate_case_pair_wps(wps, nowps)
+        assert len(errs) == 1
+        assert "Cannot load energies" in errs[0].message
+
 
 def _write_file_a_custom(path: Path, energies: list[float]) -> None:
     """Helper: write File A with specified energies."""
@@ -293,3 +302,12 @@ class TestValidateCasePairStrategy:
         assert (
             "worse" in errs[0].message.lower() or "optimised" in errs[0].message.lower()
         )
+
+    def test_missing_file_returns_validation_error(self, tmp_path: Path):
+        """Missing baseline file should be reported as ValidationError."""
+        opt = tmp_path / "opt.csv"
+        gc = tmp_path / "gc.csv"
+        _write_file_a_custom(opt, [90.0, 85.0, 80.0])
+        errs = validate_case_pair_strategy(opt, gc)
+        assert len(errs) == 1
+        assert "Cannot load energies" in errs[0].message

@@ -59,6 +59,16 @@ class TestWaypointTimes:
         times = waypoint_times(curve, _DEP, passage_hours=354)
         assert len(times) == 50
 
+    def test_single_waypoint(self):
+        curve = jnp.array([[10.0, 50.0]])
+        times = waypoint_times(curve, _DEP, passage_hours=10)
+        assert times == [_DEP]
+
+    def test_empty_curve_raises(self):
+        curve = jnp.empty((0, 2))
+        with pytest.raises(ValueError):
+            waypoint_times(curve, _DEP, passage_hours=10)
+
     def test_first_is_departure(self):
         curve = _straight_curve()
         times = waypoint_times(curve, _DEP, passage_hours=10)

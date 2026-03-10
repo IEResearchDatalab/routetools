@@ -1,17 +1,8 @@
 """SWOPP3 output validation — verify File A, File B and submission compliance.
 
-Currently implemented checks:
-
-- File A columns, formats, no NaN/missing values.
-- File B columns and timestamp ordering.
-- Naming convention:  ``IEUniversity-{sub}-{case}.csv``.
-- Energy sanity: WPS ≤ noWPS, optimised ≤ GC (across case pairs).
-
-Planned / not yet wired:
-
-- File B timestamps consistent with File A arrival/departure.
-- Route distance range checks.
-- Fixed passage time enforcement.
+This module provides helpers to validate SWOPP3 output files and submission
+directories. The functions check column presence and formats, file naming,
+timestamp ordering in tracks, and simple cross-case energy sanity rules.
 
 Example
 -------
@@ -50,10 +41,6 @@ _FILE_A_COLUMNS = [
 ]
 
 _FILE_B_COLUMNS = ["time_utc", "lat_deg", "lon_deg"]
-
-# Expected passage hours by route tag
-# Expected passage hours by route tag (reserved for future passage-time validation)
-_PASSAGE_HOURS = {"A": 354, "P": 583}  # Atlantic / Pacific
 
 
 class ValidationError:

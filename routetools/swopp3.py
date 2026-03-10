@@ -38,30 +38,19 @@ from datetime import UTC, datetime, timedelta
 
 import jax.numpy as jnp
 
+from routetools._ports import DICT_PORTS
+
 # ---------------------------------------------------------------------------
 # Port coordinates  (lon, lat)  — matching routetools._ports.DICT_PORTS
 # ---------------------------------------------------------------------------
-PORTS: dict[str, dict] = {
-    "ESSDR": {
-        "name": "Santander",
-        "lat": 43.6,
-        "lon": -4.0,
-    },
-    "USNYC": {
-        "name": "New York",
-        "lat": 40.53,
-        "lon": -73.80,
-    },
-    "JPTYO": {
-        "name": "Tokyo / Yokohama",
-        "lat": 34.8,
-        "lon": 140.0,
-    },
-    "USLAX": {
-        "name": "Los Angeles",
-        "lat": 34.4,
-        "lon": -121.0,
-    },
+_SWOPP3_PORT_CODES = ("ESSDR", "USNYC", "JPTYO", "USLAX")
+PORTS: dict[str, dict[str, str | float]] = {
+    code: {
+        "name": str(DICT_PORTS[code].get("city", code)),
+        "lat": float(DICT_PORTS[code]["lat"]),
+        "lon": float(DICT_PORTS[code]["lon"]),
+    }
+    for code in _SWOPP3_PORT_CODES
 }
 
 # ---------------------------------------------------------------------------

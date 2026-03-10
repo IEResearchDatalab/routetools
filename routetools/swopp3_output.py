@@ -78,7 +78,7 @@ def waypoint_times(
     Parameters
     ----------
     curve : jnp.ndarray
-        Shape ``(L, 2)`` waypoints.
+        Shape ``(L, 2)`` waypoints in ``(lon, lat)`` order.
     departure : datetime
         Departure time (UTC).
     passage_hours : float
@@ -88,9 +88,16 @@ def waypoint_times(
     -------
     list[datetime]
         ``L`` UTC datetimes, one per waypoint.
+
+    Raises
+    ------
+    ValueError
+        If *curve* has no waypoints.
     """
     L = curve.shape[0]
-    if L < 2:
+    if L == 0:
+        raise ValueError("curve must contain at least one waypoint")
+    if L == 1:
         return [departure]
     total_seconds = passage_hours * 3600.0
     return [
@@ -216,14 +223,14 @@ def file_b_name(submission: int, casename: str, departure: datetime) -> str:
     submission : int
         Submission number.
     casename : str
-        Case name.
+        Case name (e.g. ``"AO_WPS"``).
     departure : datetime
         Departure date.
 
     Returns
     -------
     str
-        Filename like ``IEUniversity-1-AOWPS-20240101.csv``.
+        Filename like ``IEUniversity-1-AO_WPS-20240101.csv``.
     """
     date_str = departure.strftime("%Y%m%d")
     return f"{TEAM}-{submission}-{casename}-{date_str}.csv"
