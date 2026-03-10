@@ -528,13 +528,13 @@ def plot_distance_vs_energy(input_dir: Path, fig_dir: Path) -> None:
 
 @app.command()
 def main(
-    input_dir: Path = typer.Option(
+    input_dir: Path = typer.Option(  # noqa: B008
         "output/swopp3_rise",
         "--input-dir",
         "-i",
         help="Directory containing SWOPP3 output CSVs.",
     ),
-    sample_step: int = typer.Option(
+    sample_step: int = typer.Option(  # noqa: B008
         1,
         "--sample-step",
         help="Plot every Nth departure in spaghetti plots (1=all).",

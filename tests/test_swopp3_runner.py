@@ -230,7 +230,7 @@ class TestRunCase:
     def test_gc_case_with_output(self, tmp_path: Path):
         """Run a GC case and write output files."""
         deps = [_DEP, _DEP + timedelta(days=1)]
-        results = run_case(
+        run_case(
             "AGC_noWPS",
             deps,
             output_dir=tmp_path,

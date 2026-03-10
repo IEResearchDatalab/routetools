@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Run SWOPP3 cases — CLI entry-point.
+r"""Run SWOPP3 cases — CLI entry-point.
 
 Usage
 -----
@@ -41,71 +41,71 @@ app = typer.Typer(help="SWOPP3 competition runner.")
 
 @app.command()
 def main(
-    cases: list[str] | None = typer.Option(
+    cases: list[str] | None = typer.Option(  # noqa: B008
         None,
         "--cases",
         "-c",
         help="Case IDs to run (e.g. AGC_WPS PO_noWPS).  Default: all 8.",
     ),
-    strategy: str | None = typer.Option(
+    strategy: str | None = typer.Option(  # noqa: B008
         None,
         "--strategy",
         "-s",
         help="Filter by strategy: 'gc' or 'optimised'.  Default: both.",
     ),
-    wind_path: Path | None = typer.Option(
+    wind_path: Path | None = typer.Option(  # noqa: B008
         None,
         "--wind-path",
         help="Path to ERA5 wind NetCDF (single corridor, used for all cases).",
     ),
-    wave_path: Path | None = typer.Option(
+    wave_path: Path | None = typer.Option(  # noqa: B008
         None,
         "--wave-path",
         help="Path to ERA5 wave NetCDF (single corridor, used for all cases).",
     ),
-    wind_path_atlantic: Path | None = typer.Option(
+    wind_path_atlantic: Path | None = typer.Option(  # noqa: B008
         None,
         "--wind-path-atlantic",
         help="Path to ERA5 wind NetCDF for Atlantic corridor.",
     ),
-    wave_path_atlantic: Path | None = typer.Option(
+    wave_path_atlantic: Path | None = typer.Option(  # noqa: B008
         None,
         "--wave-path-atlantic",
         help="Path to ERA5 wave NetCDF for Atlantic corridor.",
     ),
-    wind_path_pacific: Path | None = typer.Option(
+    wind_path_pacific: Path | None = typer.Option(  # noqa: B008
         None,
         "--wind-path-pacific",
         help="Path to ERA5 wind NetCDF for Pacific corridor.",
     ),
-    wave_path_pacific: Path | None = typer.Option(
+    wave_path_pacific: Path | None = typer.Option(  # noqa: B008
         None,
         "--wave-path-pacific",
         help="Path to ERA5 wave NetCDF for Pacific corridor.",
     ),
-    output_dir: Path = typer.Option(
+    output_dir: Path = typer.Option(  # noqa: B008
         "output/swopp3",
         "--output-dir",
         "-o",
         help="Output directory for CSV files.",
     ),
-    submission: int = typer.Option(
+    submission: int = typer.Option(  # noqa: B008
         1,
         "--submission",
         help="Submission number for file naming.",
     ),
-    n_points: int = typer.Option(
+    n_points: int = typer.Option(  # noqa: B008
         100,
         "--n-points",
         help="Number of route waypoints.",
     ),
-    max_departures: int | None = typer.Option(
+    max_departures: int | None = typer.Option(  # noqa: B008
         None,
         "--max-departures",
         "-n",
         help="Limit number of departures (for quick testing).",
     ),
-    quiet: bool = typer.Option(
+    quiet: bool = typer.Option(  # noqa: B008
         False,
         "--quiet",
         "-q",
@@ -274,12 +274,12 @@ def main(
     for cid in case_ids:
         case = SWOPP3_CASES[cid]
         corridor = case["route"]  # "atlantic" or "pacific"
-        typer.echo(f"\n{'='*60}")
+        typer.echo(f"\n{'=' * 60}")
         typer.echo(f"Case {cid}: {case['label']}")
         typer.echo(
             f"  strategy={case['strategy']}  wps={case['wps']}  route={corridor}"
         )
-        typer.echo(f"{'='*60}")
+        typer.echo(f"{'=' * 60}")
 
         windfield, wind_epoch = _get_wind(corridor)
         wavefield, wave_epoch = _get_wave(corridor)
@@ -309,7 +309,7 @@ def main(
         total_time = sum(r.comp_time_s for r in results)
         typer.echo(
             f"  {len(results)} departures  "
-            f"mean E={sum(energies)/len(energies):.2f} MWh  "
+            f"mean E={sum(energies) / len(energies):.2f} MWh  "
             f"total comp time={total_time:.1f}s"
         )
 
