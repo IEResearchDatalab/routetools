@@ -107,7 +107,7 @@ JAX_PLATFORMS=cpu uv run scripts/single_run.py
 ### ERA5 weather data pipeline
 
 The `routetools.era5` module provides real-world ERA5 wind and wave fields
-for weather routing.  Two download backends are available:
+for weather routing. Two download backends are available:
 
 - **GCS** (default) — Google Cloud archive, no API key required.
 - **CDS** — Copernicus Climate Data Store (requires `cdsapi` + API key).

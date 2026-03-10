@@ -325,8 +325,11 @@ class TestTimeVariation:
         # Segment midpoints at t = 0.5, 1.5, 2.5 days
         # Only t=1.5 days (segment 2) → TWS=30 → 1 violation
         pen = weather_penalty(
-            curve, windfield=wf, penalty=1.0,
-            travel_time=total_time, spherical_correction=False,
+            curve,
+            windfield=wf,
+            penalty=1.0,
+            travel_time=total_time,
+            spherical_correction=False,
         )
         assert jnp.allclose(pen, 1.0)
 
@@ -343,8 +346,11 @@ class TestTimeVariation:
         stw = 1.0 / day  # degrees per second
         # Midpoints at t = 0.5, 1.5, 2.5 days → middle violates
         pen = weather_penalty(
-            curve, windfield=wf, penalty=1.0,
-            travel_stw=stw, spherical_correction=False,
+            curve,
+            windfield=wf,
+            penalty=1.0,
+            travel_stw=stw,
+            spherical_correction=False,
         )
         assert jnp.allclose(pen, 1.0)
 
@@ -356,12 +362,19 @@ class TestTimeVariation:
         total_time = 3.0 * day
         # Without time info → all at t=0 → TWS=10 → pen=0
         pen_no_time = weather_penalty_smooth(
-            curve, windfield=wf, penalty=1.0, sharpness=1.0,
+            curve,
+            windfield=wf,
+            penalty=1.0,
+            sharpness=1.0,
         )
         # With time info → middle segment at t=1.5d → TWS=30 → pen>0
         pen_with_time = weather_penalty_smooth(
-            curve, windfield=wf, penalty=1.0, sharpness=1.0,
-            travel_time=total_time, spherical_correction=False,
+            curve,
+            windfield=wf,
+            penalty=1.0,
+            sharpness=1.0,
+            travel_time=total_time,
+            spherical_correction=False,
         )
         assert jnp.allclose(pen_no_time, 0.0)
         assert pen_with_time > 0
@@ -376,8 +389,10 @@ class TestTimeVariation:
         total_time = 3.0 * day
         stats_no_time = evaluate_weather(curve, windfield=wf)
         stats_with_time = evaluate_weather(
-            curve, windfield=wf,
-            travel_time=total_time, spherical_correction=False,
+            curve,
+            windfield=wf,
+            travel_time=total_time,
+            spherical_correction=False,
         )
         # Without time: all at t=0 → TWS=10 → not exceeded
         assert jnp.allclose(stats_no_time.max_tws, 10.0, atol=1e-5)

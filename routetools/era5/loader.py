@@ -24,6 +24,7 @@ from collections.abc import Callable
 from datetime import datetime
 from math import ceil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -31,6 +32,9 @@ import numpy as np
 import xarray as xr
 
 from routetools.vectorfield import time_variant
+
+if TYPE_CHECKING:
+    from routetools.land import Land
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +73,7 @@ def _get_coord_name(ds: xr.Dataset, candidates: list[str]) -> str:
         if name in ds.coords or name in ds.dims:
             return name
     raise KeyError(
-        f"None of {candidates} found in dataset coordinates: "
-        f"{list(ds.coords)}"
+        f"None of {candidates} found in dataset coordinates: {list(ds.coords)}"
     )
 
 
@@ -113,13 +116,9 @@ def _prepare_grid(
 
     # Compute departure offset
     if departure_time is not None:
-        if isinstance(departure_time, str):
+        if isinstance(departure_time, str | datetime):
             departure_time = np.datetime64(departure_time)
-        elif isinstance(departure_time, datetime):
-            departure_time = np.datetime64(departure_time)
-        departure_offset_h = float(
-            (departure_time - t0_np) / np.timedelta64(1, "h")
-        )
+        departure_offset_h = float((departure_time - t0_np) / np.timedelta64(1, "h"))
     else:
         departure_offset_h = 0.0
 
@@ -128,9 +127,7 @@ def _prepare_grid(
     dlat = float(lats[1] - lats[0]) if len(lats) > 1 else 1.0
     dlon = float(lons[1] - lons[0]) if len(lons) > 1 else 1.0
 
-    begin = jnp.array(
-        [times_hours[0], lats[0], lons[0]], dtype=jnp.float32
-    )[None, :]
+    begin = jnp.array([times_hours[0], lats[0], lons[0]], dtype=jnp.float32)[None, :]
     spacing = jnp.array([dt, dlat, dlon], dtype=jnp.float32)[None, :]
 
     return {
@@ -191,7 +188,7 @@ def _build_field_closure(
         ts: jnp.ndarray | int | float,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         # Normalise ts
-        if isinstance(ts, (int, float)):
+        if isinstance(ts, int | float):
             ts = jnp.array([ts], dtype=jnp.float32)
         ts = jnp.atleast_1d(ts)
 
@@ -225,12 +222,8 @@ def _build_field_closure(
         coords = (x - begin) / spacing  # shape (N, 3)
 
         # Interpolate
-        a = jax.scipy.ndimage.map_coordinates(
-            data_a, coords.T, order=order, mode=mode
-        )
-        b = jax.scipy.ndimage.map_coordinates(
-            data_b, coords.T, order=order, mode=mode
-        )
+        a = jax.scipy.ndimage.map_coordinates(data_a, coords.T, order=order, mode=mode)
+        b = jax.scipy.ndimage.map_coordinates(data_b, coords.T, order=order, mode=mode)
 
         # Reshape if needed
         if shape is not None:
@@ -314,7 +307,6 @@ def load_era5_windfield(
     ds = grid["ds"]  # use the reindexed dataset from _prepare_grid
 
     # Extract data as JAX arrays: shape (T, lat, lon)
-    lat_name = grid["lat_name"]
     udata = ds[u_var]
     vdata = ds[v_var]
 
@@ -369,8 +361,11 @@ def load_era5_vectorfield(
     See :func:`load_era5_windfield` for parameter docs.
     """
     return load_era5_windfield(
-        path, departure_time=departure_time, order=order,
-        u_var=u_var, v_var=v_var,
+        path,
+        departure_time=departure_time,
+        order=order,
+        u_var=u_var,
+        v_var=v_var,
     )
 
 
@@ -445,7 +440,6 @@ def load_era5_wavefield(
     grid = _prepare_grid(ds, departure_time)
     ds = grid["ds"]  # use the reindexed dataset from _prepare_grid
 
-    lat_name = grid["lat_name"]
     hsdata = ds[hs_var]
     dirdata = ds[dir_var]
 
@@ -485,7 +479,7 @@ def load_era5_wavefield(
 def load_era5_land_mask(
     wave_path: str | Path,
     hs_var: str | None = None,
-) -> "Land":
+) -> Land:
     """Create a :class:`~routetools.land.Land` mask from ERA5 wave NaN values.
 
     ERA5 wave variables (SWH, MWD) are NaN over land.  This function
@@ -543,9 +537,7 @@ def load_era5_land_mask(
         ds = ds.isel({lon_name: slice(None, None, -1)})
 
     # First timestep of wave height: NaN → land
-    hs_t0 = ds[hs_var].isel(
-        {_get_coord_name(ds, ["time", "valid_time"]): 0}
-    ).values
+    hs_t0 = ds[hs_var].isel({_get_coord_name(ds, ["time", "valid_time"]): 0}).values
 
     ds.close()
 
@@ -579,7 +571,7 @@ def load_era5_land_mask(
     land.random_seed = None
     land.water_level = 0.5
     land.shape = land_array.shape
-    land.interpolate = 10       # insert 10 sub-points between waypoints to catch narrow land
+    land.interpolate = 10  # insert 10 sub-points between waypoints to catch narrow land
     land.outbounds_is_land = True
     land.penalize_segments = False
     land._map_mode = "nearest"
@@ -598,8 +590,14 @@ def load_era5_land_mask(
     logger.info(
         "ERA5 land mask: %d/%d cells are land (%.1f%%), "
         "lon=[%.1f, %.1f], lat=[%.1f, %.1f], shape=%s",
-        n_land, n_total, 100 * n_land / n_total,
-        lon_min, lon_max, lat_min, lat_max, land_array.shape,
+        n_land,
+        n_total,
+        100 * n_land / n_total,
+        lon_min,
+        lon_max,
+        lat_min,
+        lat_max,
+        land_array.shape,
     )
 
     return land
@@ -611,7 +609,7 @@ def load_natural_earth_land_mask(
     resolution: float = 0.01,
     ne_resolution: str = "10m",
     interpolate: int = 50,
-) -> "Land":
+) -> Land:
     """Create a high-resolution land mask from Natural Earth shapefiles.
 
     Uses cartopy's Natural Earth 1:10m land polygons rasterized onto a
@@ -653,7 +651,6 @@ def load_natural_earth_land_mask(
 
     try:
         import rasterio  # noqa: F401 — validate availability early
-        from rasterio import features, transform
     except ImportError as exc:
         raise ImportError(
             "Natural Earth land mask requires rasterio. "
@@ -779,9 +776,16 @@ def load_natural_earth_land_mask(
     logger.info(
         "Natural Earth land mask (%s): %d/%d cells are land (%.1f%%), "
         "lon=[%.1f, %.1f], lat=[%.1f, %.1f], res=%.3f°, shape=%s",
-        ne_resolution, n_land, n_total, 100 * n_land / n_total,
-        lon_min, lon_max, lat_min, lat_max, resolution, land_array.shape,
+        ne_resolution,
+        n_land,
+        n_total,
+        100 * n_land / n_total,
+        lon_min,
+        lon_max,
+        lat_min,
+        lat_max,
+        resolution,
+        land_array.shape,
     )
 
     return land
-

@@ -17,7 +17,7 @@ warnings.warn(
     stacklevel=2,
 )
 
-from routetools.wrr_bench.load import load_real_instance
-from routetools.wrr_bench.ocean import Ocean
+from routetools.wrr_bench.load import load_real_instance  # noqa: E402
+from routetools.wrr_bench.ocean import Ocean  # noqa: E402
 
 __all__ = ["load_real_instance", "Ocean"]
