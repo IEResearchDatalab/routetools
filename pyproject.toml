@@ -12,8 +12,6 @@ authors = [{ name = "Weather Routing Research", email = "daniel.precioso@ie.edu"
 version = "0.1.0"
 dependencies = [
     "pandas",
-    "fastapi",
-    "uvicorn",
     "typer-slim",
     "jax[cuda]==0.8.1",
     "jaxlib==0.8.1",
@@ -32,12 +30,15 @@ dependencies = [
     "scipy>=1.12.0",
     "netCDF4>=1.6.0",
     "opencv-python>=4.13.0.92",
+    "dask>=2024.1.0",
+    "cartopy>=0.25.0",
 ]
 
 [project.optional-dependencies]
 cuda = ["jax[cuda]==0.8.1"]
 era5-cds = ["cdsapi>=0.7.0"]
 era5-gcs = ["gcsfs>=2024.1.0", "zarr>=2.17.0"]
+swopp3 = ["swopp3-performance-model==0.1.0"]
 
 [project.urls]
 homepage = "https://github.com/Weather-Routing-Research/cmaes_bezier_demo"
@@ -101,14 +102,17 @@ xfail_strict = true
 addopts = ["-ra", "--strict-config", "--strict-markers"]
 filterwarnings = ["error", "ignore::DeprecationWarning"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest",
     "ruff",
     "mypy",
     "pre-commit",
     "ipykernel",
 ]
+
+[tool.uv]
+find-links = ["release_package/wheels"]
 
 
 

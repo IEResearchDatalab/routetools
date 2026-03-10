@@ -3,6 +3,21 @@
 This document describes the closed-form parametric model reverse-engineered
 from the SWOPP3 performance model binary (`swopp3_performance_model`).
 
+## Reference Vessel
+
+The SWOPP3 performance model is calibrated for a specific vessel:
+
+| Property                       | Value                           |
+| ------------------------------ | ------------------------------- |
+| Type                           | Single-skeg general cargo ship  |
+| Length overall ($L$)           | 88 m                            |
+| Estimated beam ($B$)           | ~15 m                           |
+| Estimated wetted surface ($S$) | ~2200 m²                        |
+| Propulsion                     | CPP, electric                   |
+| Wingsails                      | 4 × 138 m² rigid (552 m² total) |
+
+All coefficients below are derived from these specifications.
+
 ## Overview
 
 The SWOPP3 model exposes two scalar functions:
@@ -46,6 +61,19 @@ $$
 **Physical interpretation:** Hydrodynamic drag in calm water. The cubic law
 follows from drag force $\propto v^2$ multiplied by speed to get power.
 
+$$
+K_h = \frac{1}{2} \cdot \rho_{\text{water}} \cdot S \cdot C_T \cdot \frac{1}{1000}
+$$
+
+With $\rho_{\text{water}} = 1025 \;\text{kg/m}^3$ and $S \approx 2200 \;\text{m}^2$:
+
+$$
+C_T = \frac{K_h}{\frac{1}{2} \cdot 1025 \cdot 2200 \cdot 10^{-3}} \approx 0.0038
+$$
+
+This total resistance coefficient is within the typical range $0.002\text{--}0.005$
+for cargo ships at service speed.
+
 **Literature validation:** The cubic dependence is consistent with the following formula found in naval papers:
 
 $$
@@ -84,9 +112,23 @@ K_a = \frac{49}{320} = 0.153125
 $$
 
 **Physical interpretation:**
-$K_a = \frac{1}{2} \cdot \rho_{\text{air}} \cdot C_D A \cdot \frac{1}{1000}$
-where $\rho_{\text{air}} = 1.225 \;\text{kg/m}^3$ and $C_D A = 250 \;\text{m}^2$.
-The factor $1/1000$ converts W to kW.
+
+$$
+K_a = \frac{1}{2} \cdot \rho_{\text{air}} \cdot C_D \cdot A_T \cdot \frac{1}{1000}
+$$
+
+where $\rho_{\text{air}} = 1.225 \;\text{kg/m}^3$. The factor $1/1000$ converts W to kW.
+Solving for the drag-area product:
+
+$$
+C_D \cdot A_T = \frac{K_a}{\frac{1}{2} \cdot 1.225 \cdot 10^{-3}} = 250 \;\text{m}^2
+$$
+
+With $C_D \approx 0.7$ (typical for cargo ship superstructure), the implied
+frontal area is $A_T \approx 357 \;\text{m}^2$. For an 88 m vessel with
+$\sim 15 \;\text{m}$ beam and $\sim 20 \;\text{m}$ air draught, this is
+physically consistent ($15 \times 20 = 300 \;\text{m}^2$ plus rigging and
+wingsail structure).
 
 **Note:** At large TWA with strong tailwinds, $P_{\text{wind}}$ becomes
 negative (wind assists the ship), which can drive total power to zero (clamped).
@@ -120,41 +162,68 @@ Here $C_X$ is the longitudinal aerodynamic force coefficient, $A_x$ is the proje
 Factorizes cleanly into three independent terms:
 
 $$
-P_{\text{wave}} = A_w \cdot \text{swh}^2 \cdot v^{3/2} \cdot \exp\!\Big(-k_w \cdot |\theta_{\text{mwa}}|^3\Big)
+P_{\text{wave}} = A_w \cdot \text{swh}^2 \cdot v^{3/2} \cdot \exp\!\Big(-K_w \cdot |\theta_{\text{mwa}}|^3\Big)
 $$
 
 where $\theta_{\text{mwa}} = \text{mwa} \cdot \pi / 180$ is the wave angle in radians.
 
 $$
-A_w \approx 11.1395 \qquad k_w \approx 0.28935
+A_w \approx 11.1395 \qquad K_w = \frac{125}{432} = \frac{5^3}{2^4 \cdot 3^3} \approx 0.28935
 $$
 
 **Key properties:**
 
 - Quadratic in SWH ($\propto \text{swh}^2$) — exact
 - Speed exponent is exactly $3/2$ ($\propto v^{1.5}$)
-- Directional factor $\exp(-k_w |\theta|^3)$ decays from 1.0 at head seas
+- Directional factor $\exp(-K_w |\theta|^3)$ decays from 1.0 at head seas
   ($\text{mwa}=0°$) to $\approx 0.00013$ at following seas ($\text{mwa}=180°$)
 
-**Literature validation:** The structure is consistent with semi-empirical added resistance formulations derived from strip theory and experiments, where added resistance scales approximately with wave height squared and increases with ship speed:
+**Literature validation:** The three standard semi-empirical frameworks for
+added resistance in waves all share the same dimensional structure:
 
-$$
-R_{\text{aw}} \propto \rho_{\text{water}} \cdot g \cdot H^2 \cdot f(v, \beta)
-$$
+- **Gerritsma & Beukelman (1972)** derive added resistance from strip theory
+  as an integral of relative wave-induced motions along the hull. The result
+  scales as $R_{\text{aw}} \propto \rho g B^2 H^2 / L$, where $B$ is beam
+  and $L$ is length — i.e. quadratic in wave height with a geometric
+  hull-shape prefactor.
 
-and the associated power is
+- **Faltinsen et al. (1980)** extend this to short waves using an asymptotic
+  diffraction formulation. Their result also gives $R_{\text{aw}} \propto H^2$
+  and adds an explicit heading dependence through the encounter angle $\beta$.
 
-$$
-P_{\text{wave}} = R_{\text{aw}} \cdot v
-$$
+- **ITTC (2014)** recommends the simplified Stawave-2 formula:
+  $$
+  R_{\text{aw}} = \frac{1}{16} \, \rho \, g \, H^2 \, B \, \sqrt{B/L}
+  $$
+  which is speed-independent (resistance does not depend on $v$), so power
+  grows as $P = R_{\text{aw}} \cdot v \propto H^2 \cdot v^1$.
 
-Quadratic dependence on wave height follows from linear wave theory, since wave energy is proportional to $H^2$. Experiments typically report that added resistance grows with speed somewhere between linearly ($\propto v$) and quadratically ($\propto v^2$), which makes the fitted exponent of $v^{3/2}$ physically plausible. Strong directional decay from head to following seas is also consistent with measured added resistance characteristics.
+All three frameworks agree on the $H^2$ dependence (a direct consequence of
+linear wave theory, where wave energy $\propto H^2$). They differ on the speed
+dependence _of the resistance_:
+
+| Framework                           | $R_{\text{aw}}$ speed dependence                              | $P_{\text{wave}}$ speed dependence      |
+| ----------------------------------- | ------------------------------------------------------------- | --------------------------------------- |
+| ITTC Stawave-2                      | $\propto v^0$                                                 | $\propto H^2 \cdot v^1$                 |
+| Gerritsma-Beukelman (motions-based) | $\propto v^{0.5\text{--}1}$ (varies with encounter frequency) | $\propto H^2 \cdot v^{1.5\text{--}2}$   |
+| Experimental regressions            | $\propto v^{0.5\text{--}1.5}$                                 | $\propto H^2 \cdot v^{1.5\text{--}2.5}$ |
+
+The SWOPP3 model uses $P_{\text{wave}} \propto v^{3/2}$, which implies a
+resistance that grows as $R_{\text{aw}} \propto v^{1/2}$. This sits between
+the speed-independent ITTC approximation and the motions-based strip theory
+results — a physically natural compromise. The $3/2$ exponent is best
+understood as a regression fit that captures the average speed sensitivity
+across the operating envelope, rather than a first-principles derivation.
+
+Strong directional decay from head to following seas is also consistent with
+all three frameworks: added resistance is maximum in head seas and negligible
+in following seas, where the ship rides with the wave crests.
 
 **References:**
 
 - Gerritsma, J., Beukelman, W. (1972). "Analysis of the resistance increase in waves of a fast cargo ship." _International Shipbuilding Progress_, 19(217), 285–293. [doi:10.3233/ISP-1972-1921701](https://journals.sagepub.com/doi/abs/10.3233/ISP-1972-1921701)
 - Salvesen, N. (1978). "Added resistance of ships in waves." _Journal of Hydronautics_, 12(1), 24–34. [doi:10.2514/3.63110](https://doi.org/10.2514/3.63110)
-- Faltinsen, O.M., Minsaas, K.J., Liapis, N., Skjørdal, S.O. (1980). "Prediction of resistance and propulsion of a ship in a seaway." _Proc. 13th Symposium on Naval Hydrodynamics_, Tokyo, 505–529. ([Google Scholar](https://scholar.google.com/scholar?q=%22Prediction+of+resistance+and+propulsion+of+a+ship+in+a+seaway%22+Faltinsen+1980) — conference proceedings, no DOI available)
+- Faltinsen, O.M., Minsaas, K.J., Liapis, N., Skjørdal, S.O. (1980). "Prediction of resistance and propulsion of a ship in a seaway." _Proc. 13th Symposium on Naval Hydrodynamics_, Tokyo, 505–529. ([Conference proceedings, no DOI available](https://scispace.com/pdf/prediction-of-resistance-and-propulsion-of-a-ship-in-a-lzk79rkb4j.pdf))
 
 ### Accuracy
 
@@ -209,6 +278,20 @@ $$
 K_s = 0.85903125
 $$
 
+**Derivation of $K_s$:** The value 0.85903125 was identified by isolating the
+sail contribution from the binary. Setting $\text{AWA}$ to a known angle where
+$\sin\alpha(1 + \frac{3}{20}\sin^2\alpha)$ evaluates to a clean value and
+solving for $K_s = P_{\text{sail}} / (V_R^2 \cdot v \cdot C(\alpha))$ yields
+the decimal 0.85903125 exactly. This is a terminating decimal:
+
+$$
+0.85903125 = \frac{85903125}{10^8} = \frac{27489}{32000} = \frac{3 \cdot 7^2 \cdot 11 \cdot 17}{2^8 \cdot 5^3}
+$$
+
+In other words, $K_s = 27489/32000$ — a ratio with a power-of-ten
+denominator, confirming it was likely chosen analytically rather than
+fitted numerically.
+
 ### Key Properties
 
 1. **Wave-independent:** $P_{\text{sail}}$ depends only on
@@ -231,11 +314,24 @@ $$
    lift-based thrust; the $\frac{3}{20}\sin^2\alpha$ term is a quadratic
    drag/lift correction that enhances thrust at large angles of attack.
 
+   $$
+   K_s = \frac{1}{2} \cdot \rho_{\text{air}} \cdot C_L \cdot A_{\text{sail}} \cdot \frac{1}{1000}
+   $$
+
+   With total sail area $A_{\text{sail}} = 4 \times 138 = 552 \;\text{m}^2$:
+
+   $$
+   C_L = \frac{K_s}{\frac{1}{2} \cdot 1.225 \cdot 552 \cdot 10^{-3}} \approx 2.54
+   $$
+
+   This effective lift coefficient is within the typical range $2\text{--}4$
+   for rigid wingsails.
+
 ### Accuracy
 
 The closed-form sail model is **exact to machine precision** ($< 10^{-13}$)
 against the reference. The only residual error in the full model comes from
-the $A_w$ and $k_w$ constants in the wave term.
+the $A_w$ constant in the wave term.
 
 Tested against the reference binary on 50,000 random inputs:
 
@@ -250,15 +346,42 @@ Tested against the reference binary on 50,000 random inputs:
 
 ## Summary of Constants
 
-| Constant                  | Symbol | Value       | Exact     |
-| ------------------------- | ------ | ----------- | --------- |
-| Hull coefficient          | $K_h$  | 4.28761…    | $969/226$ |
-| Air drag coefficient      | $K_a$  | 0.153125    | $49/320$  |
-| Wave amplitude            | $A_w$  | 11.1395     | fitted    |
-| Wave directional decay    | $k_w$  | 0.28935     | fitted    |
-| Sail thrust coefficient   | $K_s$  | 0.85903125  | exact     |
-| Sail dead zone angle      | —      | 10°         | exact     |
-| Sail quadratic correction | —      | 3/20 = 0.15 | exact     |
+| Constant                  | Symbol | Value       | Exact                           |
+| ------------------------- | ------ | ----------- | ------------------------------- |
+| Hull coefficient          | $K_h$  | 4.28761…    | $969/226$                       |
+| Air drag coefficient      | $K_a$  | 0.153125    | $49/320$                        |
+| Wave amplitude            | $A_w$  | 11.1395     | fitted                          |
+| Wave directional decay    | $K_w$  | 0.28935…    | $125/432 = 5^3/(2^4 \cdot 3^3)$ |
+| Sail thrust coefficient   | $K_s$  | 0.85903125  | $27489/32000$                   |
+| Sail dead zone angle      | —      | 10°         | exact                           |
+| Sail quadratic correction | —      | 3/20 = 0.15 | exact                           |
+
+## Physical Coefficients (88 m Cargo Vessel)
+
+| Coefficient      | Symbol    | Derived Value | Typical Range | Source                                                              |
+| ---------------- | --------- | ------------- | ------------- | ------------------------------------------------------------------- |
+| Total resistance | $C_T$     | 0.0038        | 0.002–0.005   | $K_h / (\frac{1}{2} \rho_w S / 1000)$, $S \approx 2200\;\text{m}^2$ |
+| Wind drag × area | $C_D A_T$ | 250 m²        | —             | $K_a / (\frac{1}{2} \rho_a / 1000)$                                 |
+| Wind drag        | $C_D$     | ~0.7          | 0.6–0.9       | Assuming $A_T \approx 357\;\text{m}^2$                              |
+| Wingsail lift    | $C_L$     | 2.54          | 2–4           | $K_s / (\frac{1}{2} \rho_a \cdot 552 / 1000)$                       |
+
+Where $\rho_w = 1025 \;\text{kg/m}^3$, $\rho_a = 1.225 \;\text{kg/m}^3$.
+
+### Wave Dominance
+
+At typical service speed ($v = 8\;\text{kn}$), wave-added resistance exceeds
+hull resistance at surprisingly low wave heights:
+
+| SWH (m) | $P_{\text{wave}}$ / $P_{\text{hull}}$ | $P_{\text{wave}}$ share |
+| ------- | ------------------------------------- | ----------------------- |
+| 1.0     | 0.31                                  | 24%                     |
+| 1.8     | 1.00                                  | 50% (crossover)         |
+| 3.0     | 2.78                                  | 74%                     |
+| 4.0     | 4.98                                  | 83%                     |
+
+(Head seas, $\text{mwa} = 0°$.)
+This is consistent with the SWOPP3 binary itself — wave dominance
+is a genuine physical property of the model, not a modelling artifact.
 
 ## Clamping Rule
 
