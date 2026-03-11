@@ -669,8 +669,10 @@ def _astar_segment_replacement(
     y_axis: np.ndarray,
     land: Land,
     max_safety_cells: int = 6,
+    allow_start_land: bool = False,
+    allow_end_land: bool = False,
 ) -> np.ndarray | None:
-    """Compute A* replacement waypoints between two water anchors."""
+    """Compute A* replacement waypoints between two anchors."""
     if n_removed <= 0:
         return np.empty((0, 2), dtype=float)
 
@@ -694,7 +696,18 @@ def _astar_segment_replacement(
 
         replacement = _resample_polyline(path, n_removed)
         candidate = np.vstack([a, replacement, b])
-        if not _polyline_crosses_land(candidate, land):
+        has_crossing = False
+        for i in range(len(candidate) - 1):
+            # If an endpoint is on land, the touching segment adjacent to that
+            # endpoint may be unavoidable; keep checking all interior segments.
+            if allow_start_land and i == 0:
+                continue
+            if allow_end_land and i == len(candidate) - 2:
+                continue
+            if _segment_crosses_land(candidate[i], candidate[i + 1], land):
+                has_crossing = True
+                break
+        if not has_crossing:
             return replacement
 
     return None
@@ -778,9 +791,11 @@ def reroute_around_land(
 
             if base_a_idx >= base_b_idx:
                 continue
-            if _point_is_land(result[base_a_idx], land):
+            base_a_is_land = _point_is_land(result[base_a_idx], land)
+            base_b_is_land = _point_is_land(result[base_b_idx], land)
+            if base_a_is_land and base_a_idx != 0:
                 continue
-            if _point_is_land(result[base_b_idx], land):
+            if base_b_is_land and base_b_idx != n_points - 1:
                 continue
 
             applied = False
@@ -797,9 +812,14 @@ def reroute_around_land(
 
                 if anchor_a_idx >= anchor_b_idx:
                     continue
-                if _point_is_land(result[anchor_a_idx], land):
+                anchor_a_is_land = _point_is_land(result[anchor_a_idx], land)
+                anchor_b_is_land = _point_is_land(result[anchor_b_idx], land)
+                allow_start_land = anchor_a_is_land and anchor_a_idx == 0
+                allow_end_land = anchor_b_is_land and anchor_b_idx == n_points - 1
+
+                if anchor_a_is_land and not allow_start_land:
                     continue
-                if _point_is_land(result[anchor_b_idx], land):
+                if anchor_b_is_land and not allow_end_land:
                     continue
 
                 n_removed = anchor_b_idx - anchor_a_idx - 1
@@ -816,6 +836,8 @@ def reroute_around_land(
                     x_axis,
                     y_axis,
                     land,
+                    allow_start_land=allow_start_land,
+                    allow_end_land=allow_end_land,
                 )
                 if replacement is None:
                     continue

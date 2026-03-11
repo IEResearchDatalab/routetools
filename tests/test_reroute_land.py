@@ -53,6 +53,14 @@ def _route_has_land_crossing(route: np.ndarray, land: Land) -> bool:
     )
 
 
+def _route_has_land_crossing_except_last(route: np.ndarray, land: Land) -> bool:
+    """Return True if any segment except the last one crosses land."""
+    return any(
+        _segment_crosses_land(route[i], route[i + 1], land)
+        for i in range(len(route) - 2)
+    )
+
+
 @pytest.fixture()
 def vertical_strip_land() -> Land:
     """Single obstacle crossing the route center line."""
@@ -156,3 +164,28 @@ def test_all_water_land_is_noop(route_crossing):
     land = _make_land([])
     result = reroute_around_land(route_crossing, land)
     np.testing.assert_array_equal(result, route_crossing)
+
+
+def test_endpoint_on_land_still_reroutes_middle_points():
+    """When destination is on land, interior points are still rerouted."""
+    land = _make_land([(4.5, 6.0, -0.5, 0.5)])
+    route = np.array(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [2.0, 0.0],
+            [3.0, 0.0],
+            [4.0, 0.0],
+            [5.0, 0.0],
+            [6.0, 0.0],
+        ]
+    )
+
+    assert bool(np.asarray(land(route[-1]), dtype=bool).item())
+
+    result = reroute_around_land(route, land, astar_resolution_scale=3)
+
+    np.testing.assert_allclose(result[0], route[0])
+    np.testing.assert_allclose(result[-1], route[-1])
+    assert not np.allclose(result[5], route[5])
+    assert not _route_has_land_crossing_except_last(result, land)
