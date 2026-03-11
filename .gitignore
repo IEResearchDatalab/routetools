@@ -167,3 +167,6 @@ output*
 # User files
 nohup.out
 *.zip
+
+# Separate repo
+routingviz/

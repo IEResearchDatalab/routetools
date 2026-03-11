@@ -88,6 +88,14 @@ def main() -> None:
         help="Output directory (default: data/era5).",
     )
     parser.add_argument(
+        "--months",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Month(s) to download, e.g. --months 1 2 for Jan-Feb. "
+        "Default: all months.",
+    )
+    parser.add_argument(
         "--time-step",
         type=int,
         default=6,
@@ -100,10 +108,11 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(
-        "Backend=%s  Year=%s  Corridors=%s  Output=%s",
+        "Backend=%s  Year=%s  Corridors=%s  Months=%s  Output=%s",
         args.backend,
         args.year,
         corridors,
+        args.months or "all",
         output_dir,
     )
 
@@ -115,6 +124,7 @@ def main() -> None:
             year=args.year,
             corridors=corridors,
             time_step=args.time_step,
+            months=args.months,
         )
     elif args.backend == "cds":
         from routetools.era5.download_cds import download_all
@@ -123,6 +133,7 @@ def main() -> None:
             output_dir=output_dir,
             year=args.year,
             corridors=corridors,
+            months=args.months,
         )
     else:
         print(f"Unknown backend: {args.backend}", file=sys.stderr)

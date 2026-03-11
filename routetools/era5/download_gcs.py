@@ -69,10 +69,30 @@ def _open_era5_zarr(variables: list[str]) -> xr.Dataset:
     return ds[variables]
 
 
+def _detect_time_dim(ds: xr.Dataset) -> str:
+    """Return the name of the time dimension ('time' or 'valid_time')."""
+    for name in ("time", "valid_time"):
+        if name in ds.dims or name in ds.coords:
+            return name
+    raise KeyError(
+        f"Cannot find time dimension in dataset. "
+        f"Available dims: {list(ds.dims)}, coords: {list(ds.coords)}"
+    )
+
+
+def _normalize_time_dim(ds: xr.Dataset) -> xr.Dataset:
+    """Rename the time dimension to 'valid_time' for CDS compatibility."""
+    time_dim = _detect_time_dim(ds)
+    if time_dim != "valid_time":
+        ds = ds.rename({time_dim: "valid_time"})
+    return ds
+
+
 def _select_corridor(
     ds: xr.Dataset,
     corridor: str,
     year: str = "2024",
+    months: list[int] | None = None,
     time_step: int = 6,
 ) -> xr.Dataset:
     """Subset dataset to a corridor, year, and temporal step.
@@ -85,6 +105,8 @@ def _select_corridor(
         Name of the corridor (``"atlantic"`` or ``"pacific"``).
     year : str
         Year to select.
+    months : list[int], optional
+        Months to include (1-12). Default: all 12.
     time_step : int
         Hours between time steps (default 6 for 6-hourly).
 
@@ -94,11 +116,25 @@ def _select_corridor(
         Subset dataset.
     """
     lat_min, lat_max, lon_min, lon_max = CORRIDORS[corridor]
+    time_dim = _detect_time_dim(ds)
 
     # Time selection
-    ds = ds.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
+    if months is not None:
+        first_month = min(months)
+        last_month = max(months)
+        t_start = f"{year}-{first_month:02d}-01"
+        # Use end of last month by selecting up to the start of next month
+        if last_month == 12:
+            t_end = f"{year}-12-31T23:59:59"
+        else:
+            t_end = f"{year}-{last_month + 1:02d}-01"
+        ds = ds.sel({time_dim: slice(t_start, t_end)})
+        # Filter to exact months in case non-contiguous months are requested
+        ds = ds.sel({time_dim: ds[time_dim].dt.month.isin(months)})
+    else:
+        ds = ds.sel({time_dim: slice(f"{year}-01-01", f"{year}-12-31")})
     if time_step > 1:
-        ds = ds.isel(time=slice(None, None, time_step))
+        ds = ds.isel({time_dim: slice(None, None, time_step)})
 
     # Spatial selection
     # ERA5 latitude is typically 90 to -90 (descending)
@@ -146,10 +182,26 @@ def _select_corridor(
     return ds
 
 
+def _output_filename(
+    output_dir: Path,
+    field: str,
+    corridor: str,
+    year: str,
+    months: list[int] | None = None,
+) -> Path:
+    """Build the output filename, including month range for partial years."""
+    if months is not None and sorted(months) != list(range(1, 13)):
+        m_min, m_max = min(months), max(months)
+        suffix = f"{m_min:02d}" if m_min == m_max else f"{m_min:02d}-{m_max:02d}"
+        return output_dir / f"era5_{field}_{corridor}_{year}_{suffix}.nc"
+    return output_dir / f"era5_{field}_{corridor}_{year}.nc"
+
+
 def download_era5_wind_gcs(
     output_dir: str | Path = "data/era5",
     corridor: str = "atlantic",
     year: str = "2024",
+    months: list[int] | None = None,
     time_step: int = 6,
 ) -> Path:
     """Download ERA5 10-m wind data from GCS and save as NetCDF.
@@ -162,6 +214,8 @@ def download_era5_wind_gcs(
         Route corridor name.
     year : str
         Year to download.
+    months : list[int], optional
+        Months to include (1-12). Default: all 12.
     time_step : int
         Hours between time steps (default 6).
 
@@ -173,7 +227,7 @@ def download_era5_wind_gcs(
     _ensure_deps()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = output_dir / f"era5_wind_{corridor}_{year}.nc"
+    filename = _output_filename(output_dir, "wind", corridor, year, months)
 
     if filename.exists():
         logger.info("File already exists, skipping: %s", filename)
@@ -181,7 +235,10 @@ def download_era5_wind_gcs(
 
     logger.info("Opening ERA5 wind data on GCS for %s/%s ...", corridor, year)
     ds = _open_era5_zarr([WIND_U_VAR, WIND_V_VAR])
-    ds = _select_corridor(ds, corridor, year, time_step)
+    ds = _select_corridor(ds, corridor, year, months, time_step)
+
+    # Normalize time dimension to 'valid_time' for CDS compatibility
+    ds = _normalize_time_dim(ds)
 
     logger.info("Downloading and saving to %s ...", filename)
     ds.to_netcdf(filename)
@@ -193,6 +250,7 @@ def download_era5_waves_gcs(
     output_dir: str | Path = "data/era5",
     corridor: str = "atlantic",
     year: str = "2024",
+    months: list[int] | None = None,
     time_step: int = 6,
 ) -> Path:
     """Download ERA5 wave data (Hs + direction) from GCS and save as NetCDF.
@@ -205,6 +263,8 @@ def download_era5_waves_gcs(
         Route corridor name.
     year : str
         Year to download.
+    months : list[int], optional
+        Months to include (1-12). Default: all 12.
     time_step : int
         Hours between time steps (default 6).
 
@@ -216,7 +276,7 @@ def download_era5_waves_gcs(
     _ensure_deps()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = output_dir / f"era5_waves_{corridor}_{year}.nc"
+    filename = _output_filename(output_dir, "waves", corridor, year, months)
 
     if filename.exists():
         logger.info("File already exists, skipping: %s", filename)
@@ -224,7 +284,10 @@ def download_era5_waves_gcs(
 
     logger.info("Opening ERA5 wave data on GCS for %s/%s ...", corridor, year)
     ds = _open_era5_zarr([WAVE_HS_VAR, WAVE_DIR_VAR])
-    ds = _select_corridor(ds, corridor, year, time_step)
+    ds = _select_corridor(ds, corridor, year, months, time_step)
+
+    # Normalize time dimension to 'valid_time' for CDS compatibility
+    ds = _normalize_time_dim(ds)
 
     logger.info("Downloading and saving to %s ...", filename)
     ds.to_netcdf(filename)
@@ -235,6 +298,7 @@ def download_era5_waves_gcs(
 def download_all_gcs(
     output_dir: str | Path = "data/era5",
     year: str = "2024",
+    months: list[int] | None = None,
     corridors: list[str] | None = None,
     time_step: int = 6,
 ) -> list[Path]:
@@ -246,6 +310,8 @@ def download_all_gcs(
         Output directory.
     year : str
         Year to download.
+    months : list[int], optional
+        Months to include (1-12). Default: all 12.
     corridors : list[str], optional
         Corridors to download (default: both).
     time_step : int
@@ -264,6 +330,7 @@ def download_all_gcs(
                 output_dir=output_dir,
                 corridor=corridor,
                 year=year,
+                months=months,
                 time_step=time_step,
             )
         )
@@ -272,6 +339,7 @@ def download_all_gcs(
                 output_dir=output_dir,
                 corridor=corridor,
                 year=year,
+                months=months,
                 time_step=time_step,
             )
         )
