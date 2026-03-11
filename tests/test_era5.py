@@ -403,3 +403,215 @@ class TestLoadERA5LandMask:
 
         with pytest.raises(KeyError, match="Cannot find wave height"):
             load_era5_land_mask(nc_path)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for valid_time and multi-file tests
+# ---------------------------------------------------------------------------
+
+
+def _make_wind_nc_valid_time(path: Path) -> None:
+    """Create a wind NetCDF using ``valid_time`` instead of ``time``."""
+    times = np.array(
+        [
+            "2024-01-15T00:00",
+            "2024-01-15T06:00",
+            "2024-01-15T12:00",
+            "2024-01-15T18:00",
+        ],
+        dtype="datetime64[ns]",
+    )
+    lats = np.array([30.0, 35.0, 40.0, 45.0, 50.0])
+    lons = np.array([-70.0, -60.0, -50.0, -40.0, -30.0, -20.0])
+
+    u10 = np.zeros((4, 5, 6), dtype=np.float32)
+    v10 = np.zeros((4, 5, 6), dtype=np.float32)
+    for t in range(4):
+        for i, lat in enumerate(lats):
+            for j, lon in enumerate(lons):
+                u10[t, i, j] = lon / 10.0 + t * 0.1
+                v10[t, i, j] = lat / 10.0 + t * 0.1
+
+    ds = xr.Dataset(
+        {
+            "u10": (["valid_time", "latitude", "longitude"], u10),
+            "v10": (["valid_time", "latitude", "longitude"], v10),
+        },
+        coords={
+            "valid_time": times,
+            "latitude": lats,
+            "longitude": lons,
+        },
+    )
+    ds.to_netcdf(path, engine="scipy")
+
+
+def _make_wind_nc_part(path: Path, day: int) -> None:
+    """Create a 1-day wind NetCDF for multi-file concat tests.
+
+    Parameters
+    ----------
+    day : int
+        Day of month (e.g. 15 or 16) — determines timestamps and values.
+    """
+    times = np.array(
+        [
+            f"2024-01-{day:02d}T00:00",
+            f"2024-01-{day:02d}T06:00",
+            f"2024-01-{day:02d}T12:00",
+            f"2024-01-{day:02d}T18:00",
+        ],
+        dtype="datetime64[ns]",
+    )
+    lats = np.array([30.0, 35.0, 40.0, 45.0, 50.0])
+    lons = np.array([-70.0, -60.0, -50.0, -40.0, -30.0, -20.0])
+
+    # Use day offset so concatenated files have distinct values
+    u10 = np.full((4, 5, 6), float(day), dtype=np.float32)
+    v10 = np.full((4, 5, 6), float(day) + 0.5, dtype=np.float32)
+
+    ds = xr.Dataset(
+        {
+            "u10": (["time", "latitude", "longitude"], u10),
+            "v10": (["time", "latitude", "longitude"], v10),
+        },
+        coords={
+            "time": times,
+            "latitude": lats,
+            "longitude": lons,
+        },
+    )
+    ds.to_netcdf(path, engine="scipy")
+
+
+class TestValidTimeDimension:
+    """Tests for files using ``valid_time`` instead of ``time``."""
+
+    def test_load_windfield_valid_time(self) -> None:
+        """Windfield loads correctly from a file with ``valid_time`` dim."""
+        from routetools.era5.loader import load_era5_windfield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nc_path = Path(tmpdir) / "wind_vt.nc"
+            _make_wind_nc_valid_time(nc_path)
+
+            wf = load_era5_windfield(nc_path)
+
+            lon = jnp.array([-50.0])
+            lat = jnp.array([40.0])
+            t = jnp.array([0.0])
+
+            u, v = wf(lon, lat, t)
+            np.testing.assert_allclose(float(u[0]), -5.0, atol=0.1)
+            np.testing.assert_allclose(float(v[0]), 4.0, atol=0.1)
+
+
+class TestMultiFileConcat:
+    """Tests for loading and concatenating multiple NetCDF files."""
+
+    def test_concat_two_files(self) -> None:
+        """Two single-day files concatenate into 8 time steps."""
+        from routetools.era5.loader import _load_datasets
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p1 = Path(tmpdir) / "day15.nc"
+            p2 = Path(tmpdir) / "day16.nc"
+            _make_wind_nc_part(p1, 15)
+            _make_wind_nc_part(p2, 16)
+
+            ds = _load_datasets([p1, p2])
+            time_name = "valid_time" if "valid_time" in ds.dims else "time"
+            assert ds.sizes[time_name] == 8
+
+    def test_concat_windfield_values(self) -> None:
+        """Multi-file windfield returns values from both files."""
+        from routetools.era5.loader import load_era5_windfield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p1 = Path(tmpdir) / "day15.nc"
+            p2 = Path(tmpdir) / "day16.nc"
+            _make_wind_nc_part(p1, 15)
+            _make_wind_nc_part(p2, 16)
+
+            wf = load_era5_windfield([p1, p2])
+
+            lon = jnp.array([-50.0])
+            lat = jnp.array([40.0])
+
+            # t=0h maps to day-15 00:00; u10 should be 15.0
+            u0, _ = wf(lon, lat, jnp.array([0.0]))
+            np.testing.assert_allclose(float(u0[0]), 15.0, atol=0.1)
+
+            # t=24h maps to day-16 00:00; u10 should be 16.0
+            u24, _ = wf(lon, lat, jnp.array([24.0]))
+            np.testing.assert_allclose(float(u24[0]), 16.0, atol=0.1)
+
+    def test_single_path_unchanged(self) -> None:
+        """Passing a single Path still works (backward compat)."""
+        from routetools.era5.loader import load_era5_windfield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nc_path = Path(tmpdir) / "wind.nc"
+            _make_wind_nc(nc_path)
+
+            wf = load_era5_windfield(nc_path)
+            lon = jnp.array([-50.0])
+            lat = jnp.array([40.0])
+            t = jnp.array([0.0])
+            u, v = wf(lon, lat, t)
+            np.testing.assert_allclose(float(u[0]), -5.0, atol=0.1)
+
+    def test_mixed_time_valid_time(self) -> None:
+        """Files with ``time`` and ``valid_time`` dims concatenate."""
+        from routetools.era5.loader import _load_datasets
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # File 1: uses "time" dimension
+            p1 = Path(tmpdir) / "day15.nc"
+            _make_wind_nc_part(p1, 15)
+
+            # File 2: uses "valid_time" dimension
+            p2 = Path(tmpdir) / "day16.nc"
+            _make_wind_nc_valid_time(p2)
+
+            ds = _load_datasets([p1, p2])
+            time_name = "valid_time" if "valid_time" in ds.dims else "time"
+            assert ds.sizes[time_name] == 8
+
+
+class TestVoyageCoverageWarning:
+    """Tests for the voyage coverage warning in windfield/wavefield."""
+
+    def test_warning_logged_when_insufficient(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A warning is logged when data doesn't cover the full voyage."""
+        import logging
+
+        from routetools.era5.loader import load_era5_windfield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nc_path = Path(tmpdir) / "wind.nc"
+            _make_wind_nc(nc_path)  # covers 18h (4 steps × 6h)
+
+            with caplog.at_level(logging.WARNING, logger="routetools.era5.loader"):
+                load_era5_windfield(nc_path, voyage_hours=100.0)
+
+            assert any(
+                "covers" in r.message and "voyage" in r.message for r in caplog.records
+            )
+
+    def test_no_warning_when_sufficient(self, caplog: pytest.LogCaptureFixture) -> None:
+        """No warning when data covers the voyage."""
+        import logging
+
+        from routetools.era5.loader import load_era5_windfield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nc_path = Path(tmpdir) / "wind.nc"
+            _make_wind_nc(nc_path)  # covers 18h
+
+            with caplog.at_level(logging.WARNING, logger="routetools.era5.loader"):
+                load_era5_windfield(nc_path, voyage_hours=10.0)
+
+            assert not any("covers" in r.message for r in caplog.records)

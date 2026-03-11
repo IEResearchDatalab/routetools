@@ -32,6 +32,8 @@ dependencies = [
     "opencv-python>=4.13.0.92",
     "dask>=2024.1.0",
     "cartopy>=0.25.0",
+    "gcsfs>=2026.2.0",
+    "zarr>=3.1.5",
 ]
 
 [project.optional-dependencies]

@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
+# Import the functions under test
+import importlib.util
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
-
 from shapely.geometry import Polygon
-from shapely.ops import unary_union
-
-
-# Import the functions under test
-import importlib.util, sys
-from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location(
     "validate_routes",
@@ -59,20 +57,24 @@ class TestInterpolateSegment:
 class TestValidateTrack:
     def test_no_land_crossing(self, square_land):
         """Route passes entirely outside the land polygon."""
-        waypoints = np.array([
-            [0.0, 0.0],
-            [0.0, 5.0],
-            [5.0, 5.0],
-        ])
+        waypoints = np.array(
+            [
+                [0.0, 0.0],
+                [0.0, 5.0],
+                [5.0, 5.0],
+            ]
+        )
         violations = validate_track(waypoints, square_land, density=20)
         assert violations == []
 
     def test_clear_land_crossing(self, square_land):
         """Route goes straight through the land polygon."""
-        waypoints = np.array([
-            [0.0, 2.0],
-            [5.0, 2.0],
-        ])
+        waypoints = np.array(
+            [
+                [0.0, 2.0],
+                [5.0, 2.0],
+            ]
+        )
         violations = validate_track(waypoints, square_land, density=50)
         assert len(violations) == 1
         assert violations[0]["segment"] == 0
@@ -80,12 +82,14 @@ class TestValidateTrack:
 
     def test_multiple_segments_one_violation(self, square_land):
         """Only the segment crossing land is flagged."""
-        waypoints = np.array([
-            [-1.0, 2.0],  # before land
-            [0.0, 2.0],   # still before land
-            [5.0, 2.0],   # crosses land
-            [6.0, 2.0],   # after land
-        ])
+        waypoints = np.array(
+            [
+                [-1.0, 2.0],  # before land
+                [0.0, 2.0],  # still before land
+                [5.0, 2.0],  # crosses land
+                [6.0, 2.0],  # after land
+            ]
+        )
         violations = validate_track(waypoints, square_land, density=50)
         # Only segment 1→2 (from [0,2] to [5,2]) crosses land
         assert len(violations) == 1
@@ -93,20 +97,24 @@ class TestValidateTrack:
 
     def test_boundary_touching(self, square_land):
         """Segment touching the land boundary should be detected."""
-        waypoints = np.array([
-            [1.0, 0.0],
-            [1.0, 2.0],  # runs along the left edge of the square
-        ])
+        waypoints = np.array(
+            [
+                [1.0, 0.0],
+                [1.0, 2.0],  # runs along the left edge of the square
+            ]
+        )
         violations = validate_track(waypoints, square_land, density=50)
         # Endpoint at (1, 2) is on the boundary — covers() should catch it
         assert len(violations) >= 1
 
     def test_entirely_on_land(self, square_land):
         """Segment entirely inside land polygon."""
-        waypoints = np.array([
-            [1.5, 1.5],
-            [2.5, 2.5],
-        ])
+        waypoints = np.array(
+            [
+                [1.5, 1.5],
+                [2.5, 2.5],
+            ]
+        )
         violations = validate_track(waypoints, square_land, density=20)
         assert len(violations) == 1
         assert violations[0]["land_fraction"] == 1.0
@@ -124,8 +132,13 @@ class TestValidateTrack:
         assert len(violations) == 1
         v = violations[0]
         expected_keys = {
-            "segment", "from_idx", "to_idx",
-            "from_coord", "to_coord",
-            "land_points", "total_points", "land_fraction",
+            "segment",
+            "from_idx",
+            "to_idx",
+            "from_coord",
+            "to_coord",
+            "land_points",
+            "total_points",
+            "land_fraction",
         }
         assert set(v.keys()) == expected_keys

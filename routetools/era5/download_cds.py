@@ -44,6 +44,22 @@ DEFAULT_DAYS = [f"{d:02d}" for d in range(1, 32)]
 DEFAULT_TIMES = [f"{h:02d}:00" for h in range(0, 24, 6)]  # 6-hourly
 
 
+def _output_filename(
+    output_dir: Path,
+    field: str,
+    corridor: str,
+    year: str,
+    months: list[str],
+) -> Path:
+    """Build the output filename, including month range for partial years."""
+    all_months = [f"{m:02d}" for m in range(1, 13)]
+    if sorted(months) != all_months:
+        m_min, m_max = months[0], months[-1]
+        suffix = m_min if m_min == m_max else f"{m_min}-{m_max}"
+        return output_dir / f"era5_{field}_{corridor}_{year}_{suffix}.nc"
+    return output_dir / f"era5_{field}_{corridor}_{year}.nc"
+
+
 def _ensure_cdsapi() -> Any:
     """Import and return a CDS API client, raising a clear error if missing."""
     try:
@@ -100,7 +116,7 @@ def download_era5_wind(
     grid = grid or [0.25, 0.25]
 
     area = CORRIDORS[corridor]
-    filename = output_dir / f"era5_wind_{corridor}_{year}.nc"
+    filename = _output_filename(output_dir, "wind", corridor, year, months)
 
     if filename.exists():
         logger.info("File already exists, skipping download: %s", filename)
@@ -173,7 +189,7 @@ def download_era5_waves(
     grid = grid or [0.25, 0.25]
 
     area = CORRIDORS[corridor]
-    filename = output_dir / f"era5_waves_{corridor}_{year}.nc"
+    filename = _output_filename(output_dir, "waves", corridor, year, months)
 
     if filename.exists():
         logger.info("File already exists, skipping download: %s", filename)
