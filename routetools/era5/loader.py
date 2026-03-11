@@ -67,6 +67,40 @@ def _load_dataset(path: str | Path) -> xr.Dataset:
     ) from last_exc
 
 
+def _normalize_time_coord(ds: xr.Dataset) -> xr.Dataset:
+    """Rename the time dimension to ``valid_time`` if it is called ``time``.
+
+    CDS downloads produce ``valid_time`` while the GCS Zarr archive uses
+    ``time``.  This helper normalises to ``valid_time`` so that multi-file
+    concatenation works regardless of provenance.
+    """
+    if "time" in ds.dims and "valid_time" not in ds.dims:
+        ds = ds.rename({"time": "valid_time"})
+    return ds
+
+
+def _load_datasets(paths: str | Path | list[str | Path]) -> xr.Dataset:
+    """Open one or more NetCDF files and concatenate along the time axis.
+
+    When multiple files are provided they are concatenated in order.  The
+    time dimension is normalised to ``valid_time`` before concatenation so
+    that files downloaded from CDS (``valid_time``) and GCS (``time``) can
+    be freely mixed.
+    """
+    if isinstance(paths, str | Path):
+        return _normalize_time_coord(_load_dataset(paths))
+
+    datasets = [_normalize_time_coord(_load_dataset(p)) for p in paths]
+    if len(datasets) == 1:
+        return datasets[0]
+
+    time_name = _get_coord_name(datasets[0], ["valid_time", "time"])
+    combined = xr.concat(datasets, dim=time_name)
+    # Ensure monotonic time after concatenation
+    combined = combined.sortby(time_name)
+    return combined
+
+
 def _get_coord_name(ds: xr.Dataset, candidates: list[str]) -> str:
     """Return the first coordinate name that exists in *ds*."""
     for name in candidates:
@@ -266,8 +300,9 @@ def _build_field_closure(
 
 
 def load_era5_windfield(
-    path: str | Path,
+    path: str | Path | list[str | Path],
     departure_time: datetime | str | np.datetime64 | None = None,
+    voyage_hours: float | None = None,
     order: int = 1,
     u_var: str | None = None,
     v_var: str | None = None,
@@ -283,12 +318,16 @@ def load_era5_windfield(
 
     Parameters
     ----------
-    path : str or Path
-        Path to the ERA5 wind NetCDF file.
+    path : str, Path, or list thereof
+        Path(s) to ERA5 wind NetCDF file(s).  When multiple paths are
+        given they are concatenated along the time axis.
     departure_time : datetime or str or np.datetime64, optional
         The voyage departure time.  When provided, ``t = 0`` in the returned
         closure corresponds to this datetime; otherwise ``t = 0`` maps to the
         first timestamp in the dataset.
+    voyage_hours : float, optional
+        Expected voyage duration in hours.  If provided and the dataset does
+        not cover the full voyage, a warning is logged.
     order : int
         Interpolation order (1 = linear, default).
     u_var : str, optional
@@ -301,7 +340,7 @@ def load_era5_windfield(
     Callable
         ``(lon, lat, t) -> (u10, v10)`` with ``.is_time_variant = True``.
     """
-    ds = _load_dataset(path)
+    ds = _load_datasets(path)
 
     # Auto-detect variable names
     if u_var is None:
@@ -328,6 +367,22 @@ def load_era5_windfield(
             )
 
     grid = _prepare_grid(ds, departure_time)
+
+    # Warn if the dataset does not cover the full voyage
+    if voyage_hours is not None:
+        coverage_h = float(grid["times_hours"][-1] - grid["times_hours"][0])
+        needed_h = voyage_hours + grid["departure_offset_h"]
+        if coverage_h < needed_h:
+            logger.warning(
+                "ERA5 wind data covers %.0f h but the voyage needs "
+                "%.0f h (%.0f h voyage + %.0f h departure offset). "
+                "Late-voyage interpolation will clamp to the last "
+                "available timestep.",
+                coverage_h,
+                needed_h,
+                voyage_hours,
+                grid["departure_offset_h"],
+            )
     ds = grid["ds"]  # use the reindexed dataset from _prepare_grid
 
     # Extract data as JAX arrays: shape (T, lat, lon)
@@ -364,8 +419,9 @@ def load_era5_windfield(
 
 
 def load_era5_vectorfield(
-    path: str | Path,
+    path: str | Path | list[str | Path],
     departure_time: datetime | str | np.datetime64 | None = None,
+    voyage_hours: float | None = None,
     order: int = 1,
     u_var: str | None = None,
     v_var: str | None = None,
@@ -387,6 +443,7 @@ def load_era5_vectorfield(
     return load_era5_windfield(
         path,
         departure_time=departure_time,
+        voyage_hours=voyage_hours,
         order=order,
         u_var=u_var,
         v_var=v_var,
@@ -394,8 +451,9 @@ def load_era5_vectorfield(
 
 
 def load_era5_wavefield(
-    path: str | Path,
+    path: str | Path | list[str | Path],
     departure_time: datetime | str | np.datetime64 | None = None,
+    voyage_hours: float | None = None,
     order: int = 1,
     hs_var: str | None = None,
     dir_var: str | None = None,
@@ -412,11 +470,15 @@ def load_era5_wavefield(
 
     Parameters
     ----------
-    path : str or Path
-        Path to the ERA5 wave NetCDF file.
+    path : str, Path, or list thereof
+        Path(s) to ERA5 wave NetCDF file(s).  When multiple paths are
+        given they are concatenated along the time axis.
     departure_time : datetime or str or np.datetime64, optional
         The voyage departure time.  When provided, ``t = 0`` in the returned
         closure corresponds to this datetime.
+    voyage_hours : float, optional
+        Expected voyage duration in hours.  If provided and the dataset does
+        not cover the full voyage, a warning is logged.
     order : int
         Interpolation order (1 = linear, default).
     hs_var : str, optional
@@ -429,7 +491,7 @@ def load_era5_wavefield(
     Callable
         ``(lon, lat, t) -> (hs, mwd)``.
     """
-    ds = _load_dataset(path)
+    ds = _load_datasets(path)
 
     # Auto-detect variable names
     if hs_var is None:
@@ -462,6 +524,23 @@ def load_era5_wavefield(
             )
 
     grid = _prepare_grid(ds, departure_time)
+
+    # Warn if the dataset does not cover the full voyage
+    if voyage_hours is not None:
+        coverage_h = float(grid["times_hours"][-1] - grid["times_hours"][0])
+        needed_h = voyage_hours + grid["departure_offset_h"]
+        if coverage_h < needed_h:
+            logger.warning(
+                "ERA5 wave data covers %.0f h but the voyage needs "
+                "%.0f h (%.0f h voyage + %.0f h departure offset). "
+                "Late-voyage interpolation will clamp to the last "
+                "available timestep.",
+                coverage_h,
+                needed_h,
+                voyage_hours,
+                grid["departure_offset_h"],
+            )
+
     ds = grid["ds"]  # use the reindexed dataset from _prepare_grid
 
     hsdata = ds[hs_var]

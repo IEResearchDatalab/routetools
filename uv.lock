@@ -2189,6 +2189,7 @@ dependencies = [
     { name = "cartopy" },
     { name = "cma" },
     { name = "dask" },
+    { name = "gcsfs" },
     { name = "h3" },
     { name = "jax", extra = ["cuda"] },
     { name = "jaxlib" },
@@ -2206,6 +2207,7 @@ dependencies = [
     { name = "typer" },
     { name = "typer-slim" },
     { name = "xarray" },
+    { name = "zarr" },
 ]
 
 [package.optional-dependencies]
@@ -2239,6 +2241,7 @@ requires-dist = [
     { name = "cdsapi", marker = "extra == 'era5-cds'", specifier = ">=0.7.0" },
     { name = "cma", specifier = ">=4.0.0" },
     { name = "dask", specifier = ">=2024.1.0" },
+    { name = "gcsfs", specifier = ">=2026.2.0" },
     { name = "gcsfs", marker = "extra == 'era5-gcs'", specifier = ">=2024.1.0" },
     { name = "h3", specifier = "==4.0.0b2" },
     { name = "jax", extras = ["cuda"], specifier = "==0.8.1" },
@@ -2259,6 +2262,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.19.2" },
     { name = "typer-slim" },
     { name = "xarray", specifier = ">=2024.11.0" },
+    { name = "zarr", specifier = ">=3.1.5" },
     { name = "zarr", marker = "extra == 'era5-gcs'", specifier = ">=2.17.0" },
 ]
 provides-extras = ["cuda", "era5-cds", "era5-gcs", "swopp3"]
