@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from math import ceil
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -142,6 +142,30 @@ def _prepare_grid(
         "lon_name": lon_name,
         "time_name": time_name,
     }
+
+
+def load_dataset_epoch(path: str | Path) -> datetime:
+    """Return the first ERA5 timestamp as a naive UTC datetime.
+
+    Parameters
+    ----------
+    path : str or Path
+        Path to an ERA5 NetCDF dataset.
+
+    Returns
+    -------
+    datetime
+        First dataset timestamp as timezone-naive UTC datetime.
+    """
+    ds = _load_dataset(path)
+    try:
+        time_name = _get_coord_name(ds, ["time", "valid_time"])
+        epoch_np = ds[time_name].values[0]
+    finally:
+        ds.close()
+
+    ts = (epoch_np - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
+    return datetime.fromtimestamp(float(ts), tz=UTC).replace(tzinfo=None)
 
 
 def _build_field_closure(

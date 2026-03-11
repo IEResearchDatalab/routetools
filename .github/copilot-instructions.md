@@ -34,3 +34,12 @@ Write and reason in English.
 - Do not commit large generated outputs.
 - Treat `data/` contents as potentially large and optional in local environments.
 - Fail with clear error messages when optional datasets are missing.
+
+## Permissions
+
+- Make sure you have the necessary permissions to push to the repository. If you do not have permissions, stop and ask for them, guiding the user to the appropriate process to gain access.
+- You can add, commit and push changes to this repository. Never commit to 'main' or 'swopp' branches directly.
+- If you are on 'main' or 'swopp', create a new branch for your changes and open a pull request for review.
+- Create tests before implementing new features or fixing bugs. Tests should be in the `tests/` directory and follow existing patterns.
+- Make sure to run all tests and hooks before pushing your changes. If you encounter any issues, please fix them before pushing.
+- Do small commits, preferably one per logical change. This makes it easier to review and understand the history of changes.

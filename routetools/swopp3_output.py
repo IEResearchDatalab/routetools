@@ -22,13 +22,14 @@ from __future__ import annotations
 import csv
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from routetools._cost.haversine import haversine_distance_from_curve
+from routetools._cost.haversine import curve_distance_nm, waypoint_times_uniform
 
-# Nautical mile in metres
-_NM = 1852.0
+if TYPE_CHECKING:
+    import pandas as pd
 
 # SWOPP3 datetime format
 _DTFMT = "%Y-%m-%d %H:%M:%S"
@@ -39,6 +40,10 @@ TEAM = "IEUniversity"
 __all__ = [
     "TEAM",
     "file_a_row",
+    "resolve_file_a_path",
+    "resolve_file_b_path",
+    "read_file_a_dataframe",
+    "read_file_b_dataframe",
     "write_file_a",
     "write_file_b",
     "sailed_distance_nm",
@@ -62,8 +67,7 @@ def sailed_distance_nm(curve: jnp.ndarray) -> float:
     float
         Distance in nautical miles.
     """
-    segment_m = haversine_distance_from_curve(curve)
-    return float(jnp.sum(segment_m)) / _NM
+    return curve_distance_nm(curve)
 
 
 def waypoint_times(
@@ -94,15 +98,78 @@ def waypoint_times(
     ValueError
         If *curve* has no waypoints.
     """
-    L = curve.shape[0]
-    if L == 0:
-        raise ValueError("curve must contain at least one waypoint")
-    if L == 1:
-        return [departure]
-    total_seconds = passage_hours * 3600.0
-    return [
-        departure + timedelta(seconds=total_seconds * i / (L - 1)) for i in range(L)
-    ]
+    return waypoint_times_uniform(curve, departure, passage_hours)
+
+
+def resolve_file_a_path(
+    input_dir: str | Path,
+    casename: str,
+    submission: int | None = None,
+) -> Path:
+    """Resolve File A path for a case.
+
+    When *submission* is ``None``, returns the latest submission for the case.
+    """
+    input_dir = Path(input_dir)
+    if submission is None:
+        pattern = f"{TEAM}-*-{casename}.csv"
+        candidates = sorted(input_dir.glob(pattern))
+        if not candidates:
+            raise FileNotFoundError(
+                f"No summary CSV found for case '{casename}' in '{input_dir}'. "
+                f"Tried pattern '{pattern}'."
+            )
+
+        def _submission_key(path: Path) -> int:
+            parts = path.stem.split("-")
+            if len(parts) >= 3:
+                try:
+                    return int(parts[1])
+                except ValueError:
+                    return -1
+            return -1
+
+        candidates.sort(key=lambda path: (_submission_key(path), path.name))
+        return candidates[-1]
+
+    path = input_dir / file_a_name(submission, casename)
+    if not path.exists():
+        raise FileNotFoundError(f"Summary CSV not found: {path}")
+    return path
+
+
+def resolve_file_b_path(
+    input_dir: str | Path,
+    filename: str,
+) -> Path:
+    """Resolve File B path from details filename."""
+    path = Path(input_dir) / "tracks" / filename
+    if not path.exists():
+        raise FileNotFoundError(f"Track CSV not found: {path}")
+    return path
+
+
+def read_file_a_dataframe(
+    input_dir: str | Path,
+    casename: str,
+    submission: int | None = None,
+) -> pd.DataFrame:
+    """Read a File A CSV into a pandas DataFrame."""
+    import pandas as pd
+
+    path = resolve_file_a_path(input_dir, casename, submission=submission)
+    return pd.read_csv(path, parse_dates=["departure_time_utc", "arrival_time_utc"])
+
+
+def read_file_b_dataframe(
+    input_dir: str | Path,
+    filename: str,
+) -> pd.DataFrame:
+    """Read a File B CSV into a pandas DataFrame."""
+    import pandas as pd
+
+    path = resolve_file_b_path(input_dir, filename)
+    return pd.read_csv(path, parse_dates=["time_utc"])
 
 
 # ---------------------------------------------------------------------------
