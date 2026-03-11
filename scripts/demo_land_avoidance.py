@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Demo script for reroute_around_land on the DEHAM -> USNYC corridor.
+"""Demo script for reroute_around_land between configurable ports.
 
 The script:
 1. Builds a great-circle route (route_gc).
@@ -9,6 +9,7 @@ The script:
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -111,10 +112,12 @@ def _run_fms_with_endpoint_land_handling(
 
 
 def main(
+    src_port: str = "DEHAM",
+    dst_port: str = "USNYC",
     output: Path = Path("output/demo_land_avoidance.png"),
     n_points: int = 220,
     astar_resolution_scale: int = 2,
-    land_resolution: float = 0.01,
+    land_resolution: float = 0.08,
     ne_resolution: str = "50m",
     margin_deg: float = 6.0,
     fms_patience: int = 1000,
@@ -122,11 +125,39 @@ def main(
     fms_maxfevals: int = 100000,
     show: bool = False,
 ) -> None:
-    """Generate and plot DEHAM -> USNYC land-avoidance routes."""
-    src = np.array([DICT_PORTS["DEHAM"]["lon"], DICT_PORTS["DEHAM"]["lat"]])
-    dst = np.array([DICT_PORTS["USNYC"]["lon"], DICT_PORTS["USNYC"]["lat"]])
+    """Generate and plot land-avoidance routes between two ports."""
+    t0 = time.perf_counter()
+    t_last = t0
+
+    def log_step(message: str) -> None:
+        nonlocal t_last
+        t_now = time.perf_counter()
+        dt_step = t_now - t_last
+        dt_total = t_now - t0
+        print(f"[{dt_total:7.2f}s | +{dt_step:6.2f}s] {message}")
+        t_last = t_now
+
+    log_step("Starting demo_land_avoidance run")
+
+    src_port = src_port.upper()
+    dst_port = dst_port.upper()
+
+    if src_port not in DICT_PORTS:
+        raise ValueError(
+            f"Unknown src_port '{src_port}'. Valid codes: {sorted(DICT_PORTS)}"
+        )
+    if dst_port not in DICT_PORTS:
+        raise ValueError(
+            f"Unknown dst_port '{dst_port}'. Valid codes: {sorted(DICT_PORTS)}"
+        )
+
+    log_step(f"Using corridor {src_port} -> {dst_port}")
+
+    src = np.array([DICT_PORTS[src_port]["lon"], DICT_PORTS[src_port]["lat"]])
+    dst = np.array([DICT_PORTS[dst_port]["lon"], DICT_PORTS[dst_port]["lat"]])
 
     route_gc = np.asarray(great_circle_route(src, dst, n_points=n_points), dtype=float)
+    log_step(f"Built great-circle route with {n_points} points")
 
     lon_min = float(np.min(route_gc[:, 0]) - margin_deg)
     lon_max = float(np.max(route_gc[:, 0]) + margin_deg)
@@ -140,11 +171,19 @@ def main(
         ne_resolution=ne_resolution,
         interpolate=0,
     )
+    log_step(
+        "Loaded Natural Earth land mask "
+        f"({ne_resolution}, res={land_resolution}, shape={land.shape})"
+    )
 
     route_land = reroute_around_land(
         route_gc,
         land=land,
         astar_resolution_scale=astar_resolution_scale,
+    )
+    log_step(
+        "Computed rerouted path with "
+        f"astar_resolution_scale={astar_resolution_scale}"
     )
 
     route_fms, fms_info = _run_fms_with_endpoint_land_handling(
@@ -154,6 +193,11 @@ def main(
         damping=fms_damping,
         maxfevals=fms_maxfevals,
     )
+    log_step(
+        "Ran FMS refinement "
+        f"(patience={fms_patience}, damping={fms_damping}, "
+        f"maxfevals={fms_maxfevals}, status={fms_info.get('status')})"
+    )
 
     touch_gc = _land_touch_mask(route_gc, land)
     touch_land = _land_touch_mask(route_land, land)
@@ -161,6 +205,7 @@ def main(
     dist_gc_km = _route_distance_km(route_gc)
     dist_land_km = _route_distance_km(route_land)
     dist_fms_km = _route_distance_km(route_fms)
+    log_step("Computed route diagnostics (land touches and distances)")
 
     output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -238,14 +283,14 @@ def main(
 
     ax.scatter(src[0], src[1], color="black", s=40, zorder=7)
     ax.scatter(dst[0], dst[1], color="black", s=40, zorder=7)
-    ax.text(src[0], src[1], " DEHAM", va="bottom", ha="left")
-    ax.text(dst[0], dst[1], " USNYC", va="bottom", ha="left")
+    ax.text(src[0], src[1], f" {src_port}", va="bottom", ha="left")
+    ax.text(dst[0], dst[1], f" {dst_port}", va="bottom", ha="left")
 
     ax.set_xlim(lon_min, lon_max)
     ax.set_ylim(lat_min, lat_max)
     ax.set_xlabel("Longitude [deg]")
     ax.set_ylabel("Latitude [deg]")
-    ax.set_title("Land avoidance demo: DEHAM -> USNYC")
+    ax.set_title(f"Land avoidance demo: {src_port} -> {dst_port}")
     ax.grid(True, alpha=0.25)
     ax.legend(loc="best")
     fig.tight_layout()
@@ -254,8 +299,10 @@ def main(
     if show:
         plt.show()
     plt.close(fig)
+    log_step(f"Rendered and saved plot to {output}")
 
     print(f"Saved plot to: {output}")
+    print(f"corridor: {src_port} -> {dst_port}")
     print(f"route_gc distance: {dist_gc_km:.1f} km")
     print(f"route_land distance: {dist_land_km:.1f} km")
     print(f"route_fms distance: {dist_fms_km:.1f} km")
@@ -272,6 +319,8 @@ def main(
         print(f"fms iterations: {fms_info.get('niter')}")
     else:
         print(f"fms reason: {fms_info.get('reason')}")
+
+    log_step("Run complete")
 
 
 if __name__ == "__main__":
