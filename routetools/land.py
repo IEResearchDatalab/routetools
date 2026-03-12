@@ -1,3 +1,4 @@
+import heapq
 from functools import partial
 from math import ceil
 
@@ -435,3 +436,423 @@ def move_curve_away_from_land(
                 radius += step_size
             niter += 1
     return curve_new
+
+
+def _point_is_land(point: np.ndarray, land: Land) -> bool:
+    """Return True if a single point lies on land according to ``land``."""
+    return bool(np.asarray(land(np.asarray(point, dtype=float))).item())
+
+
+def _segment_crosses_land(
+    a: np.ndarray,
+    b: np.ndarray,
+    land: Land,
+    oversample: int = 6,
+) -> bool:
+    """Return True if the segment from ``a`` to ``b`` intersects land."""
+    dx = (land.xmax - land.xmin) / max(1, land.shape[0] - 1)
+    dy = (land.ymax - land.ymin) / max(1, land.shape[1] - 1)
+    steps = max(
+        abs((b[0] - a[0]) / max(dx, 1e-12)), abs((b[1] - a[1]) / max(dy, 1e-12))
+    )
+    # Use dense sampling to avoid false negatives near complex coastlines.
+    n_samples = max(101, int(np.ceil(oversample * steps)) + 1)
+
+    samples = np.linspace(a, b, n_samples)
+    is_land = np.asarray(land(samples), dtype=bool).reshape(-1)
+    return bool(is_land[1:-1].any())
+
+
+def _build_astar_grid(
+    land: Land,
+    astar_resolution_scale: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Build an A* land-mask grid (optionally upsampled)."""
+    if astar_resolution_scale < 1:
+        raise ValueError("astar_resolution_scale must be >= 1")
+
+    is_land = np.asarray(land.array, dtype=bool)
+    if astar_resolution_scale > 1:
+        is_land = np.kron(
+            is_land,
+            np.ones((astar_resolution_scale, astar_resolution_scale), dtype=bool),
+        )
+
+    x_axis = np.linspace(land.xmin, land.xmax, is_land.shape[0])
+    y_axis = np.linspace(land.ymin, land.ymax, is_land.shape[1])
+    return is_land, x_axis, y_axis
+
+
+def _dilate_land_mask(is_land: np.ndarray, radius: int) -> np.ndarray:
+    """Dilate boolean land mask by ``radius`` cells using 8-neighbour growth."""
+    if radius <= 0:
+        return is_land
+
+    dilated = is_land.copy()
+    for _ in range(radius):
+        padded = np.pad(dilated, 1, mode="edge")
+        expanded = np.zeros_like(dilated)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                expanded |= padded[
+                    1 + dx : 1 + dx + dilated.shape[0],
+                    1 + dy : 1 + dy + dilated.shape[1],
+                ]
+        dilated = expanded
+    return dilated
+
+
+def _point_to_cell(
+    point: np.ndarray,
+    x_axis: np.ndarray,
+    y_axis: np.ndarray,
+) -> tuple[int, int]:
+    """Map (lon, lat) to nearest A* grid index."""
+    ix = int(np.clip(np.searchsorted(x_axis, point[0]), 0, len(x_axis) - 1))
+    iy = int(np.clip(np.searchsorted(y_axis, point[1]), 0, len(y_axis) - 1))
+
+    if ix > 0 and abs(x_axis[ix - 1] - point[0]) < abs(x_axis[ix] - point[0]):
+        ix -= 1
+    if iy > 0 and abs(y_axis[iy - 1] - point[1]) < abs(y_axis[iy] - point[1]):
+        iy -= 1
+
+    return ix, iy
+
+
+def _nearest_water_cell(
+    cell: tuple[int, int],
+    water: np.ndarray,
+) -> tuple[int, int] | None:
+    """Return nearest water cell, searching outward in square rings."""
+    x0, y0 = cell
+    if water[x0, y0]:
+        return cell
+
+    max_radius = max(water.shape)
+    for radius in range(1, max_radius):
+        xmin = max(0, x0 - radius)
+        xmax = min(water.shape[0] - 1, x0 + radius)
+        ymin = max(0, y0 - radius)
+        ymax = min(water.shape[1] - 1, y0 + radius)
+
+        candidates: list[tuple[int, int]] = []
+        for ix in range(xmin, xmax + 1):
+            for iy in range(ymin, ymax + 1):
+                if ix not in (xmin, xmax) and iy not in (ymin, ymax):
+                    continue
+                if water[ix, iy]:
+                    candidates.append((ix, iy))
+
+        if candidates:
+            return min(candidates, key=lambda c: (c[0] - x0) ** 2 + (c[1] - y0) ** 2)
+
+    return None
+
+
+def _astar_cells(
+    start: tuple[int, int],
+    goal: tuple[int, int],
+    water: np.ndarray,
+) -> list[tuple[int, int]] | None:
+    """Run A* on the water grid and return the cell path from start to goal."""
+
+    def heuristic(cell: tuple[int, int]) -> float:
+        return float(np.hypot(cell[0] - goal[0], cell[1] - goal[1]))
+
+    neighbour_steps = [
+        (-1, -1, np.sqrt(2.0)),
+        (-1, 0, 1.0),
+        (-1, 1, np.sqrt(2.0)),
+        (0, -1, 1.0),
+        (0, 1, 1.0),
+        (1, -1, np.sqrt(2.0)),
+        (1, 0, 1.0),
+        (1, 1, np.sqrt(2.0)),
+    ]
+
+    open_heap: list[tuple[float, float, tuple[int, int]]] = []
+    heapq.heappush(open_heap, (heuristic(start), 0.0, start))
+    best_g: dict[tuple[int, int], float] = {start: 0.0}
+    came_from: dict[tuple[int, int], tuple[int, int]] = {}
+    closed: set[tuple[int, int]] = set()
+
+    while open_heap:
+        _, g_now, current = heapq.heappop(open_heap)
+        if current in closed:
+            continue
+
+        if current == goal:
+            path = [current]
+            while current in came_from:
+                current = came_from[current]
+                path.append(current)
+            return path[::-1]
+
+        closed.add(current)
+
+        for dx, dy, move_cost in neighbour_steps:
+            nx = current[0] + dx
+            ny = current[1] + dy
+            if nx < 0 or ny < 0 or nx >= water.shape[0] or ny >= water.shape[1]:
+                continue
+            if not water[nx, ny]:
+                continue
+
+            neighbour = (nx, ny)
+            tentative_g = g_now + move_cost
+            if tentative_g >= best_g.get(neighbour, np.inf):
+                continue
+
+            best_g[neighbour] = tentative_g
+            came_from[neighbour] = current
+            heapq.heappush(
+                open_heap,
+                (tentative_g + heuristic(neighbour), tentative_g, neighbour),
+            )
+
+    return None
+
+
+def _resample_polyline(polyline: np.ndarray, n_points: int) -> np.ndarray:
+    """Resample a polyline to exactly ``n_points`` interior waypoints."""
+    if n_points <= 0:
+        return np.empty((0, 2), dtype=float)
+
+    if len(polyline) < 2:
+        return np.repeat(polyline[[0]], n_points, axis=0)
+
+    seg_len = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
+    cumulative = np.concatenate([[0.0], np.cumsum(seg_len)])
+    total = float(cumulative[-1])
+    if total <= 0:
+        return np.repeat(polyline[[0]], n_points, axis=0)
+
+    targets = np.linspace(0.0, total, n_points + 2)[1:-1]
+    out = np.empty((n_points, 2), dtype=float)
+
+    j = 1
+    for i, target in enumerate(targets):
+        while j < len(cumulative) and cumulative[j] < target:
+            j += 1
+        if j >= len(cumulative):
+            out[i] = polyline[-1]
+            continue
+
+        left = j - 1
+        right = j
+        d0 = cumulative[left]
+        d1 = cumulative[right]
+        if d1 <= d0:
+            out[i] = polyline[right]
+            continue
+
+        alpha = (target - d0) / (d1 - d0)
+        out[i] = (1.0 - alpha) * polyline[left] + alpha * polyline[right]
+
+    return out
+
+
+def _polyline_crosses_land(polyline: np.ndarray, land: Land) -> bool:
+    """Return True when any segment of ``polyline`` crosses land."""
+    for i in range(len(polyline) - 1):
+        if _segment_crosses_land(polyline[i], polyline[i + 1], land):
+            return True
+    return False
+
+
+def _astar_segment_replacement(
+    a: np.ndarray,
+    b: np.ndarray,
+    n_removed: int,
+    is_land: np.ndarray,
+    x_axis: np.ndarray,
+    y_axis: np.ndarray,
+    land: Land,
+    max_safety_cells: int = 6,
+    allow_start_land: bool = False,
+    allow_end_land: bool = False,
+) -> np.ndarray | None:
+    """Compute A* replacement waypoints between two anchors."""
+    if n_removed <= 0:
+        return np.empty((0, 2), dtype=float)
+
+    for safety_cells in range(max_safety_cells + 1):
+        safe_land = _dilate_land_mask(is_land, safety_cells)
+        water = ~safe_land
+
+        start_cell = _nearest_water_cell(_point_to_cell(a, x_axis, y_axis), water)
+        end_cell = _nearest_water_cell(_point_to_cell(b, x_axis, y_axis), water)
+
+        if start_cell is None or end_cell is None:
+            continue
+
+        cells = _astar_cells(start_cell, end_cell, water)
+        if cells is None:
+            continue
+
+        path = np.array([[x_axis[ix], y_axis[iy]] for ix, iy in cells], dtype=float)
+        path[0] = a
+        path[-1] = b
+
+        replacement = _resample_polyline(path, n_removed)
+        candidate = np.vstack([a, replacement, b])
+        has_crossing = False
+        for i in range(len(candidate) - 1):
+            # If an endpoint is on land, the touching segment adjacent to that
+            # endpoint may be unavoidable; keep checking all interior segments.
+            if allow_start_land and i == 0:
+                continue
+            if allow_end_land and i == len(candidate) - 2:
+                continue
+            if _segment_crosses_land(candidate[i], candidate[i + 1], land):
+                has_crossing = True
+                break
+        if not has_crossing:
+            return replacement
+
+    return None
+
+
+def reroute_around_land(
+    route: np.ndarray,
+    land: Land,
+    astar_resolution_scale: int = 2,
+    max_passes: int = 4,
+    max_anchor_expansion: int = 12,
+) -> np.ndarray:
+    """Replace land-crossing route runs using A* on a high-resolution land grid.
+
+    The function keeps the original route length and edits only runs of segments
+    that intersect land.
+
+    Parameters
+    ----------
+    route : np.ndarray
+        Waypoints as an array of shape ``(N, 2)`` with ``[lon, lat]`` columns.
+    land : Land
+        The original ``routetools.land.Land`` object used for land/water checks.
+    astar_resolution_scale : int, optional
+        Integer upsampling factor for the A* occupancy grid. Values greater than
+        1 increase search resolution. Defaults to 2.
+    max_passes : int, optional
+        Maximum correction passes across the route. Defaults to 4.
+    max_anchor_expansion : int, optional
+        Maximum number of outward anchor-expansion attempts per crossing run.
+        Defaults to 12.
+
+    Returns
+    -------
+    np.ndarray
+        Corrected route with the same shape as ``route``.
+    """
+    route = np.asarray(route, dtype=float)
+    if route.ndim != 2 or route.shape[1] != 2:
+        raise ValueError(f"route must have shape (N, 2), got {route.shape}")
+    if not isinstance(land, Land):
+        raise TypeError("land must be an instance of routetools.land.Land")
+
+    n_points = len(route)
+    if n_points < 2:
+        return route.copy()
+
+    is_land, x_axis, y_axis = _build_astar_grid(land, astar_resolution_scale)
+    result = route.copy()
+
+    for _ in range(max_passes):
+        crossing_seg = np.zeros(n_points - 1, dtype=bool)
+        for i in range(n_points - 1):
+            crossing_seg[i] = _segment_crosses_land(result[i], result[i + 1], land)
+
+        if not crossing_seg.any():
+            break
+
+        runs: list[tuple[int, int]] = []
+        idx = 0
+        while idx < len(crossing_seg):
+            if not crossing_seg[idx]:
+                idx += 1
+                continue
+            end = idx
+            while end + 1 < len(crossing_seg) and crossing_seg[end + 1]:
+                end += 1
+            runs.append((idx, end))
+            idx = end + 1
+
+        for seg_start, seg_end in runs:
+            base_a_idx = seg_start
+            base_b_idx = seg_end + 1
+
+            while base_a_idx > 0 and _point_is_land(result[base_a_idx], land):
+                base_a_idx -= 1
+            while base_b_idx < n_points - 1 and _point_is_land(
+                result[base_b_idx], land
+            ):
+                base_b_idx += 1
+
+            if base_a_idx >= base_b_idx:
+                continue
+            base_a_is_land = _point_is_land(result[base_a_idx], land)
+            base_b_is_land = _point_is_land(result[base_b_idx], land)
+            if base_a_is_land and base_a_idx != 0:
+                continue
+            if base_b_is_land and base_b_idx != n_points - 1:
+                continue
+
+            applied = False
+            for expand in range(max_anchor_expansion + 1):
+                anchor_a_idx = max(0, base_a_idx - expand)
+                anchor_b_idx = min(n_points - 1, base_b_idx + expand)
+
+                while anchor_a_idx > 0 and _point_is_land(result[anchor_a_idx], land):
+                    anchor_a_idx -= 1
+                while anchor_b_idx < n_points - 1 and _point_is_land(
+                    result[anchor_b_idx], land
+                ):
+                    anchor_b_idx += 1
+
+                if anchor_a_idx >= anchor_b_idx:
+                    continue
+                anchor_a_is_land = _point_is_land(result[anchor_a_idx], land)
+                anchor_b_is_land = _point_is_land(result[anchor_b_idx], land)
+                allow_start_land = anchor_a_is_land and anchor_a_idx == 0
+                allow_end_land = anchor_b_is_land and anchor_b_idx == n_points - 1
+
+                if anchor_a_is_land and not allow_start_land:
+                    continue
+                if anchor_b_is_land and not allow_end_land:
+                    continue
+
+                n_removed = anchor_b_idx - anchor_a_idx - 1
+                if n_removed <= 0:
+                    continue
+
+                a = result[anchor_a_idx]
+                b = result[anchor_b_idx]
+                replacement = _astar_segment_replacement(
+                    a,
+                    b,
+                    n_removed,
+                    is_land,
+                    x_axis,
+                    y_axis,
+                    land,
+                    allow_start_land=allow_start_land,
+                    allow_end_land=allow_end_land,
+                )
+                if replacement is None:
+                    continue
+
+                result[anchor_a_idx + 1 : anchor_b_idx] = replacement
+                applied = True
+                break
+
+            if not applied:
+                n_removed = base_b_idx - base_a_idx - 1
+                if n_removed > 0:
+                    result[base_a_idx + 1 : base_b_idx] = np.linspace(
+                        result[base_a_idx],
+                        result[base_b_idx],
+                        n_removed + 2,
+                    )[1:-1]
+
+    return result
