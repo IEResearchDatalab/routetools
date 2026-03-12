@@ -60,6 +60,8 @@ app = typer.Typer(
     )
 )
 
+DEFAULT_SWOPP3_LAND_RESOLUTION = 0.05
+
 
 def _selected_corridors(case_ids: list[str]) -> list[str]:
     """Return the sorted set of route corridors required by ``case_ids``."""
@@ -110,6 +112,37 @@ def _validate_required_data_paths(
         "`uv run scripts/swopp3_run.py`.\n"
         "- If you downloaded a different year or only one corridor, "
         "pass matching `--wind-path*` and `--wave-path*` options."
+    )
+
+
+def _load_corridor_land_mask(
+    dataset_path: Path,
+    *,
+    land_resolution: float,
+    land_avoidance_resolution_scale: int,
+):
+    """Build a corridor land mask from the lon/lat extent in an ERA5 dataset."""
+    with xr.open_dataset(dataset_path) as ds:
+        for cname in ("longitude", "lon"):
+            if cname in ds.coords:
+                lons = ds[cname].values
+                break
+        else:
+            raise KeyError(f"No longitude coordinate found in {dataset_path}")
+        for cname in ("latitude", "lat"):
+            if cname in ds.coords:
+                lats = ds[cname].values
+                break
+        else:
+            raise KeyError(f"No latitude coordinate found in {dataset_path}")
+
+    lon_range = (float(lons.min()), float(lons.max()))
+    lat_range = (float(lats.min()), float(lats.max()))
+    return load_natural_earth_land_mask(
+        lon_range,
+        lat_range,
+        resolution=land_resolution,
+        avoidance_resolution_scale=land_avoidance_resolution_scale,
     )
 
 
@@ -191,6 +224,14 @@ def main(
         help=(
             "Shared A* grid scale used by all land-avoidance reroutes. "
             "Lower values are faster and coarser."
+        ),
+    ),
+    land_resolution: float = typer.Option(  # noqa: B008
+        DEFAULT_SWOPP3_LAND_RESOLUTION,
+        "--land-resolution",
+        help=(
+            "Natural Earth raster resolution in degrees for corridor land masks. "
+            "Larger values are faster and coarser."
         ),
     ),
     max_departures: int | None = typer.Option(  # noqa: B008
@@ -320,31 +361,15 @@ def main(
         wp = corridor_wave.get(corridor) or corridor_wind.get(corridor)
         if wp is None:
             raise ValueError(f"No wind/wave path available for corridor '{corridor}'")
-
-        with xr.open_dataset(wp) as ds:
-            for cname in ("longitude", "lon"):
-                if cname in ds.coords:
-                    lons = ds[cname].values
-                    break
-            else:
-                raise KeyError(f"No longitude coordinate found in {wp}")
-            for cname in ("latitude", "lat"):
-                if cname in ds.coords:
-                    lats = ds[cname].values
-                    break
-            else:
-                raise KeyError(f"No latitude coordinate found in {wp}")
-        lon_range = (float(lons.min()), float(lons.max()))
-        lat_range = (float(lats.min()), float(lats.max()))
         typer.echo(
             f"Building Natural Earth land mask for {corridor} "
-            f"lon={lon_range}, lat={lat_range}, "
+            f"from {wp}, land_resolution={land_resolution}, "
             f"avoidance_scale={land_avoidance_resolution_scale} …"
         )
-        land = load_natural_earth_land_mask(
-            lon_range,
-            lat_range,
-            avoidance_resolution_scale=land_avoidance_resolution_scale,
+        land = _load_corridor_land_mask(
+            wp,
+            land_resolution=land_resolution,
+            land_avoidance_resolution_scale=land_avoidance_resolution_scale,
         )
         _loaded_land[corridor] = land
         return land
