@@ -4,8 +4,8 @@ Orchestrates the end-to-end pipeline:
 
 1. **Great-Circle (GC) cases** — fixed geodesic route, constant speed,
    energy evaluated via the RISE performance model.
-2. **Optimised (O) cases** — CMA-ES route optimisation followed by energy
-   evaluation.
+2. **Optimised (O) cases** — CMA-ES route optimisation, optional land
+    rerouting, followed by energy evaluation.
 
 Both modes support WPS (wingsails on) and noWPS (engine only).
 
@@ -29,6 +29,7 @@ import jax.numpy as jnp
 
 from routetools.cost import evaluate_route_energy
 from routetools.cost import segment_bearings_deg as _segment_bearings_deg
+from routetools.land import reroute_around_land
 from routetools.swopp3 import (
     SWOPP3_CASES,
     case_endpoints,
@@ -210,7 +211,9 @@ def run_optimised_departure(
     """Optimise and evaluate a single departure using CMA-ES.
 
     The CMA-ES optimizer minimises travel cost through the wind field.
-    Energy is then evaluated post-hoc with the SWOPP3 performance model.
+    The resulting route is optionally corrected by
+    :func:`routetools.land.reroute_around_land`, then energy is evaluated
+    post-hoc with the SWOPP3 performance model.
 
     Parameters
     ----------
@@ -301,6 +304,9 @@ def run_optimised_departure(
             land=land,
             **defaults,
         )
+
+        if land is not None:
+            curve = jnp.asarray(reroute_around_land(curve, land))
     else:
         # No vectorfield → fall back to great circle
         curve = great_circle_route(src, dst, n_points=n_points)

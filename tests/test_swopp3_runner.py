@@ -258,6 +258,77 @@ class TestRunOptimisedDeparture:
         assert isinstance(result, DepartureResult)
         assert captured["windfield"] is _zero_windfield
 
+    def test_cmaes_route_is_rerouted_before_energy(self, monkeypatch):
+        """Optimised route must pass through reroute_around_land before energy."""
+        cmaes_curve = jnp.array(
+            [
+                [-4.0, 43.6],
+                [-10.0, 44.0],
+                [-20.0, 43.0],
+                [-73.8, 40.53],
+            ]
+        )
+        rerouted_curve = np.array(
+            [
+                [-4.0, 43.6],
+                [-10.0, 45.0],
+                [-20.0, 44.5],
+                [-73.8, 40.53],
+            ]
+        )
+        captured: dict[str, object] = {}
+
+        def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
+            _ = vectorfield, src, dst, land, kwargs
+            return cmaes_curve, {"cost": 0.0}
+
+        def fake_reroute(route, land):
+            captured["reroute_input_route"] = np.asarray(route)
+            captured["reroute_input_land"] = land
+            return rerouted_curve
+
+        def fake_evaluate_energy(
+            curve,
+            departure,
+            passage_hours,
+            wps,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+        ):
+            _ = departure, passage_hours, wps, windfield, wavefield, departure_offset_h
+            captured["energy_input_curve"] = np.asarray(curve)
+            return 123.0, 12.0, 3.0
+
+        monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.reroute_around_land",
+            fake_reroute,
+        )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.evaluate_energy",
+            fake_evaluate_energy,
+        )
+
+        land_sentinel = object()
+        result = run_optimised_departure(
+            "AO_WPS",
+            _DEP,
+            vectorfield=_zero_windfield,
+            windfield=_zero_windfield,
+            land=land_sentinel,
+            n_points=4,
+        )
+
+        np.testing.assert_allclose(
+            captured["reroute_input_route"],
+            np.asarray(cmaes_curve),
+        )
+        assert captured["reroute_input_land"] is land_sentinel
+        np.testing.assert_allclose(captured["energy_input_curve"], rerouted_curve)
+        np.testing.assert_allclose(np.asarray(result.curve), rerouted_curve)
+        assert result.energy_mwh == pytest.approx(123.0)
+
 
 # ---------------------------------------------------------------------------
 # run_case
