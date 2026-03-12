@@ -4,8 +4,8 @@ Orchestrates the end-to-end pipeline:
 
 1. **Great-Circle (GC) cases** — fixed geodesic route, constant speed,
    energy evaluated via the RISE performance model.
-2. **Optimised (O) cases** — CMA-ES route optimisation followed by energy
-   evaluation.
+2. **Optimised (O) cases** — CMA-ES route optimisation, optional land
+    rerouting, followed by energy evaluation.
 
 Both modes support WPS (wingsails on) and noWPS (engine only).
 
@@ -26,9 +26,13 @@ from datetime import datetime
 from pathlib import Path
 
 import jax.numpy as jnp
+import numpy as np
 
-from routetools.cost import evaluate_route_energy
+import routetools.cmaes as cmaes
+import routetools.cost as cost
+import routetools.fms as fms
 from routetools.cost import segment_bearings_deg as _segment_bearings_deg
+from routetools.land import reroute_around_land, route_crosses_land
 from routetools.swopp3 import (
     SWOPP3_CASES,
     case_endpoints,
@@ -103,7 +107,7 @@ def segment_bearings_deg(curve: jnp.ndarray) -> jnp.ndarray:
     This wrapper is kept for backwards compatibility and delegates to
     :func:`routetools.cost.segment_bearings_deg`.
     """
-    return _segment_bearings_deg(curve)
+    return jnp.asarray(_segment_bearings_deg(curve))
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +128,7 @@ def evaluate_energy(
     :func:`routetools.cost.evaluate_route_energy`.
     """
     _ = departure
-    return evaluate_route_energy(
+    return cost.evaluate_route_energy(
         curve,
         passage_hours,
         wps=wps,
@@ -205,14 +209,14 @@ def run_optimised_departure(
     land=None,
     departure_offset_h: float = 0.0,
     n_points: int = 100,
-    **cmaes_kwargs,
+    verbose: bool = False,
 ) -> DepartureResult:
     """Optimise and evaluate a single departure using CMA-ES.
 
     The CMA-ES optimizer minimises travel cost through the wind field.
-    Energy is then evaluated post-hoc with the SWOPP3 performance model.
-    Missing optimisation inputs are treated as an error; this function does
-    not fall back to a great-circle route.
+    The resulting route is optionally corrected by
+    :func:`routetools.land.reroute_around_land`, then energy is evaluated
+    post-hoc with the SWOPP3 performance model.
 
     Parameters
     ----------
@@ -232,8 +236,6 @@ def run_optimised_departure(
         Time offset (hours) from field origin to departure.
     n_points : int
         Number of waypoints (CMA-ES ``L`` parameter).
-    **cmaes_kwargs
-        Additional keyword arguments passed to :func:`routetools.cmaes.optimize`.
 
     Returns
     -------
@@ -252,69 +254,122 @@ def run_optimised_departure(
 
     t0 = _time.time()
 
-    if vectorfield is not None:
-        if windfield is None:
-            import warnings
-
-            warnings.warn(
-                "vectorfield provided without windfield; defaulting "
-                "windfield to vectorfield for RISE energy cost.",
-                stacklevel=2,
-            )
-            windfield = vectorfield
-        # Lazy import to avoid circular dependency / heavy JAX load
-        from routetools.cmaes import optimize as cmaes_optimize
-        from routetools.cost import cost_function_rise
-
-        # Initialise from the great-circle route so CMA-ES starts near
-        # the geodesic.
-        gc_init = great_circle_route(src, dst, n_points=n_points)
-        # great_circle_route may unwrap longitude through the
-        # antimeridian (e.g. -121° becomes 239°).  Use the unwrapped
-        # endpoints so the CMA-ES endpoint check passes and the Bézier
-        # curve stays in a consistent longitude range.
-        src_opt = jnp.array([gc_init[0, 0], gc_init[0, 1]])
-        dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
-
-        # Build a RISE-based cost closure for CMA-ES.
-        # This directly minimises SWOPP3 energy (MWh) instead of the
-        # ocean-current proxy ‖SOG − wind‖².
-        _wps = case["wps"]
-
-        def _rise_cost(curve_batch: jnp.ndarray) -> jnp.ndarray:
-            return cost_function_rise(
-                windfield=windfield,
-                curve=curve_batch,
-                travel_time=travel_time,
-                wavefield=wavefield,
-                wps=_wps,
-                time_offset=departure_offset_h,
-            )
-
-        defaults = dict(
-            K=10,
-            L=n_points,
-            curve0=gc_init,
-            sigma0=0.1,
-            cost_fn=_rise_cost,
-            penalty=1000,
-            land_margin=2,
-            verbose=False,
-        )
-        defaults.update(cmaes_kwargs)
-
-        curve, info = cmaes_optimize(
-            vectorfield=vectorfield,
-            src=src_opt,
-            dst=dst_opt,
-            land=land,
-            **defaults,
-        )
-    else:
-        # No vectorfield → raise error
+    if vectorfield is None:
         raise ValueError(
             "Optimised departure requires a vectorfield for CMA-ES.  "
             "Provide a vectorfield or use run_gc_departure for a great-circle route.",
+        )
+
+    if windfield is None:
+        import warnings
+
+        warnings.warn(
+            "vectorfield provided without windfield; defaulting "
+            "windfield to vectorfield for RISE energy cost.",
+            stacklevel=2,
+        )
+        windfield = vectorfield
+
+    # Initialise from the great-circle route so CMA-ES starts near the geodesic.
+    gc_init = great_circle_route(src, dst, n_points=n_points)
+    # great_circle_route may unwrap longitude through the antimeridian
+    # (e.g. -121° becomes 239°). Use the unwrapped endpoints so the CMA-ES
+    # endpoint check passes and the Bézier curve stays in a consistent
+    # longitude range.
+    src_opt = jnp.array([gc_init[0, 0], gc_init[0, 1]])
+    dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
+
+    # Build a RISE-based cost closure for CMA-ES. This directly minimises
+    # SWOPP3 energy (MWh) instead of the ocean-current proxy ‖SOG − wind‖².
+    _wps = case["wps"]
+
+    def _rise_cost(curve: jnp.ndarray, **kwargs) -> jnp.ndarray:
+        return cost.cost_function_rise(
+            windfield=windfield,
+            curve=curve,
+            travel_time=travel_time,
+            wavefield=wavefield,
+            wps=_wps,
+            time_offset=departure_offset_h,
+        )
+
+    curve, _cmaes_info = cmaes.optimize(
+        vectorfield=vectorfield,
+        src=src_opt,
+        dst=dst_opt,
+        curve0=gc_init,
+        land=land,
+        wavefield=wavefield,
+        windfield=windfield,
+        penalty=1000,
+        weather_penalty_weight=0.0,
+        tws_limit=20.0,
+        hs_limit=7.0,
+        travel_stw=None,
+        travel_time=travel_time,
+        K=10,
+        L=n_points,
+        num_pieces=1,
+        force_L_multiple_of_num_pieces=False,
+        popsize=200,
+        sigma0=0.1,
+        tolfun=1e-4,
+        damping=1.0,
+        maxfevals=25000,
+        weight_l1=1.0,
+        weight_l2=0.0,
+        keep_top=0.0,
+        spherical_correction=False,
+        seed=jnp.nan,
+        time_offset=departure_offset_h,
+        cost_fn=_rise_cost,
+        land_margin=2,
+        verbose=False,
+    )
+
+    if land is not None:
+        curve = jnp.asarray(
+            reroute_around_land(
+                np.asarray(curve),
+                land,
+                max_passes=1,
+                max_anchor_expansion=6,
+            )
+        )
+
+    curve, _fms_info = fms.optimize_fms(
+        vectorfield=vectorfield,
+        curve=curve,
+        land=land,
+        wavefield=wavefield,
+        travel_stw=None,
+        travel_time=travel_time,
+        costfun=_rise_cost,
+        spherical_correction=False,
+        patience=50,
+        damping=0.9,
+        maxfevals=5000,
+        weight_l1=1.0,
+        weight_l2=0.0,
+        verbose=False,
+    )
+    curve = jnp.asarray(curve)
+    if curve.ndim == 3:
+        curve = curve[0]
+
+    if land is not None and route_crosses_land(
+        np.asarray(curve),
+        land,
+        allow_start_land=True,
+        allow_end_land=True,
+    ):
+        curve = jnp.asarray(
+            reroute_around_land(
+                np.asarray(curve),
+                land,
+                max_passes=1,
+                max_anchor_expansion=6,
+            )
         )
 
     distance_nm = sailed_distance_nm(curve)
@@ -356,7 +411,6 @@ def run_case(
     n_points: int = 100,
     verbose: bool = True,
     dataset_epoch: datetime | None = None,
-    **cmaes_kwargs,
 ) -> list[DepartureResult]:
     """Run all departures for a single SWOPP3 case.
 
@@ -389,9 +443,6 @@ def run_case(
         the departure-to-field time offset is computed automatically for
         each departure.  If ``None``, offset = 0 (suitable only when each
         departure loads its own field with ``departure_time``).
-    **cmaes_kwargs
-        Extra arguments for CMA-ES (optimised cases only). Optimised cases
-        require ``vectorfield`` to be provided.
 
     Returns
     -------
@@ -445,7 +496,7 @@ def run_case(
                 land=land,
                 departure_offset_h=departure_offset_h,
                 n_points=n_points,
-                **cmaes_kwargs,
+                verbose=False,
             )
 
         results.append(result)

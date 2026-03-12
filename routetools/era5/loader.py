@@ -598,6 +598,7 @@ def load_era5_land_mask(
     land.interpolate = 10  # insert 10 sub-points between waypoints to catch narrow land
     land.outbounds_is_land = True
     land.penalize_segments = False
+    land.avoidance_resolution_scale = 2
     land._map_mode = "nearest"
     land._map_order = 0
 
@@ -633,6 +634,7 @@ def load_natural_earth_land_mask(
     resolution: float = 0.01,
     ne_resolution: str = "10m",
     interpolate: int = 50,
+    avoidance_resolution_scale: int = 2,
 ) -> Land:
     """Create a high-resolution land mask from Natural Earth shapefiles.
 
@@ -656,6 +658,9 @@ def load_natural_earth_land_mask(
         Number of sub-points inserted between waypoints for segment
         checking (passed to ``Land``).  Default 50 gives ~1 km spacing
         with L=100 waypoints, matching the 0.01° mask resolution.
+    avoidance_resolution_scale : int
+        Shared A* grid scale used by rerouting on the returned ``Land``
+        object. Lower values are faster and coarser.
 
     Returns
     -------
@@ -784,6 +789,9 @@ def load_natural_earth_land_mask(
     land.interpolate = interpolate
     land.outbounds_is_land = True
     land.penalize_segments = False
+    if avoidance_resolution_scale < 1:
+        raise ValueError("avoidance_resolution_scale must be >= 1")
+    land.avoidance_resolution_scale = int(avoidance_resolution_scale)
     land._map_mode = "nearest"
     land._map_order = 0
 
