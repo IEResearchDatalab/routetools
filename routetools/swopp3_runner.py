@@ -332,7 +332,6 @@ def run_optimised_departure(
             reroute_around_land(
                 np.asarray(curve),
                 land,
-                astar_resolution_scale=1,
                 max_passes=1,
                 max_anchor_expansion=6,
             )
@@ -368,7 +367,6 @@ def run_optimised_departure(
             reroute_around_land(
                 np.asarray(curve),
                 land,
-                astar_resolution_scale=1,
                 max_passes=1,
                 max_anchor_expansion=6,
             )

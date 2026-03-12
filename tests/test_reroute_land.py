@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import routetools.land as land_module
 from routetools.land import Land, reroute_around_land, route_crosses_land
 
 
@@ -164,6 +165,27 @@ def test_all_water_land_is_noop(route_crossing):
     land = _make_land([])
     result = reroute_around_land(route_crossing, land)
     np.testing.assert_array_equal(result, route_crossing)
+
+
+def test_reroute_uses_land_avoidance_resolution_by_default(
+    route_no_crossing,
+    vertical_strip_land,
+    monkeypatch,
+):
+    """Default reroute resolution should come from the Land object."""
+    captured: dict[str, int] = {}
+    original_build_astar_grid = land_module._build_astar_grid
+    vertical_strip_land.avoidance_resolution_scale = 5
+
+    def wrapped_build_astar_grid(land: Land, astar_resolution_scale: int):
+        captured["astar_resolution_scale"] = astar_resolution_scale
+        return original_build_astar_grid(land, astar_resolution_scale)
+
+    monkeypatch.setattr(land_module, "_build_astar_grid", wrapped_build_astar_grid)
+
+    reroute_around_land(route_no_crossing, vertical_strip_land)
+
+    assert captured["astar_resolution_scale"] == 5
 
 
 def test_endpoint_on_land_still_reroutes_middle_points():

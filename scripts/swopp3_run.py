@@ -185,6 +185,14 @@ def main(
         "--n-points",
         help="Number of route waypoints.",
     ),
+    land_avoidance_resolution_scale: int = typer.Option(  # noqa: B008
+        1,
+        "--land-avoidance-resolution-scale",
+        help=(
+            "Shared A* grid scale used by all land-avoidance reroutes. "
+            "Lower values are faster and coarser."
+        ),
+    ),
     max_departures: int | None = typer.Option(  # noqa: B008
         None,
         "--max-departures",
@@ -330,9 +338,14 @@ def main(
         lat_range = (float(lats.min()), float(lats.max()))
         typer.echo(
             f"Building Natural Earth land mask for {corridor} "
-            f"lon={lon_range}, lat={lat_range} …"
+            f"lon={lon_range}, lat={lat_range}, "
+            f"avoidance_scale={land_avoidance_resolution_scale} …"
         )
-        land = load_natural_earth_land_mask(lon_range, lat_range)
+        land = load_natural_earth_land_mask(
+            lon_range,
+            lat_range,
+            avoidance_resolution_scale=land_avoidance_resolution_scale,
+        )
         _loaded_land[corridor] = land
         return land
 

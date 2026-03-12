@@ -61,7 +61,6 @@ def _run_fms_with_endpoint_land_handling(
     patience: int,
     damping: float,
     maxfevals: int,
-    astar_resolution_scale: int,
 ) -> tuple[np.ndarray, dict[str, object]]:
     """Run FMS and optionally strip/restore boundary points that are on land."""
     route_in = np.asarray(route, dtype=float)
@@ -116,11 +115,7 @@ def _run_fms_with_endpoint_land_handling(
     )
     post_fms_reroute_applied = bool(crossing_before_fix)
     if post_fms_reroute_applied:
-        route_fms = reroute_around_land(
-            route_fms,
-            land,
-            astar_resolution_scale=astar_resolution_scale,
-        )
+        route_fms = reroute_around_land(route_fms, land)
 
     crossing_after_fix = route_crossing_segment_indices(
         route_fms,
@@ -145,7 +140,7 @@ def main(
     dst_port: str = "USNYC",
     output: Path = Path("output/demo_land_avoidance.png"),
     n_points: int = 220,
-    astar_resolution_scale: int = 2,
+    land_avoidance_resolution_scale: int = 2,
     land_resolution: float = 0.08,
     ne_resolution: str = "50m",
     margin_deg: float = 6.0,
@@ -199,19 +194,18 @@ def main(
         resolution=land_resolution,
         ne_resolution=ne_resolution,
         interpolate=0,
+        avoidance_resolution_scale=land_avoidance_resolution_scale,
     )
     log_step(
         "Loaded Natural Earth land mask "
-        f"({ne_resolution}, res={land_resolution}, shape={land.shape})"
+        f"({ne_resolution}, res={land_resolution}, shape={land.shape}, "
+        f"avoidance_scale={land.avoidance_resolution_scale})"
     )
 
-    route_land = reroute_around_land(
-        route_gc,
-        land=land,
-        astar_resolution_scale=astar_resolution_scale,
-    )
+    route_land = reroute_around_land(route_gc, land=land)
     log_step(
-        f"Computed rerouted path with astar_resolution_scale={astar_resolution_scale}"
+        "Computed rerouted path "
+        f"with land_avoidance_resolution_scale={land.avoidance_resolution_scale}"
     )
 
     route_fms, fms_info = _run_fms_with_endpoint_land_handling(
@@ -220,7 +214,6 @@ def main(
         patience=fms_patience,
         damping=fms_damping,
         maxfevals=fms_maxfevals,
-        astar_resolution_scale=astar_resolution_scale,
     )
     log_step(
         "Ran FMS refinement "

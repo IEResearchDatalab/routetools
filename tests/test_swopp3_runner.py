@@ -533,23 +533,13 @@ class TestRunOptimisedDeparture:
             )
             return jnp.asarray(fms_curve)[None, ...], {"cost": [0.0]}
 
-        def fake_reroute(
-            route,
-            land,
-            astar_resolution_scale=2,
-            max_passes=4,
-            max_anchor_expansion=12,
-        ):
+        def fake_reroute(route, land, **kwargs):
             reroute_calls = captured.setdefault("reroute_calls", [])
             reroute_calls.append(
                 {
                     "route": np.asarray(route),
                     "land": land,
-                    "kwargs": {
-                        "astar_resolution_scale": astar_resolution_scale,
-                        "max_passes": max_passes,
-                        "max_anchor_expansion": max_anchor_expansion,
-                    },
+                    "kwargs": kwargs,
                 }
             )
             if len(reroute_calls) == 1:
@@ -616,12 +606,10 @@ class TestRunOptimisedDeparture:
         assert captured["reroute_calls"][0]["land"] is land_sentinel
         assert captured["reroute_calls"][1]["land"] is land_sentinel
         assert captured["reroute_calls"][0]["kwargs"] == {
-            "astar_resolution_scale": 1,
             "max_passes": 1,
             "max_anchor_expansion": 6,
         }
         assert captured["reroute_calls"][1]["kwargs"] == {
-            "astar_resolution_scale": 1,
             "max_passes": 1,
             "max_anchor_expansion": 6,
         }

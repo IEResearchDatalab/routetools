@@ -11,6 +11,29 @@ from perlin_numpy import generate_perlin_noise_2d as pn2d
 
 from routetools._cost.haversine import haversine_meters_components
 
+DEFAULT_AVOIDANCE_RESOLUTION_SCALE = 2
+
+
+def _coerce_avoidance_resolution_scale(value: int) -> int:
+    """Validate and normalize the shared land-avoidance resolution scale."""
+    scale = int(value)
+    if scale < 1:
+        raise ValueError("avoidance_resolution_scale must be >= 1")
+    return scale
+
+
+def _resolve_avoidance_resolution_scale(land, override: int | None) -> int:
+    """Resolve the A* grid scale from an explicit override or the Land object."""
+    if override is not None:
+        return _coerce_avoidance_resolution_scale(override)
+    return _coerce_avoidance_resolution_scale(
+        getattr(
+            land,
+            "avoidance_resolution_scale",
+            DEFAULT_AVOIDANCE_RESOLUTION_SCALE,
+        )
+    )
+
 
 class Land:
     """Class to check if points on a curve are on land."""
@@ -28,6 +51,7 @@ class Land:
         penalize_segments: bool = True,
         map_mode: str = "nearest",
         map_order: int = 0,
+        avoidance_resolution_scale: int = DEFAULT_AVOIDANCE_RESOLUTION_SCALE,
     ):
         """Class to check if points on a curve are on land.
 
@@ -57,6 +81,9 @@ class Land:
         map_order : int, optional
             The order of the spline interpolation,
             by default 0. 0 for nearest neighbor, 1 for bilinear.
+        avoidance_resolution_scale : int, optional
+            Shared A* grid scale used by land-avoidance rerouting when no
+            per-call override is provided. Lower values are faster and coarser.
         """
         # Ensure resolution is 2D
         if resolution is None:
@@ -110,6 +137,9 @@ class Land:
         self.interpolate = interpolate
         self.outbounds_is_land = outbounds_is_land
         self.penalize_segments = penalize_segments
+        self.avoidance_resolution_scale = _coerce_avoidance_resolution_scale(
+            avoidance_resolution_scale
+        )
 
         land_indices = jnp.argwhere(self._array)
         self._lats = self.y[land_indices[:, 1]]
@@ -793,7 +823,7 @@ def _astar_segment_replacement(
 def reroute_around_land(
     route: np.ndarray,
     land: Land,
-    astar_resolution_scale: int = 2,
+    astar_resolution_scale: int | None = None,
     max_passes: int = 4,
     max_anchor_expansion: int = 12,
 ) -> np.ndarray:
@@ -809,8 +839,9 @@ def reroute_around_land(
     land : Land
         The original ``routetools.land.Land`` object used for land/water checks.
     astar_resolution_scale : int, optional
-        Integer upsampling factor for the A* occupancy grid. Values greater than
-        1 increase search resolution. Defaults to 2.
+        Integer upsampling factor for the A* occupancy grid. When omitted, the
+        function uses ``land.avoidance_resolution_scale``. Values greater than
+        1 increase search resolution.
     max_passes : int, optional
         Maximum correction passes across the route. Defaults to 4.
     max_anchor_expansion : int, optional
@@ -827,6 +858,9 @@ def reroute_around_land(
         raise ValueError(f"route must have shape (N, 2), got {route.shape}")
     if not isinstance(land, Land):
         raise TypeError("land must be an instance of routetools.land.Land")
+    astar_resolution_scale = _resolve_avoidance_resolution_scale(
+        land, astar_resolution_scale
+    )
 
     n_points = len(route)
     if n_points < 2:
