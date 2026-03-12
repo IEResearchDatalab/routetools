@@ -214,7 +214,7 @@ def main(
         help="Submission number for file naming.",
     ),
     n_points: int = typer.Option(  # noqa: B008
-        100,
+        300,
         "--n-points",
         help="Number of route waypoints.",
     ),

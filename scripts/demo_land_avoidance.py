@@ -139,7 +139,7 @@ def main(
     src_port: str = "DEHAM",
     dst_port: str = "USNYC",
     output: Path = Path("output/demo_land_avoidance.png"),
-    n_points: int = 500,
+    n_points: int = 300,
     land_avoidance_resolution_scale: int = 2,
     land_resolution: float = 0.08,
     ne_resolution: str = "50m",
