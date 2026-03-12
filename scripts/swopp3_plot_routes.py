@@ -550,7 +550,7 @@ def plot_distance_vs_energy(
 @app.command()
 def main(
     input_dir: Path = typer.Option(  # noqa: B008
-        "output/swopp3_rise",
+        "output/swopp3",
         "--input-dir",
         "-i",
         help="Directory containing SWOPP3 output CSVs.",
