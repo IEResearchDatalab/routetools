@@ -15,6 +15,7 @@ The CMA-ES optimizer in `routetools` was designed for **ocean-current** routing 
 **Root cause:** `cost_function()` had no `time_offset` parameter. The time-variant cost functions computed segment timestamps starting from `t=0`.
 
 **Fix (committed `73e8b05`):**
+
 - Added `time_offset: float = 0.0` to `cost_function`, `cost_function_constant_cost_time_variant`, `_cma_evolution_strategy`, `optimize`, and `optimize_with_increasing_penalization`
 - Made `time_offset` a **non-static** JAX argument (not in `static_argnames`) so changing it per-departure does not trigger JIT recompilation
 - `run_case()` now computes offset from the dataset epoch:
@@ -36,20 +37,21 @@ departure_offset_h = (dep_naive - epoch_naive).total_seconds() / 3600.0
 
 $$\text{cost} = \sum_i \frac{1}{2} \|\mathbf{v}_{\text{SOG},i} - \mathbf{w}_i\|^2 \cdot \Delta t$$
 
-where $\mathbf{w}$ is the vectorfield (wind in SWOPP3). This formula interprets $\mathbf{w}$ as **medium velocity** (ocean current) — the ship's effort is its speed *through the water* relative to the current.
+where $\mathbf{w}$ is the vectorfield (wind in SWOPP3). This formula interprets $\mathbf{w}$ as **medium velocity** (ocean current) — the ship's effort is its speed _through the water_ relative to the current.
 
 For ocean currents this is physically correct: a ship traveling with the current needs less thrust, against it needs more. But **wind does not transport the ship**. Wind acts on sails (WPS) and creates aerodynamic drag, but it does not change the ship's speed-over-ground like a current does.
 
-**Consequence:** CMA-ES finds routes that "follow the wind" (minimising ‖SOG − wind‖²), producing detours 1.5–2× longer than GC. These routes have *lower CMA-ES cost* but *higher actual energy* in the RISE performance model because:
+**Consequence:** CMA-ES finds routes that "follow the wind" (minimising ‖SOG − wind‖²), producing detours 1.5–2× longer than GC. These routes have _lower CMA-ES cost_ but _higher actual energy_ in the RISE performance model because:
+
 - Longer distance at fixed time → higher SOG → enormously more hydrodynamic drag (P ∝ v³)
 - The "benefit" of aligning with wind is illusory — wind velocity (10 m/s) was being subtracted from ship displacement rate, but that's not how ship propulsion works
 
 **Evidence (smoke test with correct units, 2 departures):**
 
-| Case | GC Distance | GC Energy | Opt Distance | Opt Energy |
-|------|-------------|-----------|--------------|------------|
-| AO_WPS | 3023 nm | 185.65 MWh | 4557 nm | 434 MWh |
-| PO_WPS | 4653 nm | 124.49 MWh | 5702 nm | 268 MWh |
+| Case   | GC Distance | GC Energy  | Opt Distance | Opt Energy |
+| ------ | ----------- | ---------- | ------------ | ---------- |
+| AO_WPS | 3023 nm     | 185.65 MWh | 4557 nm      | 434 MWh    |
+| PO_WPS | 4653 nm     | 124.49 MWh | 5702 nm      | 268 MWh    |
 
 **Root cause:** The cost functions in `routetools/cost.py` were designed for the ocean-current benchmark problems (Zermelo-type navigation). The `constant_speed` variants use the correct current physics:
 
@@ -77,7 +79,7 @@ dydt = dy / dt_s
 cost = ((dxdt - uinterp) ** 2 + (dydt - vinterp) ** 2) / 2
 ```
 
-This is kinetic energy of the ship's velocity *relative to the medium* (water + current). Only makes physical sense when `w` is an ocean current (medium velocity), not wind.
+This is kinetic energy of the ship's velocity _relative to the medium_ (water + current). Only makes physical sense when `w` is an ocean current (medium velocity), not wind.
 
 **What would be needed:** A JAX-compatible cost function that models the effect of wind and waves on ship energy — essentially a differentiable or at least JAX-traced version of the RISE performance model (`predict_power_batch`). The current RISE model uses NumPy lookup tables and is not JIT-compatible.
 
@@ -195,12 +197,12 @@ This gives effective sigma ≈ 5° for Pacific, ≈ 3° for Atlantic.
 
 **Status of wave integration across cost functions:**
 
-| Cost Function | Waves? | Note |
-|---|---|---|
-| `constant_speed_time_invariant` | ✅ Yes | `wave_adjusted_speed()` reduces STW |
-| `constant_speed_time_variant` | ✅ Yes | Same wave model, with `lax.scan` for time |
-| `constant_cost_time_invariant` | ❌ No | Has `# TODO: Implement wavefield effects` |
-| `constant_cost_time_variant` | ❌ No | New function, no wave integration |
+| Cost Function                   | Waves? | Note                                      |
+| ------------------------------- | ------ | ----------------------------------------- |
+| `constant_speed_time_invariant` | ✅ Yes | `wave_adjusted_speed()` reduces STW       |
+| `constant_speed_time_variant`   | ✅ Yes | Same wave model, with `lax.scan` for time |
+| `constant_cost_time_invariant`  | ❌ No  | Has `# TODO: Implement wavefield effects` |
+| `constant_cost_time_variant`    | ❌ No  | New function, no wave integration         |
 
 The wave model in the constant-speed variants uses Townsin-Kwon involuntary speed loss (via `wave_adjusted_speed` in `routetools/_cost/waves.py`). This reduces the ship's effective STW based on Beaufort scale and wave incidence angle:
 
@@ -256,22 +258,22 @@ When `weather_penalty_weight > 0`, the penalty would be based on January 1 weath
 
 ### What Works
 
-| Component | Status |
-|---|---|
-| GC cases (all 8) | ✅ Great-circle + RISE energy evaluation. Valid outputs. |
-| Per-departure time offset | ✅ Each departure samples correct weather. |
-| ERA5 data loading | ✅ Per-corridor caching, correct longitude handling. |
-| Unit conversion (m/h → m/s) | ✅ `dt_s = dt * 3600` in time-variant cost. |
-| Pacific longitude wrapping | ✅ Unwrapped endpoints passed to CMA-ES. |
+| Component                   | Status                                                   |
+| --------------------------- | -------------------------------------------------------- |
+| GC cases (all 8)            | ✅ Great-circle + RISE energy evaluation. Valid outputs. |
+| Per-departure time offset   | ✅ Each departure samples correct weather.               |
+| ERA5 data loading           | ✅ Per-corridor caching, correct longitude handling.     |
+| Unit conversion (m/h → m/s) | ✅ `dt_s = dt * 3600` in time-variant cost.              |
+| Pacific longitude wrapping  | ✅ Unwrapped endpoints passed to CMA-ES.                 |
 
 ### What Doesn't
 
-| Component | Status |
-|---|---|
-| CMA-ES + wind field | ❌ Wind treated as current → routes diverge → worse energy. |
-| CMA-ES + wave field in cost | ❌ Not implemented for fixed-time variants. |
-| Weather penalty time awareness | ⚠️ Uses t=0 (OK since weight=0 by default). |
-| Sigma scaling for global routes | ⚠️ Workaround (`sigma0=0.1`), needs proper fix. |
+| Component                       | Status                                                      |
+| ------------------------------- | ----------------------------------------------------------- |
+| CMA-ES + wind field             | ❌ Wind treated as current → routes diverge → worse energy. |
+| CMA-ES + wave field in cost     | ❌ Not implemented for fixed-time variants.                 |
+| Weather penalty time awareness  | ⚠️ Uses t=0 (OK since weight=0 by default).                 |
+| Sigma scaling for global routes | ⚠️ Workaround (`sigma0=0.1`), needs proper fix.             |
 
 ### Core Blocker
 
