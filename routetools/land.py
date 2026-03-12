@@ -6,8 +6,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import jit
-from jax.scipy.ndimage import map_coordinates
+from jax.scipy.ndimage import map_coordinates as jax_map_coordinates
 from perlin_numpy import generate_perlin_noise_2d as pn2d
+from scipy.ndimage import binary_dilation
+from scipy.ndimage import map_coordinates as scipy_map_coordinates
 
 from routetools._cost.haversine import haversine_meters_components
 
@@ -148,7 +150,7 @@ class Land:
         y_norm = (y_coords - self.ymin) * self.ynorm
 
         # Use bilinear interpolation to check if the points are on land
-        land_values = map_coordinates(
+        land_values = jax_map_coordinates(
             self._array, [x_norm, y_norm], order=self._map_order, mode=self._map_mode
         )
 
@@ -201,7 +203,7 @@ class Land:
         y_norm = (y_coords - self.ymin) * self.ynorm
 
         # Use bilinear interpolation to check if the points are on land
-        land_values = map_coordinates(
+        land_values = jax_map_coordinates(
             self._array, [x_norm, y_norm], order=self._map_order, mode=self._map_mode
         )
 
@@ -440,7 +442,40 @@ def move_curve_away_from_land(
 
 def _point_is_land(point: np.ndarray, land: Land) -> bool:
     """Return True if a single point lies on land according to ``land``."""
-    return bool(np.asarray(land(np.asarray(point, dtype=float))).item())
+    return bool(_points_are_land(np.asarray(point, dtype=float), land)[0])
+
+
+def _points_are_land(points: np.ndarray, land: Land) -> np.ndarray:
+    """Evaluate land presence on points using NumPy/SciPy internals.
+
+    This avoids repeated JAX recompilation in the rerouting hot path where
+    segment sample counts vary from call to call.
+    """
+    points_2d = np.atleast_2d(np.asarray(points, dtype=float))
+    x_coords = points_2d[:, 0]
+    y_coords = points_2d[:, 1]
+
+    x_norm = (x_coords - land.xmin) * land.xnorm
+    y_norm = (y_coords - land.ymin) * land.ynorm
+
+    land_values = scipy_map_coordinates(
+        np.asarray(land._array),
+        [x_norm, y_norm],
+        order=land._map_order,
+        mode=land._map_mode,
+    )
+    is_land = np.asarray(land_values > land.water_level, dtype=bool)
+
+    if land.outbounds_is_land:
+        is_out = (
+            (x_coords < land.xmin)
+            | (x_coords > land.xmax)
+            | (y_coords < land.ymin)
+            | (y_coords > land.ymax)
+        )
+        is_land |= is_out
+
+    return is_land
 
 
 def _segment_crosses_land(
@@ -459,7 +494,7 @@ def _segment_crosses_land(
     n_samples = max(101, int(np.ceil(oversample * steps)) + 1)
 
     samples = np.linspace(a, b, n_samples)
-    is_land = np.asarray(land(samples), dtype=bool).reshape(-1)
+    is_land = _points_are_land(samples, land)
     return bool(is_land[1:-1].any())
 
 
@@ -488,18 +523,14 @@ def _dilate_land_mask(is_land: np.ndarray, radius: int) -> np.ndarray:
     if radius <= 0:
         return is_land
 
-    dilated = is_land.copy()
-    for _ in range(radius):
-        padded = np.pad(dilated, 1, mode="edge")
-        expanded = np.zeros_like(dilated)
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                expanded |= padded[
-                    1 + dx : 1 + dx + dilated.shape[0],
-                    1 + dy : 1 + dy + dilated.shape[1],
-                ]
-        dilated = expanded
-    return dilated
+    return np.asarray(
+        binary_dilation(
+            is_land,
+            structure=np.ones((3, 3), dtype=bool),
+            iterations=radius,
+        ),
+        dtype=bool,
+    )
 
 
 def _point_to_cell(

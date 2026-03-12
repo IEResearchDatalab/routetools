@@ -17,38 +17,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import typer
 
-from routetools._cost.haversine import (
-    great_circle_route,
-    haversine_meters_components,
-)
 from routetools._ports import DICT_PORTS
 from routetools.era5 import load_natural_earth_land_mask
 from routetools.fms import optimize_fms
 from routetools.land import Land, reroute_around_land
+from routetools.swopp3 import great_circle_route
+from routetools.swopp3_output import sailed_distance_nm
 from routetools.vectorfield import vectorfield_zero
 
 
 def _land_touch_mask(route: np.ndarray, land: Land) -> np.ndarray:
     """Return boolean mask of waypoints that lie on land."""
-    return np.asarray(land._check_nointerp(jnp.asarray(route)), dtype=bool).reshape(-1)
+    return np.asarray(land(jnp.asarray(route)), dtype=bool).reshape(-1)
 
 
 def _route_distance_km(route: np.ndarray) -> float:
-    """Return total route length in kilometers using haversine segments."""
+    """Return total route length in kilometers."""
     route_jnp = jnp.asarray(route)
     if route_jnp.shape[0] < 2:
         return 0.0
-
-    lats = route_jnp[:, 1]
-    lons = route_jnp[:, 0]
-    dx, dy = haversine_meters_components(
-        lats[1:],
-        lons[1:],
-        lats[:-1],
-        lons[:-1],
-    )
-    dists_m = jnp.sqrt(dx**2 + dy**2)
-    return float(jnp.sum(dists_m) / 1000.0)
+    return float(sailed_distance_nm(route_jnp) * 1.852)
 
 
 def _run_fms_with_endpoint_land_handling(
@@ -143,18 +131,18 @@ def main(
     dst_port = dst_port.upper()
 
     if src_port not in DICT_PORTS:
-        raise ValueError(
+        raise typer.BadParameter(
             f"Unknown src_port '{src_port}'. Valid codes: {sorted(DICT_PORTS)}"
         )
     if dst_port not in DICT_PORTS:
-        raise ValueError(
+        raise typer.BadParameter(
             f"Unknown dst_port '{dst_port}'. Valid codes: {sorted(DICT_PORTS)}"
         )
 
     log_step(f"Using corridor {src_port} -> {dst_port}")
 
-    src = np.array([DICT_PORTS[src_port]["lon"], DICT_PORTS[src_port]["lat"]])
-    dst = np.array([DICT_PORTS[dst_port]["lon"], DICT_PORTS[dst_port]["lat"]])
+    src = jnp.array([DICT_PORTS[src_port]["lon"], DICT_PORTS[src_port]["lat"]])
+    dst = jnp.array([DICT_PORTS[dst_port]["lon"], DICT_PORTS[dst_port]["lat"]])
 
     route_gc = np.asarray(great_circle_route(src, dst, n_points=n_points), dtype=float)
     log_step(f"Built great-circle route with {n_points} points")
@@ -182,8 +170,7 @@ def main(
         astar_resolution_scale=astar_resolution_scale,
     )
     log_step(
-        "Computed rerouted path with "
-        f"astar_resolution_scale={astar_resolution_scale}"
+        f"Computed rerouted path with astar_resolution_scale={astar_resolution_scale}"
     )
 
     route_fms, fms_info = _run_fms_with_endpoint_land_handling(
@@ -281,10 +268,10 @@ def main(
             zorder=6,
         )
 
-    ax.scatter(src[0], src[1], color="black", s=40, zorder=7)
-    ax.scatter(dst[0], dst[1], color="black", s=40, zorder=7)
-    ax.text(src[0], src[1], f" {src_port}", va="bottom", ha="left")
-    ax.text(dst[0], dst[1], f" {dst_port}", va="bottom", ha="left")
+    ax.scatter(float(src[0]), float(src[1]), color="black", s=40, zorder=7)
+    ax.scatter(float(dst[0]), float(dst[1]), color="black", s=40, zorder=7)
+    ax.text(float(src[0]), float(src[1]), f" {src_port}", va="bottom", ha="left")
+    ax.text(float(dst[0]), float(dst[1]), f" {dst_port}", va="bottom", ha="left")
 
     ax.set_xlim(lon_min, lon_max)
     ax.set_ylim(lat_min, lat_max)

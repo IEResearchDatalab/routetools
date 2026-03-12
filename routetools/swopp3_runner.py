@@ -29,7 +29,7 @@ import jax.numpy as jnp
 
 from routetools.cost import evaluate_route_energy
 from routetools.cost import segment_bearings_deg as _segment_bearings_deg
-from routetools.land import reroute_around_land
+from routetools.land import Land, reroute_around_land
 from routetools.swopp3 import (
     SWOPP3_CASES,
     case_endpoints,
@@ -227,8 +227,10 @@ def run_optimised_departure(
         and falls back to a great-circle route.
     windfield, wavefield : FieldClosure, optional
         Pre-loaded closures for energy evaluation.
-    land : Land, optional
-        Land mask for penalisation.
+    land : object, optional
+        Land mask for CMA-ES penalisation. If it is a
+        ``routetools.land.Land`` instance, the optimized route is also passed
+        through ``reroute_around_land`` before energy evaluation.
     departure_offset_h : float
         Time offset (hours) from field origin to departure.
     n_points : int
@@ -305,7 +307,7 @@ def run_optimised_departure(
             **defaults,
         )
 
-        if land is not None:
+        if isinstance(land, Land):
             curve = jnp.asarray(reroute_around_land(curve, land))
     else:
         # No vectorfield → fall back to great circle
@@ -368,8 +370,9 @@ def run_case(
         Vector field for CMA-ES optimisation (optimised cases only).
     windfield, wavefield : FieldClosure, optional
         Pre-loaded closures for energy evaluation.
-    land : Land, optional
-        Land mask for penalisation.
+    land : object, optional
+        Land mask for optimisation. Rerouting is only applied when this is a
+        ``routetools.land.Land`` instance.
     output_dir : str or Path, optional
         If provided, writes output CSVs to this directory.
     submission : int
