@@ -383,8 +383,8 @@ class TestRunOptimisedDeparture:
         }
         assert result.curve.shape == (20, 2)
 
-    def test_cmaes_route_is_rerouted_before_energy(self, monkeypatch):
-        """Optimised route must pass through reroute_around_land before energy."""
+    def test_fms_route_is_rerouted_again_before_energy(self, monkeypatch):
+        """Optimised route must be rerouted again if FMS reintroduces crossings."""
         cmaes_curve = jnp.array(
             [
                 [-4.0, 43.6],
@@ -398,6 +398,22 @@ class TestRunOptimisedDeparture:
                 [-4.0, 43.6],
                 [-10.0, 45.0],
                 [-20.0, 44.5],
+                [-73.8, 40.53],
+            ]
+        )
+        fms_curve = jnp.array(
+            [
+                [-4.0, 43.6],
+                [-11.5, 44.2],
+                [-18.5, 43.1],
+                [-73.8, 40.53],
+            ]
+        )
+        rerouted_after_fms_curve = np.array(
+            [
+                [-4.0, 43.6],
+                [-11.0, 45.3],
+                [-18.0, 44.7],
                 [-73.8, 40.53],
             ]
         )
@@ -515,7 +531,7 @@ class TestRunOptimisedDeparture:
                 seed,
                 verbose,
             )
-            return jnp.asarray(curve)[None, ...], {"cost": [0.0]}
+            return jnp.asarray(fms_curve)[None, ...], {"cost": [0.0]}
 
         def fake_reroute(
             route,
@@ -524,14 +540,31 @@ class TestRunOptimisedDeparture:
             max_passes=4,
             max_anchor_expansion=12,
         ):
-            captured["reroute_input_route"] = np.asarray(route)
-            captured["reroute_input_land"] = land
-            captured["reroute_input_kwargs"] = {
-                "astar_resolution_scale": astar_resolution_scale,
-                "max_passes": max_passes,
-                "max_anchor_expansion": max_anchor_expansion,
-            }
-            return rerouted_curve
+            reroute_calls = captured.setdefault("reroute_calls", [])
+            reroute_calls.append(
+                {
+                    "route": np.asarray(route),
+                    "land": land,
+                    "kwargs": {
+                        "astar_resolution_scale": astar_resolution_scale,
+                        "max_passes": max_passes,
+                        "max_anchor_expansion": max_anchor_expansion,
+                    },
+                }
+            )
+            if len(reroute_calls) == 1:
+                return rerouted_curve
+            return rerouted_after_fms_curve
+
+        def fake_route_crosses_land(
+            route,
+            land,
+            allow_start_land=False,
+            allow_end_land=False,
+            oversample=6,
+        ):
+            _ = land, allow_start_land, allow_end_land, oversample
+            return np.allclose(np.asarray(route), np.asarray(fms_curve))
 
         def fake_evaluate_energy(
             curve,
@@ -553,6 +586,10 @@ class TestRunOptimisedDeparture:
             fake_reroute,
         )
         monkeypatch.setattr(
+            "routetools.swopp3_runner.route_crosses_land",
+            fake_route_crosses_land,
+        )
+        monkeypatch.setattr(
             "routetools.swopp3_runner.evaluate_energy",
             fake_evaluate_energy,
         )
@@ -567,18 +604,31 @@ class TestRunOptimisedDeparture:
             n_points=4,
         )
 
+        assert len(captured["reroute_calls"]) == 2
         np.testing.assert_allclose(
-            captured["reroute_input_route"],
+            captured["reroute_calls"][0]["route"],
             np.asarray(cmaes_curve),
         )
-        assert captured["reroute_input_land"] is land_sentinel
-        assert captured["reroute_input_kwargs"] == {
+        np.testing.assert_allclose(
+            captured["reroute_calls"][1]["route"],
+            np.asarray(fms_curve),
+        )
+        assert captured["reroute_calls"][0]["land"] is land_sentinel
+        assert captured["reroute_calls"][1]["land"] is land_sentinel
+        assert captured["reroute_calls"][0]["kwargs"] == {
             "astar_resolution_scale": 1,
             "max_passes": 1,
             "max_anchor_expansion": 6,
         }
-        np.testing.assert_allclose(captured["energy_input_curve"], rerouted_curve)
-        np.testing.assert_allclose(np.asarray(result.curve), rerouted_curve)
+        assert captured["reroute_calls"][1]["kwargs"] == {
+            "astar_resolution_scale": 1,
+            "max_passes": 1,
+            "max_anchor_expansion": 6,
+        }
+        np.testing.assert_allclose(
+            captured["energy_input_curve"], rerouted_after_fms_curve
+        )
+        np.testing.assert_allclose(np.asarray(result.curve), rerouted_after_fms_curve)
         assert result.energy_mwh == pytest.approx(123.0)
 
 

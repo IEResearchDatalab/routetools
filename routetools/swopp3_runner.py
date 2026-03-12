@@ -32,7 +32,7 @@ import routetools.cmaes as cmaes
 import routetools.cost as cost
 import routetools.fms as fms
 from routetools.cost import segment_bearings_deg as _segment_bearings_deg
-from routetools.land import reroute_around_land
+from routetools.land import reroute_around_land, route_crosses_land
 from routetools.swopp3 import (
     SWOPP3_CASES,
     case_endpoints,
@@ -357,6 +357,22 @@ def run_optimised_departure(
     curve = jnp.asarray(curve)
     if curve.ndim == 3:
         curve = curve[0]
+
+    if land is not None and route_crosses_land(
+        np.asarray(curve),
+        land,
+        allow_start_land=True,
+        allow_end_land=True,
+    ):
+        curve = jnp.asarray(
+            reroute_around_land(
+                np.asarray(curve),
+                land,
+                astar_resolution_scale=1,
+                max_passes=1,
+                max_anchor_expansion=6,
+            )
+        )
 
     distance_nm = sailed_distance_nm(curve)
 

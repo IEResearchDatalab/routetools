@@ -660,6 +660,83 @@ def _polyline_crosses_land(polyline: np.ndarray, land: Land) -> bool:
     return False
 
 
+def route_crossing_segment_indices(
+    route: np.ndarray,
+    land: Land,
+    *,
+    allow_start_land: bool = False,
+    allow_end_land: bool = False,
+    oversample: int = 6,
+) -> list[int]:
+    """Return indices of route segments that intersect land.
+
+    Parameters
+    ----------
+    route : np.ndarray
+        Waypoints as an array of shape ``(N, 2)`` with ``[lon, lat]`` columns.
+    land : Land
+        Land mask used for the crossing check.
+    allow_start_land, allow_end_land : bool, optional
+        When True, ignore the first or last segment respectively if the
+        corresponding route endpoint lies on land. This is useful for port
+        endpoints that are unavoidable boundary touches.
+    oversample : int, optional
+        Oversampling factor passed through to ``_segment_crosses_land``.
+
+    Returns
+    -------
+    list[int]
+        Zero-based indices of segments whose interior intersects land.
+    """
+    route = np.asarray(route, dtype=float)
+    if route.ndim != 2 or route.shape[1] != 2:
+        raise ValueError(f"route must have shape (N, 2), got {route.shape}")
+    if not isinstance(land, Land):
+        raise TypeError("land must be an instance of routetools.land.Land")
+    if len(route) < 2:
+        return []
+
+    ignore_first = allow_start_land and _point_is_land(route[0], land)
+    ignore_last = allow_end_land and _point_is_land(route[-1], land)
+    last_segment = len(route) - 2
+
+    crossing_segments: list[int] = []
+    for idx in range(len(route) - 1):
+        if ignore_first and idx == 0:
+            continue
+        if ignore_last and idx == last_segment:
+            continue
+        if _segment_crosses_land(route[idx], route[idx + 1], land, oversample):
+            crossing_segments.append(idx)
+
+    return crossing_segments
+
+
+def route_crosses_land(
+    route: np.ndarray,
+    land: Land,
+    *,
+    allow_start_land: bool = False,
+    allow_end_land: bool = False,
+    oversample: int = 6,
+) -> bool:
+    """Return True when any route segment intersects land.
+
+    This uses the same dense segment sampling criterion as
+    ``reroute_around_land`` so downstream validation can match the rerouter's
+    notion of feasibility.
+    """
+    return bool(
+        route_crossing_segment_indices(
+            route,
+            land,
+            allow_start_land=allow_start_land,
+            allow_end_land=allow_end_land,
+            oversample=oversample,
+        )
+    )
+
+
 def _astar_segment_replacement(
     a: np.ndarray,
     b: np.ndarray,

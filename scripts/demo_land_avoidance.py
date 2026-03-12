@@ -24,7 +24,11 @@ from routetools._cost.haversine import (
 from routetools._ports import DICT_PORTS
 from routetools.era5 import load_natural_earth_land_mask
 from routetools.fms import optimize_fms
-from routetools.land import Land, reroute_around_land
+from routetools.land import (
+    Land,
+    reroute_around_land,
+    route_crossing_segment_indices,
+)
 from routetools.vectorfield import vectorfield_zero
 
 
@@ -57,6 +61,7 @@ def _run_fms_with_endpoint_land_handling(
     patience: int,
     damping: float,
     maxfevals: int,
+    astar_resolution_scale: int,
 ) -> tuple[np.ndarray, dict[str, object]]:
     """Run FMS and optionally strip/restore boundary points that are on land."""
     route_in = np.asarray(route, dtype=float)
@@ -103,11 +108,35 @@ def _run_fms_with_endpoint_land_handling(
     if drop_end:
         route_fms = np.vstack([route_fms, route[-1:]])
 
+    crossing_before_fix = route_crossing_segment_indices(
+        route_fms,
+        land,
+        allow_start_land=True,
+        allow_end_land=True,
+    )
+    post_fms_reroute_applied = bool(crossing_before_fix)
+    if post_fms_reroute_applied:
+        route_fms = reroute_around_land(
+            route_fms,
+            land,
+            astar_resolution_scale=astar_resolution_scale,
+        )
+
+    crossing_after_fix = route_crossing_segment_indices(
+        route_fms,
+        land,
+        allow_start_land=True,
+        allow_end_land=True,
+    )
+
     return route_fms, {
         "status": "ok",
         "drop_start": drop_start,
         "drop_end": drop_end,
         "niter": info.get("niter", None),
+        "post_fms_reroute_applied": post_fms_reroute_applied,
+        "segment_crossings_before_fix": len(crossing_before_fix),
+        "segment_crossings_after_fix": len(crossing_after_fix),
     }
 
 
@@ -153,8 +182,8 @@ def main(
 
     log_step(f"Using corridor {src_port} -> {dst_port}")
 
-    src = np.array([DICT_PORTS[src_port]["lon"], DICT_PORTS[src_port]["lat"]])
-    dst = np.array([DICT_PORTS[dst_port]["lon"], DICT_PORTS[dst_port]["lat"]])
+    src = jnp.array([DICT_PORTS[src_port]["lon"], DICT_PORTS[src_port]["lat"]])
+    dst = jnp.array([DICT_PORTS[dst_port]["lon"], DICT_PORTS[dst_port]["lat"]])
 
     route_gc = np.asarray(great_circle_route(src, dst, n_points=n_points), dtype=float)
     log_step(f"Built great-circle route with {n_points} points")
@@ -182,8 +211,7 @@ def main(
         astar_resolution_scale=astar_resolution_scale,
     )
     log_step(
-        "Computed rerouted path with "
-        f"astar_resolution_scale={astar_resolution_scale}"
+        f"Computed rerouted path with astar_resolution_scale={astar_resolution_scale}"
     )
 
     route_fms, fms_info = _run_fms_with_endpoint_land_handling(
@@ -192,6 +220,7 @@ def main(
         patience=fms_patience,
         damping=fms_damping,
         maxfevals=fms_maxfevals,
+        astar_resolution_scale=astar_resolution_scale,
     )
     log_step(
         "Ran FMS refinement "
@@ -202,6 +231,24 @@ def main(
     touch_gc = _land_touch_mask(route_gc, land)
     touch_land = _land_touch_mask(route_land, land)
     touch_fms = _land_touch_mask(route_fms, land)
+    crossings_gc = route_crossing_segment_indices(
+        route_gc,
+        land,
+        allow_start_land=True,
+        allow_end_land=True,
+    )
+    crossings_land = route_crossing_segment_indices(
+        route_land,
+        land,
+        allow_start_land=True,
+        allow_end_land=True,
+    )
+    crossings_fms = route_crossing_segment_indices(
+        route_fms,
+        land,
+        allow_start_land=True,
+        allow_end_land=True,
+    )
     dist_gc_km = _route_distance_km(route_gc)
     dist_land_km = _route_distance_km(route_land)
     dist_fms_km = _route_distance_km(route_fms)
@@ -281,10 +328,10 @@ def main(
             zorder=6,
         )
 
-    ax.scatter(src[0], src[1], color="black", s=40, zorder=7)
-    ax.scatter(dst[0], dst[1], color="black", s=40, zorder=7)
-    ax.text(src[0], src[1], f" {src_port}", va="bottom", ha="left")
-    ax.text(dst[0], dst[1], f" {dst_port}", va="bottom", ha="left")
+    ax.scatter(float(src[0]), float(src[1]), color="black", s=40, zorder=7)
+    ax.scatter(float(dst[0]), float(dst[1]), color="black", s=40, zorder=7)
+    ax.text(float(src[0]), float(src[1]), f" {src_port}", va="bottom", ha="left")
+    ax.text(float(dst[0]), float(dst[1]), f" {dst_port}", va="bottom", ha="left")
 
     ax.set_xlim(lon_min, lon_max)
     ax.set_ylim(lat_min, lat_max)
@@ -306,9 +353,12 @@ def main(
     print(f"route_gc distance: {dist_gc_km:.1f} km")
     print(f"route_land distance: {dist_land_km:.1f} km")
     print(f"route_fms distance: {dist_fms_km:.1f} km")
-    print(f"route_gc land-touch points: {int(touch_gc.sum())}")
-    print(f"route_land land-touch points: {int(touch_land.sum())}")
-    print(f"route_fms land-touch points: {int(touch_fms.sum())}")
+    print(f"route_gc waypoint land-touch points: {int(touch_gc.sum())}")
+    print(f"route_land waypoint land-touch points: {int(touch_land.sum())}")
+    print(f"route_fms waypoint land-touch points: {int(touch_fms.sum())}")
+    print(f"route_gc segment crossings: {len(crossings_gc)}")
+    print(f"route_land segment crossings: {len(crossings_land)}")
+    print(f"route_fms segment crossings: {len(crossings_fms)}")
     print(f"fms status: {fms_info.get('status')}")
     if fms_info.get("status") == "ok":
         print(
@@ -317,6 +367,12 @@ def main(
             f"drop_end={fms_info.get('drop_end')}"
         )
         print(f"fms iterations: {fms_info.get('niter')}")
+        print(
+            "fms post-fix crossings: "
+            f"before={fms_info.get('segment_crossings_before_fix')}, "
+            f"after={fms_info.get('segment_crossings_after_fix')}, "
+            f"reroute_applied={fms_info.get('post_fms_reroute_applied')}"
+        )
     else:
         print(f"fms reason: {fms_info.get('reason')}")
 

@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from routetools.land import Land, reroute_around_land
+from routetools.land import Land, reroute_around_land, route_crosses_land
 
 
 def _make_land(strips: list[tuple[float, float, float, float]]) -> Land:
@@ -189,3 +189,22 @@ def test_endpoint_on_land_still_reroutes_middle_points():
     np.testing.assert_allclose(result[-1], route[-1])
     assert not np.allclose(result[5], route[5])
     assert not _route_has_land_crossing_except_last(result, land)
+
+
+def test_route_crosses_land_can_ignore_terminal_land_touch():
+    """Segment crossing checks should allow unavoidable endpoint land touches."""
+    land = _make_land([(5.5, 6.0, -0.5, 0.5)])
+    route = np.array(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [2.0, 0.0],
+            [3.0, 0.0],
+            [4.0, 0.0],
+            [5.0, 0.0],
+            [6.0, 0.0],
+        ]
+    )
+
+    assert route_crosses_land(route, land)
+    assert not route_crosses_land(route, land, allow_end_land=True)
