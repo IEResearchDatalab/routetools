@@ -206,15 +206,13 @@ class TestRunGCDeparture:
 
 
 # ---------------------------------------------------------------------------
-# run_optimised_departure  (without vectorfield → GC fallback)
+# run_optimised_departure
 # ---------------------------------------------------------------------------
 class TestRunOptimisedDeparture:
-    def test_fallback_without_vectorfield(self):
-        """Without a vectorfield, should fall back to GC route."""
-        result = run_optimised_departure("AO_WPS", _DEP, n_points=20)
-        assert isinstance(result, DepartureResult)
-        assert result.curve.shape == (20, 2)
-        assert result.energy_mwh > 0
+    def test_requires_vectorfield(self):
+        """Optimised departures should fail fast when vectorfield is missing."""
+        with pytest.raises(ValueError, match="requires a vectorfield"):
+            run_optimised_departure("AO_WPS", _DEP, n_points=20)
 
     def test_vectorfield_defaults_to_windfield_for_rise_cost(self, monkeypatch):
         """When windfield is missing, vectorfield should feed RISE energy cost."""
@@ -300,12 +298,14 @@ class TestRunCase:
         fb_files = list(fb_dir.glob("*.csv"))
         assert len(fb_files) == 2
 
-    def test_optimised_fallback_case(self, tmp_path: Path):
-        """Optimised case without vectorfield → GC fallback, with output."""
+    def test_optimised_case_with_vectorfield(self, tmp_path: Path):
+        """Optimised case writes output when the required vectorfield is provided."""
         deps = [_DEP]
         results = run_case(
             "AO_WPS",
             deps,
+            vectorfield=_zero_windfield,
+            windfield=_zero_windfield,
             output_dir=tmp_path,
             submission=1,
             n_points=20,
@@ -315,14 +315,29 @@ class TestRunCase:
         fa = tmp_path / "IEUniversity-1-AO_WPS.csv"
         assert fa.exists()
 
+    def test_optimised_case_requires_vectorfield(self):
+        """Optimised cases should fail fast instead of silently degrading to GC."""
+        with pytest.raises(ValueError, match="requires a vectorfield"):
+            run_case(
+                "AO_WPS",
+                [_DEP],
+                n_points=20,
+                verbose=False,
+            )
+
     def test_all_cases_runnable(self):
         """Smoke test: every case can run with 1 departure."""
         for case_id in SWOPP3_CASES:
+            kwargs = {}
+            if SWOPP3_CASES[case_id]["strategy"] == "optimised":
+                kwargs["vectorfield"] = _zero_windfield
+                kwargs["windfield"] = _zero_windfield
             results = run_case(
                 case_id,
                 [_DEP],
                 n_points=10,
                 verbose=False,
+                **kwargs,
             )
             assert len(results) == 1
             assert results[0].energy_mwh > 0

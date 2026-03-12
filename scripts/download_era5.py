@@ -34,7 +34,16 @@ Downloaded files are stored in ``data/era5/`` by default::
     ├── era5_wind_pacific_2024.nc
     └── era5_waves_pacific_2024.nc
 
-These can then be loaded via::
+These filenames are the defaults consumed by ``scripts/swopp3_run.py``. A new
+user can therefore run the full SWOPP3 pipeline without overriding any paths::
+
+    uv run scripts/download_era5.py
+    uv run scripts/swopp3_run.py
+
+If you download a different year or only one corridor, ``scripts/swopp3_run.py``
+must be given matching ``--wind-path*`` and ``--wave-path*`` options.
+
+The downloaded files can also be loaded programmatically via::
 
     from routetools.era5 import load_era5_windfield, load_era5_wavefield
 

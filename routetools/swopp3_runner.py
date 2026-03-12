@@ -211,6 +211,8 @@ def run_optimised_departure(
 
     The CMA-ES optimizer minimises travel cost through the wind field.
     Energy is then evaluated post-hoc with the SWOPP3 performance model.
+    Missing optimisation inputs are treated as an error; this function does
+    not fall back to a great-circle route.
 
     Parameters
     ----------
@@ -220,8 +222,8 @@ def run_optimised_departure(
         Departure time (UTC).
     vectorfield : FieldClosure, optional
         Vector field for the CMA-ES cost function.  For SWOPP3 this is
-        typically the ERA5 wind field.  If ``None``, assumes zero-field
-        and falls back to a great-circle route.
+        typically the ERA5 wind field.  If ``None``, this function raises
+        ``ValueError`` instead of falling back to a great-circle route.
     windfield, wavefield : FieldClosure, optional
         Pre-loaded closures for energy evaluation.
     land : Land, optional
@@ -236,6 +238,13 @@ def run_optimised_departure(
     Returns
     -------
     DepartureResult
+
+    Raises
+    ------
+    ValueError
+        If ``vectorfield`` is ``None``. Optimised departures require an ERA5
+        wind-derived vector field so CMA-ES cannot silently degrade to a
+        great-circle route.
     """
     case = SWOPP3_CASES[case_id]
     src, dst = case_endpoints(case_id)
@@ -302,8 +311,11 @@ def run_optimised_departure(
             **defaults,
         )
     else:
-        # No vectorfield → fall back to great circle
-        curve = great_circle_route(src, dst, n_points=n_points)
+        # No vectorfield → raise error
+        raise ValueError(
+            "Optimised departure requires a vectorfield for CMA-ES.  "
+            "Provide a vectorfield or use run_gc_departure for a great-circle route.",
+        )
 
     distance_nm = sailed_distance_nm(curve)
 
@@ -378,7 +390,8 @@ def run_case(
         each departure.  If ``None``, offset = 0 (suitable only when each
         departure loads its own field with ``departure_time``).
     **cmaes_kwargs
-        Extra arguments for CMA-ES (optimised cases only).
+        Extra arguments for CMA-ES (optimised cases only). Optimised cases
+        require ``vectorfield`` to be provided.
 
     Returns
     -------

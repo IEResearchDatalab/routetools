@@ -130,6 +130,37 @@ uv run scripts/era5_benchmark.py --departure 2023-01-08T00:00:00
 See `scripts/download_era5.py --help` and `scripts/era5_benchmark.py --help`
 for all available options.
 
+### SWOPP3 ERA5 pipeline
+
+The default SWOPP3 competition pipeline is:
+
+```bash
+uv run scripts/download_era5.py
+uv run scripts/swopp3_run.py
+```
+
+These two commands line up without extra path flags. The downloader writes the
+four default 2024 files that `scripts/swopp3_run.py` expects:
+
+```text
+data/era5/era5_wind_atlantic_2024.nc
+data/era5/era5_waves_atlantic_2024.nc
+data/era5/era5_wind_pacific_2024.nc
+data/era5/era5_waves_pacific_2024.nc
+```
+
+`scripts/swopp3_run.py` validates these files before running any case. If one
+or more inputs are missing, it exits immediately with a precise error message
+instead of silently substituting a great-circle route or running without
+weather data. This is intentional:
+
+- GC cases still require wind and wave data for SWOPP3 energy evaluation.
+- Optimised cases require wind data for the CMA-ES vectorfield and wind/wave
+  data for the final SWOPP3 energy evaluation.
+
+If you download a different year or only one corridor, pass matching
+`--wind-path*` and `--wave-path*` options to `scripts/swopp3_run.py`.
+
 ## Reproduce the results (paper)
 
 To reproduce the results from the paper, run the following command:
