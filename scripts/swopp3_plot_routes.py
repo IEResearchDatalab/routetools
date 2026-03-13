@@ -6,7 +6,7 @@ routes for each corridor (Atlantic, Pacific) and WPS configuration.
 
 Usage
 -----
-    python scripts/swopp3_plot_routes.py --input-dir output/swopp3_rise
+    python scripts/swopp3_plot_routes.py --input-dir output/swopp3
 
 Outputs PNG figures into ``<input-dir>/figures/``.
 """
@@ -550,7 +550,7 @@ def plot_distance_vs_energy(
 @app.command()
 def main(
     input_dir: Path = typer.Option(  # noqa: B008
-        "output/swopp3_rise",
+        "output/swopp3",
         "--input-dir",
         "-i",
         help="Directory containing SWOPP3 output CSVs.",

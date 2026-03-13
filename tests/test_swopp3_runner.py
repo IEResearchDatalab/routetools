@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from routetools.land import Land
 from routetools.swopp3 import SWOPP3_CASES, great_circle_route
 from routetools.swopp3_runner import (
     DepartureResult,
@@ -59,6 +60,22 @@ def _constant_wavefield(hs: float = 2.0, mwd: float = 270.0):
         return jnp.full_like(lon, hs), jnp.full_like(lon, mwd)
 
     return _field
+
+
+def _all_water_land() -> Land:
+    """Minimal Land instance used when rerouting behavior needs a real Land."""
+    return Land(
+        xlim=(0.0, 1.0),
+        ylim=(0.0, 1.0),
+        water_level=0.5,
+        resolution=2,
+        interpolate=0,
+        outbounds_is_land=True,
+        land_array=jnp.zeros((2, 2), dtype=jnp.float32),
+        penalize_segments=False,
+        map_mode="nearest",
+        map_order=0,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +274,135 @@ class TestRunOptimisedDeparture:
 
         assert isinstance(result, DepartureResult)
         assert captured["windfield"] is _zero_windfield
+
+    def test_cmaes_route_is_rerouted_before_energy(self, monkeypatch):
+        """Optimised route must pass through reroute_around_land before energy."""
+        cmaes_curve = jnp.array(
+            [
+                [-4.0, 43.6],
+                [-10.0, 44.0],
+                [-20.0, 43.0],
+                [-73.8, 40.53],
+            ]
+        )
+        rerouted_curve = np.array(
+            [
+                [-4.0, 43.6],
+                [-10.0, 45.0],
+                [-20.0, 44.5],
+                [-73.8, 40.53],
+            ]
+        )
+        captured: dict[str, object] = {}
+
+        def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
+            _ = vectorfield, src, dst, land, kwargs
+            return cmaes_curve, {"cost": 0.0}
+
+        def fake_reroute(route, land):
+            captured["reroute_input_route"] = np.asarray(route)
+            captured["reroute_input_land"] = land
+            return rerouted_curve
+
+        def fake_evaluate_energy(
+            curve,
+            departure,
+            passage_hours,
+            wps,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+        ):
+            _ = departure, passage_hours, wps, windfield, wavefield, departure_offset_h
+            captured["energy_input_curve"] = np.asarray(curve)
+            return 123.0, 12.0, 3.0
+
+        monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.reroute_around_land",
+            fake_reroute,
+        )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.evaluate_energy",
+            fake_evaluate_energy,
+        )
+
+        land_sentinel = _all_water_land()
+        result = run_optimised_departure(
+            "AO_WPS",
+            _DEP,
+            vectorfield=_zero_windfield,
+            windfield=_zero_windfield,
+            land=land_sentinel,
+            n_points=4,
+        )
+
+        np.testing.assert_allclose(
+            captured["reroute_input_route"],
+            np.asarray(cmaes_curve),
+        )
+        assert captured["reroute_input_land"] is land_sentinel
+        np.testing.assert_allclose(captured["energy_input_curve"], rerouted_curve)
+        np.testing.assert_allclose(np.asarray(result.curve), rerouted_curve)
+        assert result.energy_mwh == pytest.approx(123.0)
+
+    def test_non_land_mask_does_not_trigger_reroute(self, monkeypatch):
+        """Non-Land penalizers should not be passed into reroute_around_land."""
+        cmaes_curve = jnp.array(
+            [
+                [-4.0, 43.6],
+                [-10.0, 44.0],
+                [-20.0, 43.0],
+                [-73.8, 40.53],
+            ]
+        )
+        captured: dict[str, object] = {}
+
+        def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
+            _ = vectorfield, src, dst, land, kwargs
+            return cmaes_curve, {"cost": 0.0}
+
+        def fake_reroute(route, land):
+            _ = route, land
+            raise AssertionError("reroute_around_land should not be called")
+
+        def fake_evaluate_energy(
+            curve,
+            departure,
+            passage_hours,
+            wps,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+        ):
+            _ = departure, passage_hours, wps, windfield, wavefield, departure_offset_h
+            captured["energy_input_curve"] = np.asarray(curve)
+            return 123.0, 12.0, 3.0
+
+        monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.reroute_around_land",
+            fake_reroute,
+        )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.evaluate_energy",
+            fake_evaluate_energy,
+        )
+
+        result = run_optimised_departure(
+            "AO_WPS",
+            _DEP,
+            vectorfield=_zero_windfield,
+            windfield=_zero_windfield,
+            land=object(),
+            n_points=4,
+        )
+
+        np.testing.assert_allclose(
+            captured["energy_input_curve"], np.asarray(cmaes_curve)
+        )
+        np.testing.assert_allclose(np.asarray(result.curve), np.asarray(cmaes_curve))
+        assert result.energy_mwh == pytest.approx(123.0)
 
 
 # ---------------------------------------------------------------------------
