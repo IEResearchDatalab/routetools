@@ -1,0 +1,105 @@
+# ─────────────────────────────────────────────────────────────────────
+# SWOPP3 Weather Routing Benchmark — CodaBench Competition Bundle
+# ─────────────────────────────────────────────────────────────────────
+# Upload this bundle at https://www.codabench.org/competitions/create/
+# See README.md in this directory for setup instructions.
+# ─────────────────────────────────────────────────────────────────────
+
+version: 2
+
+title: "SWOPP3 Weather Routing Benchmark"
+description: "Minimize total energy consumption for an 88 m cargo ship across 366 daily departures on two ocean routes (Trans-Atlantic and Trans-Pacific) using ERA5 weather data and the RISE performance model."
+image: logo.png
+docker_image: "codalab/codalab-legacy:py39"
+registration_auto_approve: true
+
+# ── Pages (Markdown files in pages/) ─────────────────────────────────
+terms: pages/terms.md
+pages:
+  - title: Overview
+    file: pages/overview.md
+  - title: Data & Performance Model
+    file: pages/data.md
+  - title: Submission Format
+    file: pages/submission.md
+  - title: Evaluation
+    file: pages/evaluation.md
+
+# ── Tasks ─────────────────────────────────────────────────────────────
+tasks:
+  - index: 0
+    name: "SWOPP3 Evaluation"
+    description: "Evaluate optimised routes against ERA5 weather data using the RISE performance model."
+    is_public: false
+    reference_data: reference_data
+    scoring_program: scoring_program
+
+# ── Phases ────────────────────────────────────────────────────────────
+phases:
+  - index: 0
+    name: "Main Phase"
+    description: "Submit optimised routes for all 8 SWOPP3 cases."
+    start: 4-1-2026
+    end: 4-1-2027
+    max_submissions_per_day: 3
+    max_submissions: 100
+    tasks:
+      - 0
+
+# ── Leaderboard ──────────────────────────────────────────────────────
+leaderboards:
+  - index: 0
+    title: "Overall"
+    key: "Results"
+    columns:
+      - title: "Total Energy (MWh)"
+        key: "total_energy_mwh"
+        index: 0
+        sorting: asc
+        computation: null
+        computation_indexes: null
+
+      - title: "Atlantic Opt WPS (MWh)"
+        key: "AO_WPS_energy_mwh"
+        index: 1
+        sorting: asc
+
+      - title: "Atlantic Opt noWPS (MWh)"
+        key: "AO_noWPS_energy_mwh"
+        index: 2
+        sorting: asc
+
+      - title: "Atlantic GC WPS (MWh)"
+        key: "AGC_WPS_energy_mwh"
+        index: 3
+        sorting: asc
+
+      - title: "Atlantic GC noWPS (MWh)"
+        key: "AGC_noWPS_energy_mwh"
+        index: 4
+        sorting: asc
+
+      - title: "Pacific Opt WPS (MWh)"
+        key: "PO_WPS_energy_mwh"
+        index: 5
+        sorting: asc
+
+      - title: "Pacific Opt noWPS (MWh)"
+        key: "PO_noWPS_energy_mwh"
+        index: 6
+        sorting: asc
+
+      - title: "Pacific GC WPS (MWh)"
+        key: "PGC_WPS_energy_mwh"
+        index: 7
+        sorting: asc
+
+      - title: "Pacific GC noWPS (MWh)"
+        key: "PGC_noWPS_energy_mwh"
+        index: 8
+        sorting: asc
+
+      - title: "Validation Errors"
+        key: "validation_errors"
+        index: 9
+        sorting: asc

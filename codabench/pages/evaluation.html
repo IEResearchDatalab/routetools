@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+th { background-color: #f5f5f5; }
+code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+pre { background-color: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 4px solid #ddd; margin: 1em 0; padding: 0.5em 1em; color: #555; }
+h1 { color: #2c3e50; }
+h2 { color: #34495e; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+h3 { color: #7f8c8d; }
+</style>
+</head>
+<body>
+<h1>Evaluation</h1>
+<h2>Scoring</h2>
+<p>Submissions are scored on <strong>total energy consumption (MWh)</strong> re-evaluated by the scoring program using the official ERA5 data and the RISE performance model. The re-evaluated energy (not the self-reported value) determines the leaderboard ranking.</p>
+<p>If ERA5 reference data is unavailable on the server, the scoring program falls back to self-reported energy values from the participant's CSVs.</p>
+<h3>Metrics on the Leaderboard</h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Description</th>
+<th>Ranking</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Total Energy (MWh)</strong></td>
+<td>Sum of energy across all 8 cases</td>
+<td>Primary (ascending)</td>
+</tr>
+<tr>
+<td>Per-case energy</td>
+<td>Breakdown for each of the 8 cases</td>
+<td>Secondary</td>
+</tr>
+<tr>
+<td>Validation errors</td>
+<td>Number of format/constraint violations</td>
+<td>Lower is better</td>
+</tr>
+</tbody>
+</table>
+<h3>Validation Checks</h3>
+<p>The scoring program performs the following checks automatically:</p>
+<h4>File A Checks</h4>
+<ol>
+<li><strong>File presence:</strong> All 8 File A CSVs present with the expected naming pattern.</li>
+<li><strong>Column structure:</strong> All required columns (<code>departure_time_utc</code>, <code>arrival_time_utc</code>, <code>energy_cons_mwh</code>, <code>max_wind_mps</code>, <code>max_hs_m</code>, <code>sailed_distance_nm</code>, <code>details_filename</code>) present.</li>
+<li><strong>Row count:</strong> Each File A has exactly 366 rows.</li>
+<li><strong>Datetime format:</strong> All timestamps match <code>YYYY-MM-DD HH:MM:SS</code>.</li>
+<li><strong>Departure schedule:</strong> Each departure matches the official schedule (2024-01-01 to 2024-12-31, noon UTC).</li>
+<li><strong>Passage time:</strong> Arrival − departure equals the expected passage time (354 h for Atlantic, 583 h for Pacific) within ±1 hour tolerance.</li>
+<li><strong>Numeric values:</strong> All energy, wind, wave, and distance values are positive and non-NaN.</li>
+<li><strong>Operational constraint — wind:</strong> <code>max_wind_mps</code> ≤ 20 m/s (optimised cases only).</li>
+<li><strong>Operational constraint — waves:</strong> <code>max_hs_m</code> ≤ 7 m (optimised cases only).</li>
+</ol>
+<h4>File B Checks</h4>
+<ol>
+<li><strong>File existence:</strong> Every File B referenced in <code>details_filename</code> exists under <code>tracks/</code>.</li>
+<li><strong>Column structure:</strong> Required columns (<code>time_utc</code>, <code>lat_deg</code>, <code>lon_deg</code>) present.</li>
+<li><strong>Minimum waypoints:</strong> At least 2 waypoints per track.</li>
+<li><strong>Timestamp ordering:</strong> Waypoint timestamps are strictly increasing.</li>
+<li><strong>Coordinate bounds:</strong> Latitudes in [−90, 90], longitudes in [−360, 360].</li>
+<li><strong>Start position:</strong> First waypoint within 0.5° of the expected source port.</li>
+<li><strong>End position:</strong> Last waypoint within 0.5° of the expected destination port.</li>
+<li><strong>Start time:</strong> First waypoint timestamp matches the departure time from File A.</li>
+<li><strong>End time:</strong> Last waypoint timestamp matches the arrival time from File A.</li>
+<li><strong>Land crossing:</strong> Sampled waypoints checked against a Natural Earth land shapefile (optimised cases only; when available on the server).</li>
+</ol>
+<h4>Cross-Case Checks</h4>
+<ol>
+<li><strong>WPS consistency:</strong> With-wingsail cases should have ≤ energy compared to without-wingsail cases (warning, not error).</li>
+</ol>
+<p>Submissions with validation errors still receive a score, but the error count is displayed on the leaderboard.</p>
+<blockquote>
+<p><strong>Note on Great Circle cases:</strong> Checks 8, 9, and 19 (operational constraints and land crossing) are skipped for GC cases (<code>AGC_*</code>, <code>PGC_*</code>). The great circle path is fixed and participants cannot modify it, so these constraints are not enforceable.</p>
+</blockquote>
+<h3>Disqualification</h3>
+<p>Submissions may be disqualified if:
+- Optimised routes clearly cross land without avoidance.
+- Reported energy values are materially inconsistent with the RISE performance model re-evaluation.
+- The fixed passage time constraint is violated by more than the tolerance.</p>
+<h2>Fair Comparison Guarantee</h2>
+<p>All participants use:
+- <strong>The same ERA5 weather data</strong> (0.25° grid, 6-hourly, 2024)
+- <strong>The same RISE performance model</strong> (formulas provided in the <strong>Data</strong> tab)
+- <strong>The same route definitions</strong> (ports, passage times, departure schedule)</p>
+<p>The only variable is the optimization algorithm. This ensures that differences in the leaderboard reflect genuine algorithmic improvements.</p>
+</body>
+</html>
