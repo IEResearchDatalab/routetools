@@ -8,18 +8,19 @@ All participants use the **same ERA5 weather data** and the **same RISE performa
 
 The ERA5 NetCDF files are available for direct download from the **Files** tab of this competition. You need 2024 data plus January 2025 (late-December departures extend into January 2025):
 
-| File | Size (approx.) | Contents |
-|------|----------------|----------|
-| `era5_wind_atlantic_2024.nc` | ~570 MB | 10 m wind (u10, v10) — Atlantic corridor |
-| `era5_waves_atlantic_2024.nc` | ~570 MB | Wave height (swh) and direction (mwd) — Atlantic corridor |
-| `era5_wind_pacific_2024.nc` | ~865 MB | 10 m wind (u10, v10) — Pacific corridor |
-| `era5_waves_pacific_2024.nc` | ~865 MB | Wave height (swh) and direction (mwd) — Pacific corridor |
-| `era5_wind_atlantic_2025_01.nc` | ~49 MB | 10 m wind — January 2025, Atlantic |
-| `era5_waves_atlantic_2025_01.nc` | ~49 MB | Waves — January 2025, Atlantic |
-| `era5_wind_pacific_2025_01.nc` | ~74 MB | 10 m wind — January 2025, Pacific |
-| `era5_waves_pacific_2025_01.nc` | ~74 MB | Waves — January 2025, Pacific |
+| File                             | Size (approx.) | Contents                                                  |
+| -------------------------------- | -------------- | --------------------------------------------------------- |
+| `era5_wind_atlantic_2024.nc`     | ~570 MB        | 10 m wind (u10, v10) — Atlantic corridor                  |
+| `era5_waves_atlantic_2024.nc`    | ~570 MB        | Wave height (swh) and direction (mwd) — Atlantic corridor |
+| `era5_wind_pacific_2024.nc`      | ~865 MB        | 10 m wind (u10, v10) — Pacific corridor                   |
+| `era5_waves_pacific_2024.nc`     | ~865 MB        | Wave height (swh) and direction (mwd) — Pacific corridor  |
+| `era5_wind_atlantic_2025_01.nc`  | ~49 MB         | 10 m wind — January 2025, Atlantic                        |
+| `era5_waves_atlantic_2025_01.nc` | ~49 MB         | Waves — January 2025, Atlantic                            |
+| `era5_wind_pacific_2025_01.nc`   | ~74 MB         | 10 m wind — January 2025, Pacific                         |
+| `era5_waves_pacific_2025_01.nc`  | ~74 MB         | Waves — January 2025, Pacific                             |
 
 These are the exact same files produced by the `routetools` downloader. The NetCDF variables are:
+
 - **Wind:** `u10` (eastward), `v10` (northward) in m/s
 - **Waves:** `swh` (significant wave height in m), `mwd` (mean wave direction in degrees)
 - **Grid:** 0.25° × 0.25°, 6-hourly time steps (00:00, 06:00, 12:00, 18:00 UTC)
@@ -96,14 +97,14 @@ The RISE model computes instantaneous **power in kW** for an 88 m cargo ship giv
 
 #### Constants
 
-| Symbol | Value | Exact Fraction |
-|--------|-------|---------------|
-| $K_H$ | 4.2876… | 969 / 226 |
-| $K_A$ | 0.153125 | 49 / 320 |
-| $A_W$ | 11.1395 | — |
-| $K_W$ | 0.28935… | 125 / 432 |
-| $K_S$ | 0.85903125 | 27489 / 32000 |
-| Dead zone | 10° | — |
+| Symbol    | Value      | Exact Fraction |
+| --------- | ---------- | -------------- |
+| $K_H$     | 4.2876…    | 969 / 226      |
+| $K_A$     | 0.153125   | 49 / 320       |
+| $A_W$     | 11.1395    | —              |
+| $K_W$     | 0.28935…   | 125 / 432      |
+| $K_S$     | 0.85903125 | 27489 / 32000  |
+| Dead zone | 10°        | —              |
 
 #### Power Components
 
@@ -156,16 +157,16 @@ where $\Delta t_{h,i}$ is the duration of segment $i$ in hours, and $P_i$ is the
 
 ### Route and Departure Definitions
 
-| Case | Source (lat, lon) | Destination (lat, lon) | Passage (h) | WPS |
-|------|------------------|----------------------|-------------|-----|
-| AO_WPS | (43.60, −4.00) | (40.53, −73.80) | 354 | Yes |
-| AO_noWPS | (43.60, −4.00) | (40.53, −73.80) | 354 | No |
-| AGC_WPS | (43.60, −4.00) | (40.53, −73.80) | 354 | Yes |
-| AGC_noWPS | (43.60, −4.00) | (40.53, −73.80) | 354 | No |
-| PO_WPS | (34.80, 140.00) | (34.40, −121.00) | 583 | Yes |
-| PO_noWPS | (34.80, 140.00) | (34.40, −121.00) | 583 | No |
-| PGC_WPS | (34.80, 140.00) | (34.40, −121.00) | 583 | Yes |
-| PGC_noWPS | (34.80, 140.00) | (34.40, −121.00) | 583 | No |
+| Case      | Source (lat, lon) | Destination (lat, lon) | Passage (h) | WPS |
+| --------- | ----------------- | ---------------------- | ----------- | --- |
+| AO_WPS    | (43.60, −4.00)    | (40.53, −73.80)        | 354         | Yes |
+| AO_noWPS  | (43.60, −4.00)    | (40.53, −73.80)        | 354         | No  |
+| AGC_WPS   | (43.60, −4.00)    | (40.53, −73.80)        | 354         | Yes |
+| AGC_noWPS | (43.60, −4.00)    | (40.53, −73.80)        | 354         | No  |
+| PO_WPS    | (34.80, 140.00)   | (34.40, −121.00)       | 583         | Yes |
+| PO_noWPS  | (34.80, 140.00)   | (34.40, −121.00)       | 583         | No  |
+| PGC_WPS   | (34.80, 140.00)   | (34.40, −121.00)       | 583         | Yes |
+| PGC_noWPS | (34.80, 140.00)   | (34.40, −121.00)       | 583         | No  |
 
 **Departures:** 366 departures — every day of 2024 at **12:00 UTC** (from 2024-01-01 to 2024-12-31).
 

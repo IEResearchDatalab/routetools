@@ -1,5 +1,5 @@
-numpy
-netCDF4
-pyshp
-shapely
-matplotlib
+numpy>=1.24,<3
+netCDF4>=1.6,<2
+pyshp>=2.3,<3
+shapely>=2.0,<3
+matplotlib>=3.7,<4

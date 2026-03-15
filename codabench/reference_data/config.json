@@ -1,4 +1,4 @@
 {
-    "mode": "re_evaluation",
-    "note": "ERA5 6-hourly data + Natural Earth shapefile for server-side re-evaluation"
+  "mode": "re_evaluation",
+  "note": "ERA5 6-hourly data + Natural Earth shapefile for server-side re-evaluation"
 }

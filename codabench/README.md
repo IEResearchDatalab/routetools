@@ -20,8 +20,7 @@ codabench/
 │   └── terms.md              ← Terms and conditions
 ├── starting_kit/
 │   └── starting_kit.py       ← Great-circle baseline (example submission)
-└── logo/
-    └── (add your logo.png here)
+└── logo.png                  ← Competition logo
 ```
 
 ## Step-by-Step Setup
@@ -68,9 +67,9 @@ The `reference_data/` directory must contain the 6-hourly ERA5 NetCDF files
 bundle. See `build_bundle.sh` for the full list of required files.
 
 The scoring program is **self-contained** — it uses only `numpy`, `netCDF4`,
-`pyshp`, and `shapely` (listed in `scoring_program/requirements.txt`).
+`pyshp`, `shapely`, and `matplotlib` (listed in `scoring_program/requirements.txt`).
 No `routetools` or JAX installation is needed on the CodaBench worker.
-The default `python:3.11-slim` Docker image is sufficient.
+The Docker image `fjsuarez/swopp3-scorer:latest` has all dependencies pre-installed.
 
 ### 4. Starting Kit
 
@@ -112,11 +111,11 @@ cat /tmp/codabench_output/scoring_log.txt
 
 ## Key CodaBench Concepts
 
-| Concept | Meaning in SWOPP3 |
-|---------|-------------------|
-| **Phase** | Single evaluation phase (all 366 departures × 8 cases) |
-| **Scoring Program** | `scoring.py` — validates and scores submissions |
-| **Reference Data** | ERA5 NetCDF files + Natural Earth shapefile (~3.1 GB) |
-| **Input Data** | The submission zip uploaded by participants |
-| **Starting Kit** | `starting_kit.py` — great-circle baseline code |
-| **Leaderboard** | Ranked by total energy (MWh), lower = better |
+| Concept             | Meaning in SWOPP3                                      |
+| ------------------- | ------------------------------------------------------ |
+| **Phase**           | Single evaluation phase (all 366 departures × 8 cases) |
+| **Scoring Program** | `scoring.py` — validates and scores submissions        |
+| **Reference Data**  | ERA5 NetCDF files + Natural Earth shapefile (~3.1 GB)  |
+| **Input Data**      | The submission zip uploaded by participants            |
+| **Starting Kit**    | `starting_kit.py` — great-circle baseline code         |
+| **Leaderboard**     | Ranked by total energy (MWh), lower = better           |

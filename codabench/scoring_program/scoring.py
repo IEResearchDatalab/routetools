@@ -29,7 +29,7 @@ import json
 import math
 import re
 import sys
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -55,8 +55,8 @@ EXPECTED_DEPARTURES = 366
 DTFMT = "%Y-%m-%d %H:%M:%S"
 
 # Operational limits (SWOPP3)
-MAX_WIND_MPS = 20.0   # True wind speed limit (m/s)
-MAX_HS_M = 7.0        # Significant wave height limit (m)
+MAX_WIND_MPS = 20.0  # True wind speed limit (m/s)
+MAX_HS_M = 7.0  # Significant wave height limit (m)
 
 # Endpoint tolerance (degrees) — allow small rounding differences
 ENDPOINT_TOLERANCE_DEG = 0.5
@@ -65,33 +65,91 @@ ENDPOINT_TOLERANCE_DEG = 0.5
 PASSAGE_TIME_TOLERANCE_H = 1.0
 
 CASE_NAMES = [
-    "AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS",
-    "PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS",
+    "AO_WPS",
+    "AO_noWPS",
+    "AGC_WPS",
+    "AGC_noWPS",
+    "PO_WPS",
+    "PO_noWPS",
+    "PGC_WPS",
+    "PGC_noWPS",
 ]
 
 GC_CASES = {"AGC_WPS", "AGC_noWPS", "PGC_WPS", "PGC_noWPS"}
 
 # Case definitions: expected ports, passage times, and route corridor
 CASE_DEFS = {
-    "AO_WPS":    {"src": (43.6, -4.0),   "dst": (40.53, -73.80), "passage_h": 354, "route": "atlantic", "wps": True},
-    "AO_noWPS":  {"src": (43.6, -4.0),   "dst": (40.53, -73.80), "passage_h": 354, "route": "atlantic", "wps": False},
-    "AGC_WPS":   {"src": (43.6, -4.0),   "dst": (40.53, -73.80), "passage_h": 354, "route": "atlantic", "wps": True},
-    "AGC_noWPS": {"src": (43.6, -4.0),   "dst": (40.53, -73.80), "passage_h": 354, "route": "atlantic", "wps": False},
-    "PO_WPS":    {"src": (34.8, 140.0),  "dst": (34.4, -121.0),  "passage_h": 583, "route": "pacific",  "wps": True},
-    "PO_noWPS":  {"src": (34.8, 140.0),  "dst": (34.4, -121.0),  "passage_h": 583, "route": "pacific",  "wps": False},
-    "PGC_WPS":   {"src": (34.8, 140.0),  "dst": (34.4, -121.0),  "passage_h": 583, "route": "pacific",  "wps": True},
-    "PGC_noWPS": {"src": (34.8, 140.0),  "dst": (34.4, -121.0),  "passage_h": 583, "route": "pacific",  "wps": False},
+    "AO_WPS": {
+        "src": (43.6, -4.0),
+        "dst": (40.53, -73.80),
+        "passage_h": 354,
+        "route": "atlantic",
+        "wps": True,
+    },
+    "AO_noWPS": {
+        "src": (43.6, -4.0),
+        "dst": (40.53, -73.80),
+        "passage_h": 354,
+        "route": "atlantic",
+        "wps": False,
+    },
+    "AGC_WPS": {
+        "src": (43.6, -4.0),
+        "dst": (40.53, -73.80),
+        "passage_h": 354,
+        "route": "atlantic",
+        "wps": True,
+    },
+    "AGC_noWPS": {
+        "src": (43.6, -4.0),
+        "dst": (40.53, -73.80),
+        "passage_h": 354,
+        "route": "atlantic",
+        "wps": False,
+    },
+    "PO_WPS": {
+        "src": (34.8, 140.0),
+        "dst": (34.4, -121.0),
+        "passage_h": 583,
+        "route": "pacific",
+        "wps": True,
+    },
+    "PO_noWPS": {
+        "src": (34.8, 140.0),
+        "dst": (34.4, -121.0),
+        "passage_h": 583,
+        "route": "pacific",
+        "wps": False,
+    },
+    "PGC_WPS": {
+        "src": (34.8, 140.0),
+        "dst": (34.4, -121.0),
+        "passage_h": 583,
+        "route": "pacific",
+        "wps": True,
+    },
+    "PGC_noWPS": {
+        "src": (34.8, 140.0),
+        "dst": (34.4, -121.0),
+        "passage_h": 583,
+        "route": "pacific",
+        "wps": False,
+    },
 }
 
 # Expected departure schedule: 366 days of 2024, noon UTC
 EXPECTED_DEPARTURES_LIST = [
-    datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC) + timedelta(days=d)
-    for d in range(366)
+    datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC) + timedelta(days=d) for d in range(366)
 ]
 
 FILE_A_COLUMNS = [
-    "departure_time_utc", "arrival_time_utc", "energy_cons_mwh",
-    "max_wind_mps", "max_hs_m", "sailed_distance_nm", "details_filename",
+    "departure_time_utc",
+    "arrival_time_utc",
+    "energy_cons_mwh",
+    "max_wind_mps",
+    "max_hs_m",
+    "sailed_distance_nm",
+    "details_filename",
 ]
 FILE_B_COLUMNS = ["time_utc", "lat_deg", "lon_deg"]
 
@@ -100,8 +158,9 @@ FILE_B_COLUMNS = ["time_utc", "lat_deg", "lon_deg"]
 
 
 def _coord_distance_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Simple Euclidean distance in degrees (for endpoint tolerance checks)."""
-    return math.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2)
+    """Euclidean distance in degrees with antimeridian-safe longitude delta."""
+    dlon = (lon1 - lon2 + 180) % 360 - 180  # wrapped to [-180, 180]
+    return math.sqrt((lat1 - lat2) ** 2 + dlon**2)
 
 
 def find_team_prefix(sub_dir: Path) -> str | None:
@@ -114,6 +173,7 @@ def find_team_prefix(sub_dir: Path) -> str | None:
 
 
 # ─── Land checking (shapefile-based, no JAX needed) ──────────────────
+
 
 def _load_land_checker(ref_dir: Path):
     """Load a land-checking function from Natural Earth shapefile in ref_dir.
@@ -138,6 +198,7 @@ def _load_land_checker(ref_dir: Path):
 
         # Build a union for efficient queries
         from shapely.ops import unary_union
+
         land_union = unary_union(land_shapes)
 
         def is_on_land(lat: float, lon: float) -> bool:
@@ -149,6 +210,7 @@ def _load_land_checker(ref_dir: Path):
 
 
 # ─── Validation: File A ─────────────────────────────────────────────
+
 
 def validate_file_a(
     path: Path,
@@ -213,7 +275,12 @@ def validate_file_a(
                 )
 
         # ── Numeric fields ──
-        for col in ("energy_cons_mwh", "max_wind_mps", "max_hs_m", "sailed_distance_nm"):
+        for col in (
+            "energy_cons_mwh",
+            "max_wind_mps",
+            "max_hs_m",
+            "sailed_distance_nm",
+        ):
             try:
                 v = float(row.get(col, ""))
                 if v != v:  # NaN
@@ -249,6 +316,7 @@ def validate_file_a(
 
 
 # ─── Validation: File B ──────────────────────────────────────────────
+
 
 def validate_file_b(
     path: Path,
@@ -339,19 +407,15 @@ def validate_file_b(
     first_time = waypoints[0][0]
     last_time = waypoints[-1][0]
 
-    if departure_dt and first_time:
-        if first_time != departure_dt:
-            errors.append(
-                f"{fname}: First waypoint time {first_time} != "
-                f"departure {departure_dt}"
-            )
+    if departure_dt and first_time and first_time != departure_dt:
+        errors.append(
+            f"{fname}: First waypoint time {first_time} != " f"departure {departure_dt}"
+        )
 
-    if arrival_dt and last_time:
-        if last_time != arrival_dt:
-            errors.append(
-                f"{fname}: Last waypoint time {last_time} != "
-                f"arrival {arrival_dt}"
-            )
+    if arrival_dt and last_time and last_time != arrival_dt:
+        errors.append(
+            f"{fname}: Last waypoint time {last_time} != arrival {arrival_dt}"
+        )
 
     # ── Land crossing checks (skipped for GC cases) ──
     if land_checker is not None and case_id not in GC_CASES:
@@ -359,9 +423,8 @@ def validate_file_b(
         step = max(1, len(waypoints) // 50)  # check ~50 points max
         for idx in range(0, len(waypoints), step):
             _, lat, lon = waypoints[idx]
-            if lat is not None and lon is not None:
-                if land_checker(lat, lon):
-                    land_count += 1
+            if lat is not None and lon is not None and land_checker(lat, lon):
+                land_count += 1
         if land_count > 0:
             errors.append(
                 f"{fname}: {land_count} waypoint(s) on land "
@@ -372,6 +435,7 @@ def validate_file_b(
 
 
 # ─── ERA5 loading (self-contained, numpy + netCDF4 only) ─────────────
+
 
 def _load_era5_grid(nc_paths: list[str]) -> dict | None:
     """Load and concatenate ERA5 NetCDF files into a numpy dict.
@@ -465,9 +529,13 @@ def _load_era5_grid(nc_paths: list[str]) -> dict | None:
     }
 
 
-def _interp_era5(grid: dict, var_name: str,
-                 query_lat: np.ndarray, query_lon: np.ndarray,
-                 query_t_h: np.ndarray) -> np.ndarray:
+def _interp_era5(
+    grid: dict,
+    var_name: str,
+    query_lat: np.ndarray,
+    query_lon: np.ndarray,
+    query_t_h: np.ndarray,
+) -> np.ndarray:
     """Trilinear interpolation of an ERA5 variable at query points.
 
     Parameters
@@ -513,9 +581,11 @@ def _interp_era5(grid: dict, var_name: str,
     for dt_off in (0, 1):
         for dlat_off in (0, 1):
             for dlon_off in (0, 1):
-                w = ((1 - wt) if dt_off == 0 else wt) * \
-                    ((1 - wlat) if dlat_off == 0 else wlat) * \
-                    ((1 - wlon) if dlon_off == 0 else wlon)
+                w = (
+                    ((1 - wt) if dt_off == 0 else wt)
+                    * ((1 - wlat) if dlat_off == 0 else wlat)
+                    * ((1 - wlon) if dlon_off == 0 else wlon)
+                )
                 it = np.clip(i0_t + dt_off, 0, arr.shape[0] - 1)
                 ila = np.clip(i0_lat + dlat_off, 0, arr.shape[1] - 1)
                 ilo = np.clip(i0_lon + dlon_off, 0, arr.shape[2] - 1)
@@ -527,12 +597,12 @@ def _interp_era5(grid: dict, var_name: str,
 # ─── RISE performance model (self-contained, numpy only) ─────────────
 
 # Constants
-_KH = 969.0 / 226.0       # Hull resistance
-_KA = 49.0 / 320.0        # Aerodynamic drag
-_AW = 11.1395              # Wave added resistance amplitude
-_KW = 125.0 / 432.0       # Wave added resistance decay
-_KS = 27489.0 / 32000.0   # Wingsail thrust
-_DEAD_ZONE_DEG = 10.0      # Wingsail dead zone
+_KH = 969.0 / 226.0  # Hull resistance
+_KA = 49.0 / 320.0  # Aerodynamic drag
+_AW = 11.1395  # Wave added resistance amplitude
+_KW = 125.0 / 432.0  # Wave added resistance decay
+_KS = 27489.0 / 32000.0  # Wingsail thrust
+_DEAD_ZONE_DEG = 10.0  # Wingsail dead zone
 
 
 def _rise_power(tws, twa_deg, swh, mwa_deg, v, wps):
@@ -544,19 +614,19 @@ def _rise_power(tws, twa_deg, swh, mwa_deg, v, wps):
     twa_rad = np.radians(twa_deg)
 
     # Hull resistance
-    p_hull = _KH * v ** 3
+    p_hull = _KH * v**3
 
     # Apparent wind
     ux = tws * np.cos(twa_rad) + v
     uy = tws * np.sin(twa_rad)
-    vr = np.sqrt(ux ** 2 + uy ** 2)
+    vr = np.sqrt(ux**2 + uy**2)
 
     # Aerodynamic drag
-    p_wind = _KA * v * (vr * ux - v ** 2)
+    p_wind = _KA * v * (vr * ux - v**2)
 
     # Wave added resistance
     mwa_rad = np.radians(mwa_deg)
-    p_wave = _AW * swh ** 2 * v ** 1.5 * np.exp(-_KW * np.abs(mwa_rad) ** 3)
+    p_wave = _AW * swh**2 * v**1.5 * np.exp(-_KW * np.abs(mwa_rad) ** 3)
 
     power = p_hull + p_wind + p_wave
 
@@ -564,11 +634,9 @@ def _rise_power(tws, twa_deg, swh, mwa_deg, v, wps):
     if wps:
         awa_deg = np.degrees(np.arctan2(np.abs(uy), ux))
         sail_active = awa_deg >= _DEAD_ZONE_DEG
-        alpha = np.where(sail_active,
-                         np.radians(awa_deg - _DEAD_ZONE_DEG),
-                         0.0)
+        alpha = np.where(sail_active, np.radians(awa_deg - _DEAD_ZONE_DEG), 0.0)
         sin_a = np.sin(alpha)
-        p_sail = _KS * sin_a * (1.0 + 0.15 * sin_a ** 2) * vr ** 2 * v
+        p_sail = _KS * sin_a * (1.0 + 0.15 * sin_a**2) * vr**2 * v
         power = power - np.where(sail_active, p_sail, 0.0)
 
     return np.maximum(power, 0.0)
@@ -590,12 +658,12 @@ def _forward_bearing_deg(lat1, lon1, lat2, lon2):
     lat1r, lat2r = np.radians(lat1), np.radians(lat2)
     dlon = np.radians(lon2 - lon1)
     x = np.sin(dlon) * np.cos(lat2r)
-    y = (np.cos(lat1r) * np.sin(lat2r)
-         - np.sin(lat1r) * np.cos(lat2r) * np.cos(dlon))
+    y = np.cos(lat1r) * np.sin(lat2r) - np.sin(lat1r) * np.cos(lat2r) * np.cos(dlon)
     return np.mod(np.degrees(np.arctan2(x, y)), 360.0)
 
 
 # ─── ERA5 re-evaluation (self-contained) ─────────────────────────────
+
 
 def try_load_era5_scorer(ref_dir: Path):
     """Load ERA5 data from reference directory and return a scoring function.
@@ -617,14 +685,18 @@ def try_load_era5_scorer(ref_dir: Path):
 
         wind_files = [str(wind_2024)]
         wave_files = [str(waves_2024)]
-        for suffix in (f"era5_wind_{corridor}_2025_01.nc",
-                       f"era5_wind_{corridor}_2025.nc"):
+        for suffix in (
+            f"era5_wind_{corridor}_2025_01.nc",
+            f"era5_wind_{corridor}_2025.nc",
+        ):
             p = ref_dir / suffix
             if p.exists():
                 wind_files.append(str(p))
                 break
-        for suffix in (f"era5_waves_{corridor}_2025_01.nc",
-                       f"era5_waves_{corridor}_2025.nc"):
+        for suffix in (
+            f"era5_waves_{corridor}_2025_01.nc",
+            f"era5_waves_{corridor}_2025.nc",
+        ):
             p = ref_dir / suffix
             if p.exists():
                 wave_files.append(str(p))
@@ -692,6 +764,12 @@ def try_load_era5_scorer(ref_dir: Path):
         passage_h = float(case_def["passage_h"])
         dt_h = passage_h / n_seg
 
+        # Normalize lons to match ERA5 grid convention [0, 360)
+        grid_lon = wind_grid["lon"]
+        if grid_lon[0] >= 0 and grid_lon[-1] > 180:
+            # Grid is in [0, 360) — shift negative lons
+            lons = np.where(lons < 0, lons + 360, lons)
+
         # Segment midpoints (position)
         mid_lat = (lats[:-1] + lats[1:]) / 2
         mid_lon = (lons[:-1] + lons[1:]) / 2
@@ -709,18 +787,15 @@ def try_load_era5_scorer(ref_dir: Path):
         swh = _interp_era5(wave_grid, "swh", mid_lat, mid_lon, seg_times)
         mwd = _interp_era5(wave_grid, "mwd", mid_lat, mid_lon, seg_times)
 
-
         # Ship speed (m/s)
         seg_dist_m = _haversine_m(lats[:-1], lons[:-1], lats[1:], lons[1:])
         v_mps = seg_dist_m / (dt_h * 3600.0)
 
         # Ship bearing (degrees)
-        bearing_deg = _forward_bearing_deg(
-            lats[:-1], lons[:-1], lats[1:], lons[1:]
-        )
+        bearing_deg = _forward_bearing_deg(lats[:-1], lons[:-1], lats[1:], lons[1:])
 
         # True wind speed and angle relative to heading
-        tws = np.sqrt(u10 ** 2 + v10 ** 2)
+        tws = np.sqrt(u10**2 + v10**2)
         wind_from_deg = np.mod(180.0 + np.degrees(np.arctan2(u10, v10)), 360.0)
         twa_deg = np.mod(wind_from_deg - bearing_deg, 360.0)
 
@@ -744,8 +819,10 @@ def _try_import_matplotlib():
     """Import matplotlib with Agg backend. Returns (plt, True) or (None, False)."""
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         return plt, True
     except ImportError:
         return None, False
@@ -773,8 +850,12 @@ def _generate_energy_timeseries(plt, case_energies: dict, corridor: str) -> str 
     Returns base64 PNG string, or None if no data.
     """
     prefix = "A" if corridor == "atlantic" else "P"
-    cases = [f"{prefix}O_WPS", f"{prefix}O_noWPS",
-             f"{prefix}GC_WPS", f"{prefix}GC_noWPS"]
+    cases = [
+        f"{prefix}O_WPS",
+        f"{prefix}O_noWPS",
+        f"{prefix}GC_WPS",
+        f"{prefix}GC_noWPS",
+    ]
     labels = ["Opt WPS", "Opt noWPS", "GC WPS", "GC noWPS"]
     colors = ["#2196F3", "#FF9800", "#4CAF50", "#F44336"]
 
@@ -783,14 +864,13 @@ def _generate_energy_timeseries(plt, case_energies: dict, corridor: str) -> str 
         return None
 
     fig, ax = plt.subplots(figsize=(14, 5))
-    for case_id, label, color in zip(cases, labels, colors):
+    for case_id, label, color in zip(cases, labels, colors, strict=False):
         data = case_energies.get(case_id, [])
         if not data:
             continue
         dates = [d for d, _ in data]
         energies = [e for _, e in data]
-        ax.plot(dates, energies, linewidth=0.8, alpha=0.85,
-                label=label, color=color)
+        ax.plot(dates, energies, linewidth=0.8, alpha=0.85, label=label, color=color)
 
     corridor_title = "Trans-Atlantic" if corridor == "atlantic" else "Trans-Pacific"
     ax.set_title(f"Energy per Departure — {corridor_title}", fontsize=13)
@@ -804,8 +884,9 @@ def _generate_energy_timeseries(plt, case_energies: dict, corridor: str) -> str 
     return result
 
 
-def _generate_route_spaghetti(plt, case_routes: dict, corridor: str,
-                              wps: bool, land_polygons=None) -> str | None:
+def _generate_route_spaghetti(
+    plt, case_routes: dict, corridor: str, wps: bool, land_polygons=None
+) -> str | None:
     """Generate a route spaghetti plot for one corridor/WPS combination.
 
     Parameters
@@ -828,12 +909,8 @@ def _generate_route_spaghetti(plt, case_routes: dict, corridor: str,
         return None
 
     # Fixed bounding boxes per corridor (lon_min, lon_max, lat_min, lat_max)
-    if corridor == "atlantic":
-        view = (-80, 5, 25, 60)
-    else:
-        # Pacific crosses the antimeridian: JPTYO (140°) → USLAX (-121°)
-        # Plot in [0, 360] convention to avoid the split
-        view = (130, 250, 15, 55)
+    # Pacific crosses antimeridian: plot in [0,360] convention
+    view = (-80, 5, 25, 60) if corridor == "atlantic" else (130, 250, 15, 55)
 
     lon_min, lon_max, lat_min, lat_max = view
     is_pacific = corridor == "pacific"
@@ -850,10 +927,10 @@ def _generate_route_spaghetti(plt, case_routes: dict, corridor: str,
 
     # Draw land polygons clipped to view
     if land_polygons is not None:
-        from matplotlib.patches import Polygon as MplPolygon
         from matplotlib.collections import PatchCollection
-        from shapely.geometry import MultiPolygon, Polygon, box
+        from matplotlib.patches import Polygon as MplPolygon
         from shapely import affinity
+        from shapely.geometry import MultiPolygon, Polygon, box
 
         clip_box = box(lon_min - 1, lat_min - 1, lon_max + 1, lat_max + 1)
         patches = []
@@ -878,11 +955,17 @@ def _generate_route_spaghetti(plt, case_routes: dict, corridor: str,
                     if poly.is_empty:
                         continue
                     xs, ys = poly.exterior.coords.xy
-                    patches.append(MplPolygon(list(zip(xs, ys)), closed=True))
+                    patches.append(
+                        MplPolygon(list(zip(xs, ys, strict=False)), closed=True)
+                    )
         if patches:
-            pc = PatchCollection(patches, facecolor="#E8E0D8",
-                                 edgecolor="#B0A090", linewidth=0.3,
-                                 zorder=0)
+            pc = PatchCollection(
+                patches,
+                facecolor="#E8E0D8",
+                edgecolor="#B0A090",
+                linewidth=0.3,
+                zorder=0,
+            )
             ax.add_collection(pc)
 
     # Set ocean background
@@ -890,13 +973,17 @@ def _generate_route_spaghetti(plt, case_routes: dict, corridor: str,
 
     # Plot GC routes first (background, grey)
     for lats, lons in gc_routes[:1]:
-        ax.plot(_plot_lons(lons), lats, color="#BDBDBD", linewidth=0.5, alpha=0.6, zorder=1)
+        ax.plot(
+            _plot_lons(lons), lats, color="#BDBDBD", linewidth=0.5, alpha=0.6, zorder=1
+        )
     if gc_routes:
         ax.plot([], [], color="#BDBDBD", linewidth=1, label="Great Circle")
 
     # Plot optimised routes
-    for i, (lats, lons) in enumerate(opt_routes):
-        ax.plot(_plot_lons(lons), lats, color="#1565C0", linewidth=0.3, alpha=0.15, zorder=2)
+    for _i, (lats, lons) in enumerate(opt_routes):
+        ax.plot(
+            _plot_lons(lons), lats, color="#1565C0", linewidth=0.3, alpha=0.15, zorder=2
+        )
     if opt_routes:
         ax.plot([], [], color="#1565C0", linewidth=1.5, alpha=0.7, label="Optimised")
 
@@ -920,6 +1007,7 @@ def _generate_route_spaghetti(plt, case_routes: dict, corridor: str,
     # For Pacific, relabel x-axis ticks to show real geographic longitudes
     if is_pacific:
         import numpy as np
+
         ticks = np.arange(int(lon_min / 10) * 10, lon_max + 1, 10)
         ax.set_xticks(ticks)
         ax.set_xticklabels([f"{t - 360}°" if t > 180 else f"{t}°" for t in ticks])
@@ -931,10 +1019,15 @@ def _generate_route_spaghetti(plt, case_routes: dict, corridor: str,
     return result
 
 
-def _write_detailed_results(output_dir: Path, scores: dict,
-                            all_errors: list, all_warnings: list,
-                            case_energies: dict, case_routes: dict,
-                            data_dir: Path | None = None):
+def _write_detailed_results(
+    output_dir: Path,
+    scores: dict,
+    all_errors: list,
+    all_warnings: list,
+    case_energies: dict,
+    case_routes: dict,
+    data_dir: Path | None = None,
+):
     """Write detailed_results.html with scores, diagnostics, and plots."""
     plt, has_mpl = _try_import_matplotlib()
 
@@ -946,6 +1039,7 @@ def _write_detailed_results(output_dir: Path, scores: dict,
             try:
                 import shapefile as shp
                 from shapely.geometry import shape
+
                 sf = shp.Reader(str(shapefile_path))
                 land_polygons = [shape(s) for s in sf.shapes()]
             except Exception:
@@ -962,10 +1056,13 @@ def _write_detailed_results(output_dir: Path, scores: dict,
 
         for corridor in ("atlantic", "pacific"):
             for wps in (True, False):
-                img = _generate_route_spaghetti(plt, case_routes, corridor, wps,
-                                                land_polygons=land_polygons)
+                img = _generate_route_spaghetti(
+                    plt, case_routes, corridor, wps, land_polygons=land_polygons
+                )
                 if img:
-                    name = "Trans-Atlantic" if corridor == "atlantic" else "Trans-Pacific"
+                    name = (
+                        "Trans-Atlantic" if corridor == "atlantic" else "Trans-Pacific"
+                    )
                     wps_label = "WPS" if wps else "noWPS"
                     plots.append((f"Routes — {name} ({wps_label})", img))
 
@@ -973,8 +1070,11 @@ def _write_detailed_results(output_dir: Path, scores: dict,
     html_parts = [
         '<!DOCTYPE html><html><head><meta charset="utf-8">',
         "<style>",
-        "body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }",
-        "h1 { color: #2c3e50; } h2 { color: #34495e; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }",
+        "body { font-family: Arial, sans-serif; max-width: 1200px;"
+        " margin: 0 auto; padding: 20px; }",
+        "h1 { color: #2c3e50; }"
+        " h2 { color: #34495e; border-bottom: 1px solid #eee;"
+        " padding-bottom: 0.3em; }",
         "table { border-collapse: collapse; margin: 1em 0; }",
         "th, td { border: 1px solid #ddd; padding: 6px 12px; text-align: right; }",
         "th { background: #f5f5f5; text-align: left; }",
@@ -1002,21 +1102,27 @@ def _write_detailed_results(output_dir: Path, scores: dict,
 
     # Errors
     if all_errors:
-        html_parts.append(f'<h2 class="err">Validation Errors ({len(all_errors)})</h2><ul>')
+        html_parts.append(
+            f'<h2 class="err">Validation Errors ({len(all_errors)})</h2><ul>'
+        )
         for e in all_errors[:100]:  # cap at 100 to keep HTML manageable
             html_parts.append(f"<li>{e}</li>")
         if len(all_errors) > 100:
             html_parts.append(f"<li>... and {len(all_errors) - 100} more</li>")
         html_parts.append("</ul>")
     else:
-        html_parts.append('<p class="ok"><strong>All validation checks passed ✓</strong></p>')
+        html_parts.append(
+            '<p class="ok"><strong>All validation checks passed ✓</strong></p>'
+        )
 
     # Plots
     if plots:
         html_parts.append("<h2>Figures</h2>")
         for title, img_b64 in plots:
             html_parts.append(f"<h3>{title}</h3>")
-            html_parts.append(f'<img src="data:image/png;base64,{img_b64}" alt="{title}">')
+            html_parts.append(
+                f'<img src="data:image/png;base64,{img_b64}" alt="{title}">'
+            )
 
     html_parts.append("</body></html>")
 
@@ -1025,6 +1131,7 @@ def _write_detailed_results(output_dir: Path, scores: dict,
 
 
 # ─── Main scoring logic ─────────────────────────────────────────────
+
 
 def score_submission() -> dict:
     """Validate and score a SWOPP3 submission."""
@@ -1092,7 +1199,11 @@ def score_submission() -> dict:
                 re_eval_ok = False
                 continue
 
-            fb_path = tracks_dir / fb_name if tracks_dir.is_dir() else submission_dir / fb_name
+            fb_path = (
+                tracks_dir / fb_name
+                if tracks_dir.is_dir()
+                else submission_dir / fb_name
+            )
 
             # Parse departure/arrival for endpoint time checks
             dep_dt = arr_dt = None
@@ -1103,7 +1214,8 @@ def score_submission() -> dict:
                 pass
 
             fb_errors = validate_file_b(
-                fb_path, case,
+                fb_path,
+                case,
                 departure_dt=dep_dt,
                 arrival_dt=arr_dt,
                 land_checker=land_checker,
@@ -1131,8 +1243,7 @@ def score_submission() -> dict:
                         lons = [wp[2] for wp in waypoints]
                         step = max(1, len(lats) // 100)
                         case_routes[case].append(
-                            (lats[::step] + [lats[-1]],
-                             lons[::step] + [lons[-1]])
+                            (lats[::step] + [lats[-1]], lons[::step] + [lons[-1]])
                         )
                     else:
                         re_eval_ok = False
@@ -1153,8 +1264,12 @@ def score_submission() -> dict:
         total_energy += case_energy_final
 
     # ── Cross-case consistency checks ──
-    wps_pairs = [("AO_WPS", "AO_noWPS"), ("AGC_WPS", "AGC_noWPS"),
-                 ("PO_WPS", "PO_noWPS"), ("PGC_WPS", "PGC_noWPS")]
+    wps_pairs = [
+        ("AO_WPS", "AO_noWPS"),
+        ("AGC_WPS", "AGC_noWPS"),
+        ("PO_WPS", "PO_noWPS"),
+        ("PGC_WPS", "PGC_noWPS"),
+    ]
     for wps_case, nowps_case in wps_pairs:
         wps_e = scores.get(f"{wps_case}_energy_mwh", 0)
         nowps_e = scores.get(f"{nowps_case}_energy_mwh", 0)
@@ -1183,14 +1298,19 @@ def score_submission() -> dict:
         else:
             f.write("VALIDATION: All checks passed ✓\n")
 
-        f.write(f"\nSCORES:\n")
+        f.write("\nSCORES:\n")
         for k, v in scores.items():
             f.write(f"  {k}: {v}\n")
 
     # Write detailed results with plots
     _write_detailed_results(
-        output_dir, scores, all_errors, all_warnings,
-        case_energies, case_routes, data_dir=data_dir,
+        output_dir,
+        scores,
+        all_errors,
+        all_warnings,
+        case_energies,
+        case_routes,
+        data_dir=data_dir,
     )
 
     return scores

@@ -8,17 +8,18 @@ If ERA5 reference data is unavailable on the server, the scoring program falls b
 
 ### Metrics on the Leaderboard
 
-| Metric | Description | Ranking |
-|--------|-------------|---------|
-| **Total Energy (MWh)** | Sum of energy across all 8 cases | Primary (ascending) |
-| Per-case energy | Breakdown for each of the 8 cases | Secondary |
-| Validation errors | Number of format/constraint violations | Lower is better |
+| Metric                 | Description                            | Ranking             |
+| ---------------------- | -------------------------------------- | ------------------- |
+| **Total Energy (MWh)** | Sum of energy across all 8 cases       | Primary (ascending) |
+| Per-case energy        | Breakdown for each of the 8 cases      | Secondary           |
+| Validation errors      | Number of format/constraint violations | Lower is better     |
 
 ### Validation Checks
 
 The scoring program performs the following checks automatically:
 
 #### File A Checks
+
 1. **File presence:** All 8 File A CSVs present with the expected naming pattern.
 2. **Column structure:** All required columns (`departure_time_utc`, `arrival_time_utc`, `energy_cons_mwh`, `max_wind_mps`, `max_hs_m`, `sailed_distance_nm`, `details_filename`) present.
 3. **Row count:** Each File A has exactly 366 rows.
@@ -30,6 +31,7 @@ The scoring program performs the following checks automatically:
 9. **Operational constraint — waves:** `max_hs_m` ≤ 7 m (optimised cases only).
 
 #### File B Checks
+
 10. **File existence:** Every File B referenced in `details_filename` exists under `tracks/`.
 11. **Column structure:** Required columns (`time_utc`, `lat_deg`, `lon_deg`) present.
 12. **Minimum waypoints:** At least 2 waypoints per track.
@@ -42,6 +44,7 @@ The scoring program performs the following checks automatically:
 19. **Land crossing:** Sampled waypoints checked against a Natural Earth land shapefile (optimised cases only; when available on the server).
 
 #### Cross-Case Checks
+
 20. **WPS consistency:** With-wingsail cases should have ≤ energy compared to without-wingsail cases (warning, not error).
 
 Submissions with validation errors still receive a score, but the error count is displayed on the leaderboard.
@@ -51,6 +54,7 @@ Submissions with validation errors still receive a score, but the error count is
 ### Disqualification
 
 Submissions may be disqualified if:
+
 - Optimised routes clearly cross land without avoidance.
 - Reported energy values are materially inconsistent with the RISE performance model re-evaluation.
 - The fixed passage time constraint is violated by more than the tolerance.
@@ -58,6 +62,7 @@ Submissions may be disqualified if:
 ## Fair Comparison Guarantee
 
 All participants use:
+
 - **The same ERA5 weather data** (0.25° grid, 6-hourly, 2024)
 - **The same RISE performance model** (formulas provided in the **Data** tab)
 - **The same route definitions** (ports, passage times, departure schedule)

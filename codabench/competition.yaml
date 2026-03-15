@@ -10,7 +10,7 @@ version: 2
 title: "SWOPP3 Weather Routing Benchmark"
 description: "Minimize total energy consumption for an 88 m cargo ship across 366 daily departures on two ocean routes (Trans-Atlantic and Trans-Pacific) using ERA5 weather data and the RISE performance model."
 image: logo.png
-docker_image: "codalab/codalab-legacy:py39"
+docker_image: "fjsuarez/swopp3-scorer:latest"
 registration_auto_approve: true
 
 # ── Pages (Markdown files in pages/) ─────────────────────────────────

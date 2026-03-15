@@ -2,21 +2,19 @@
 """SWOPP3 Starting Kit — Great Circle Baseline.
 
 This script generates a valid submission using the simplest possible
-strategy: great-circle routes at constant speed. It demonstrates how to:
+strategy: great-circle routes at constant speed. No external libraries
+required beyond the Python standard library.
 
-1. Load ERA5 weather data via routetools.
-2. Evaluate routes using the RISE performance model.
-3. Write File A and File B CSVs in the required format.
-
-This baseline can be used as a template. Replace the great-circle route
-with your optimizer's output to improve energy efficiency.
+Replace the great-circle route with your optimizer's output to improve
+energy efficiency. Energy values here are placeholders (0.0) — the
+CodaBench scorer will re-evaluate all routes using the official RISE
+model and ERA5 data.
 
 Usage
 -----
 ::
 
-    pip install routetools
-    python starting_kit.py --data-dir data/era5 --output-dir my_submission
+    python starting_kit.py --output-dir my_submission
 
 Then zip the output directory and upload to CodaBench.
 """
@@ -25,19 +23,11 @@ from __future__ import annotations
 
 import argparse
 import csv
-from datetime import datetime, timedelta, UTC
+import math
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import jax.numpy as jnp
-
-from routetools.swopp3 import (
-    SWOPP3_CASES,
-    departures_2024,
-    case_endpoints,
-    great_circle_route,
-)
-from routetools.cost import cost_function_rise
-from routetools.era5 import load_era5_windfield, load_era5_wavefield
+UTC = UTC
 
 # ─── Configuration ───────────────────────────────────────────────────
 
@@ -45,159 +35,215 @@ TEAM = "MyTeam"
 SUBMISSION = 1
 N_WAYPOINTS = 100  # Number of waypoints in the route
 
-# ERA5 file paths (relative to data_dir)
-ERA5_FILES = {
-    "atlantic": {
-        "wind": "era5_wind_atlantic_2024.nc",
-        "waves": "era5_waves_atlantic_2024.nc",
+# Case definitions: (src_lat, src_lon), (dst_lat, dst_lon), passage_hours
+CASES = {
+    "AO_WPS": {
+        "src": (43.6, -4.0),
+        "dst": (40.53, -73.80),
+        "passage_h": 354,
+        "wps": True,
     },
-    "pacific": {
-        "wind": "era5_wind_pacific_2024.nc",
-        "waves": "era5_waves_pacific_2024.nc",
+    "AO_noWPS": {
+        "src": (43.6, -4.0),
+        "dst": (40.53, -73.80),
+        "passage_h": 354,
+        "wps": False,
+    },
+    "AGC_WPS": {
+        "src": (43.6, -4.0),
+        "dst": (40.53, -73.80),
+        "passage_h": 354,
+        "wps": True,
+    },
+    "AGC_noWPS": {
+        "src": (43.6, -4.0),
+        "dst": (40.53, -73.80),
+        "passage_h": 354,
+        "wps": False,
+    },
+    "PO_WPS": {
+        "src": (34.8, 140.0),
+        "dst": (34.4, -121.0),
+        "passage_h": 583,
+        "wps": True,
+    },
+    "PO_noWPS": {
+        "src": (34.8, 140.0),
+        "dst": (34.4, -121.0),
+        "passage_h": 583,
+        "wps": False,
+    },
+    "PGC_WPS": {
+        "src": (34.8, 140.0),
+        "dst": (34.4, -121.0),
+        "passage_h": 583,
+        "wps": True,
+    },
+    "PGC_noWPS": {
+        "src": (34.8, 140.0),
+        "dst": (34.4, -121.0),
+        "passage_h": 583,
+        "wps": False,
     },
 }
 
 
+def great_circle_waypoints(
+    src_lat: float,
+    src_lon: float,
+    dst_lat: float,
+    dst_lon: float,
+    n_points: int,
+) -> list[tuple[float, float]]:
+    """Generate waypoints along a great-circle path.
+
+    Returns list of (lat_deg, lon_deg) tuples.
+    """
+    lat1 = math.radians(src_lat)
+    lon1 = math.radians(src_lon)
+    lat2 = math.radians(dst_lat)
+    lon2 = math.radians(dst_lon)
+
+    d = math.acos(
+        math.sin(lat1) * math.sin(lat2)
+        + math.cos(lat1) * math.cos(lat2) * math.cos(lon2 - lon1)
+    )
+
+    waypoints = []
+    for i in range(n_points):
+        f = i / (n_points - 1) if n_points > 1 else 0.0
+        if d < 1e-10:
+            waypoints.append((src_lat, src_lon))
+            continue
+        a = math.sin((1 - f) * d) / math.sin(d)
+        b = math.sin(f * d) / math.sin(d)
+        x = a * math.cos(lat1) * math.cos(lon1) + b * math.cos(lat2) * math.cos(lon2)
+        y = a * math.cos(lat1) * math.sin(lon1) + b * math.cos(lat2) * math.sin(lon2)
+        z = a * math.sin(lat1) + b * math.sin(lat2)
+        lat = math.degrees(math.atan2(z, math.sqrt(x**2 + y**2)))
+        lon = math.degrees(math.atan2(y, x))
+        waypoints.append((lat, lon))
+
+    return waypoints
+
+
+def haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Haversine distance in nautical miles."""
+    R_NM = 3440.065  # Earth radius in nm
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
+    return R_NM * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
 def main() -> None:
+    """Generate a great-circle baseline submission for all SWOPP3 cases."""
     parser = argparse.ArgumentParser(description="SWOPP3 baseline: great circle.")
-    parser.add_argument("--data-dir", default="data/era5", help="ERA5 data directory.")
     parser.add_argument("--output-dir", default="submission", help="Output directory.")
     parser.add_argument("--team", default=TEAM, help="Team name.")
-    parser.add_argument("--submission", type=int, default=SUBMISSION, help="Submission #.")
+    parser.add_argument(
+        "--submission", type=int, default=SUBMISSION, help="Submission #."
+    )
     args = parser.parse_args()
 
-    data_dir = Path(args.data_dir)
     output_dir = Path(args.output_dir)
     tracks_dir = output_dir / "tracks"
     tracks_dir.mkdir(parents=True, exist_ok=True)
 
-    departures = departures_2024()
+    # 366 daily departures at noon UTC throughout 2024
+    departures = [
+        datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC) + timedelta(days=d)
+        for d in range(366)
+    ]
     dtfmt = "%Y-%m-%d %H:%M:%S"
 
-    for case_id, case in SWOPP3_CASES.items():
-        print(f"\n{'='*60}")
-        print(f"Case: {case_id} ({case['label']})")
-        print(f"{'='*60}")
+    for case_id, case in CASES.items():
+        print(f"\nCase: {case_id}")
 
-        route_id = case["route"]
-        passage_hours = case["passage_hours"]
-        wps = case["wps"]
+        src_lat, src_lon = case["src"]
+        dst_lat, dst_lon = case["dst"]
+        passage_h = case["passage_h"]
 
-        # Build great-circle route
-        src, dst = case_endpoints(case_id)
-        gc_route = great_circle_route(src, dst, n_points=N_WAYPOINTS)
+        gc = great_circle_waypoints(src_lat, src_lon, dst_lat, dst_lon, N_WAYPOINTS)
 
-        # Prepare File A rows
+        # Total sailed distance (nm)
+        dist_nm = sum(
+            haversine_nm(gc[i][0], gc[i][1], gc[i + 1][0], gc[i + 1][1])
+            for i in range(len(gc) - 1)
+        )
+
         file_a_rows = []
-
         for dep_idx, departure in enumerate(departures):
             dep_str = departure.strftime("%Y%m%d")
-            dep_time_str = departure.strftime(dtfmt)
-
-            # Load weather for this departure
-            wind_file = data_dir / ERA5_FILES[route_id]["wind"]
-            wave_file = data_dir / ERA5_FILES[route_id]["waves"]
-
-            if not wind_file.exists() or not wave_file.exists():
-                raise FileNotFoundError(
-                    f"Missing ERA5 files. Download with:\n"
-                    f"  python -m routetools.era5.download --corridor {route_id} --year 2024"
-                )
-
-            windfield = load_era5_windfield(
-                str(wind_file),
-                departure_time=departure.strftime("%Y-%m-%dT%H:%M:%S"),
-            )
-            wavefield = load_era5_wavefield(
-                str(wave_file),
-                departure_time=departure.strftime("%Y-%m-%dT%H:%M:%S"),
-            )
-
-            # Evaluate energy using RISE model
-            curve_batch = gc_route[None, :, :]  # (1, L, 2)
-            energy_mwh = float(
-                cost_function_rise(
-                    windfield=windfield,
-                    curve=curve_batch,
-                    travel_time=float(passage_hours),
-                    wavefield=wavefield,
-                    wps=wps,
-                    time_offset=0.0,
-                )[0]
-            )
-
-            # Compute max weather along route
-            mid_lon = (gc_route[:-1, 0] + gc_route[1:, 0]) / 2
-            mid_lat = (gc_route[:-1, 1] + gc_route[1:, 1]) / 2
-            n_seg = len(mid_lon)
-            dt_h = passage_hours / n_seg
-            seg_times = jnp.array([(i + 0.5) * dt_h for i in range(n_seg)])
-
-            u10, v10 = windfield(mid_lon, mid_lat, seg_times)
-            tws = jnp.sqrt(u10**2 + v10**2)
-            max_wind = float(jnp.max(tws))
-
-            hs, _ = wavefield(mid_lon, mid_lat, seg_times)
-            max_hs = float(jnp.max(hs))
-
-            # Sailed distance (nm)
-            from routetools.cost import haversine_distance_from_curve
-            dist_m = float(jnp.sum(haversine_distance_from_curve(gc_route)))
-            dist_nm = dist_m / 1852.0
-
-            # Arrival time
-            arrival = departure + timedelta(hours=passage_hours)
-
-            # File B name
+            arrival = departure + timedelta(hours=passage_h)
             fb_name = f"{args.team}-{args.submission}-{case_id}-{dep_str}.csv"
 
-            file_a_rows.append({
-                "departure_time_utc": dep_time_str,
-                "arrival_time_utc": arrival.strftime(dtfmt),
-                "energy_cons_mwh": f"{energy_mwh:.6f}",
-                "max_wind_mps": f"{max_wind:.4f}",
-                "max_hs_m": f"{max_hs:.4f}",
-                "sailed_distance_nm": f"{dist_nm:.4f}",
-                "details_filename": fb_name,
-            })
+            file_a_rows.append(
+                {
+                    "departure_time_utc": departure.strftime(dtfmt),
+                    "arrival_time_utc": arrival.strftime(dtfmt),
+                    "energy_cons_mwh": "0.000000",  # placeholder — scorer re-evaluates
+                    "max_wind_mps": "0.0000",
+                    "max_hs_m": "0.0000",
+                    "sailed_distance_nm": f"{dist_nm:.4f}",
+                    "details_filename": fb_name,
+                }
+            )
 
             # Write File B (track waypoints)
             fb_path = tracks_dir / fb_name
-            total_seconds = passage_hours * 3600
+            total_seconds = passage_h * 3600
             with fb_path.open("w", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=["time_utc", "lat_deg", "lon_deg"])
+                writer = csv.DictWriter(
+                    f, fieldnames=["time_utc", "lat_deg", "lon_deg"]
+                )
                 writer.writeheader()
-                for wp_idx in range(N_WAYPOINTS):
+                for wp_idx, (wlat, wlon) in enumerate(gc):
                     t = departure + timedelta(
                         seconds=total_seconds * wp_idx / (N_WAYPOINTS - 1)
                     )
-                    writer.writerow({
-                        "time_utc": t.strftime(dtfmt),
-                        "lat_deg": f"{float(gc_route[wp_idx, 1]):.6f}",
-                        "lon_deg": f"{float(gc_route[wp_idx, 0]):.6f}",
-                    })
+                    writer.writerow(
+                        {
+                            "time_utc": t.strftime(dtfmt),
+                            "lat_deg": f"{wlat:.6f}",
+                            "lon_deg": f"{wlon:.6f}",
+                        }
+                    )
 
-            if (dep_idx + 1) % 30 == 0:
-                print(f"  Processed {dep_idx + 1}/366 departures "
-                      f"(energy={energy_mwh:.1f} MWh)")
+            if (dep_idx + 1) % 100 == 0:
+                print(f"  {dep_idx + 1}/366 departures done")
 
         # Write File A
         fa_name = f"{args.team}-{args.submission}-{case_id}.csv"
         fa_path = output_dir / fa_name
         columns = [
-            "departure_time_utc", "arrival_time_utc", "energy_cons_mwh",
-            "max_wind_mps", "max_hs_m", "sailed_distance_nm", "details_filename",
+            "departure_time_utc",
+            "arrival_time_utc",
+            "energy_cons_mwh",
+            "max_wind_mps",
+            "max_hs_m",
+            "sailed_distance_nm",
+            "details_filename",
         ]
         with fa_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=columns)
             writer.writeheader()
             writer.writerows(file_a_rows)
 
-        total_case_energy = sum(float(r["energy_cons_mwh"]) for r in file_a_rows)
-        print(f"  → {fa_name}: total energy = {total_case_energy:.1f} MWh")
+        print(f"  → {fa_name} written ({dist_nm:.0f} nm)")
 
-    print(f"\nDone! Submission files written to {output_dir}/")
-    print(f"Zip this directory and upload to CodaBench.")
+    print(f"\nDone! Submission in {output_dir}/")
+    print("Zip this directory and upload to CodaBench.")
+    print("Energy values are placeholders — the scorer will re-evaluate all routes.")
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
