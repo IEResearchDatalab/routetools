@@ -20,6 +20,10 @@ Download only the Atlantic corridor for 2023 via GCS::
 
     uv run scripts/download_era5.py --corridor atlantic --year 2023
 
+Download 6-hourly data instead of hourly (smaller files)::
+
+    uv run scripts/download_era5.py --time-step 6
+
 Download via the CDS API instead::
 
     uv run scripts/download_era5.py --backend cds
@@ -107,8 +111,8 @@ def main() -> None:
     parser.add_argument(
         "--time-step",
         type=int,
-        default=6,
-        help="Hours between time steps (default: 6). GCS backend only.",
+        default=1,
+        help="Hours between time steps (default: 1). GCS backend only.",
     )
     args = parser.parse_args()
 

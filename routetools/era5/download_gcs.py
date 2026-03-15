@@ -59,13 +59,30 @@ def _ensure_deps() -> None:
 
 
 def _open_era5_zarr(variables: list[str]) -> xr.Dataset:
-    """Open the ERA5 Zarr store on GCS and select the given variables."""
+    """Open the ERA5 Zarr store on GCS and select the given variables.
+
+    Uses ``drop_variables`` to avoid loading metadata for the ~270
+    other ERA5 fields, which cuts memory from ~16 GB to ~300 MB.
+    """
     import gcsfs
     import xarray as xr
 
     fs = gcsfs.GCSFileSystem(token="anon")
+    store_path = GCS_ERA5_SINGLE_LEVEL.removeprefix("gs://")
+
+    # List top-level entries to discover all variable/coordinate names
+    entries = fs.ls(store_path, detail=False)
+    all_names = [
+        e.split("/")[-1] for e in entries if not e.split("/")[-1].startswith(".")
+    ]
+
+    # Keep only the requested variables + coordinate dimensions
+    coord_names = {"time", "valid_time", "latitude", "longitude", "lat", "lon"}
+    keep = set(variables) | coord_names
+    drop = [n for n in all_names if n not in keep]
+
     store = fs.get_mapper(GCS_ERA5_SINGLE_LEVEL)
-    ds = xr.open_zarr(store, consolidated=True)
+    ds = xr.open_zarr(store, consolidated=True, drop_variables=drop)
     return ds[variables]
 
 
@@ -108,7 +125,7 @@ def _select_corridor(
     months : list[int], optional
         Months to include (1-12). Default: all 12.
     time_step : int
-        Hours between time steps (default 6 for 6-hourly).
+        Hours between time steps (default 1 for hourly).
 
     Returns
     -------
@@ -182,6 +199,73 @@ def _select_corridor(
     return ds
 
 
+def _save_with_low_memory(ds: xr.Dataset, path: Path) -> None:
+    """Save a dask-backed dataset to NetCDF with bounded memory usage.
+
+    Uses a bounded thread pool (16 workers) instead of the default
+    scheduler which launches too many concurrent tasks.  This caps
+    the number of chunks held in RAM simultaneously while still
+    downloading in parallel.
+    """
+    import dask
+    from dask.threaded import get as threaded_get
+
+    with dask.config.set(scheduler=threaded_get, num_workers=16):
+        ds.to_netcdf(path)
+
+
+def _download_by_month(
+    variables: list[str],
+    field: str,
+    corridor: str,
+    year: str,
+    months: list[int],
+    time_step: int,
+    output_path: Path,
+) -> None:
+    """Download data month-by-month to bound peak memory usage.
+
+    Opens a fresh Zarr connection per month so the dask graph stays small,
+    writes each month to a temporary NetCDF file, then concatenates them
+    into the final output.
+    """
+    import dask
+    import xarray as xr
+    from dask.threaded import get as threaded_get
+
+    tmp_dir = output_path.parent / f"_tmp_{output_path.stem}"
+    tmp_dir.mkdir(exist_ok=True)
+    tmp_files: list[Path] = []
+
+    try:
+        for month in months:
+            tmp_path = tmp_dir / f"m{month:02d}.nc"
+            if tmp_path.exists():
+                tmp_files.append(tmp_path)
+                continue
+            logger.info("  Month %02d/%s ...", month, year)
+            ds = _open_era5_zarr(variables)
+            ds = _select_corridor(ds, corridor, year, [month], time_step)
+            ds = _normalize_time_dim(ds)
+            with dask.config.set(scheduler=threaded_get, num_workers=16):
+                ds.to_netcdf(tmp_path)
+            del ds
+            tmp_files.append(tmp_path)
+
+        # Concatenate monthly files into final output
+        logger.info("  Merging %d monthly files ...", len(tmp_files))
+        ds_merged = xr.open_mfdataset(tmp_files, combine="by_coords")
+        ds_merged.load()
+        ds_merged.to_netcdf(output_path)
+        ds_merged.close()
+    finally:
+        # Clean up temporary files
+        for f in tmp_files:
+            f.unlink(missing_ok=True)
+        if tmp_dir.exists():
+            tmp_dir.rmdir()
+
+
 def _output_filename(
     output_dir: Path,
     field: str,
@@ -202,7 +286,7 @@ def download_era5_wind_gcs(
     corridor: str = "atlantic",
     year: str = "2024",
     months: list[int] | None = None,
-    time_step: int = 6,
+    time_step: int = 1,
 ) -> Path:
     """Download ERA5 10-m wind data from GCS and save as NetCDF.
 
@@ -217,7 +301,7 @@ def download_era5_wind_gcs(
     months : list[int], optional
         Months to include (1-12). Default: all 12.
     time_step : int
-        Hours between time steps (default 6).
+        Hours between time steps (default 1 for hourly).
 
     Returns
     -------
@@ -233,15 +317,33 @@ def download_era5_wind_gcs(
         logger.info("File already exists, skipping: %s", filename)
         return filename
 
-    logger.info("Opening ERA5 wind data on GCS for %s/%s ...", corridor, year)
-    ds = _open_era5_zarr([WIND_U_VAR, WIND_V_VAR])
-    ds = _select_corridor(ds, corridor, year, months, time_step)
+    dl_months = months if months is not None else list(range(1, 13))
 
-    # Normalize time dimension to 'valid_time' for CDS compatibility
-    ds = _normalize_time_dim(ds)
+    if len(dl_months) == 1:
+        # Single month — download directly without temp files
+        logger.info("Opening ERA5 wind data on GCS for %s/%s ...", corridor, year)
+        ds = _open_era5_zarr([WIND_U_VAR, WIND_V_VAR])
+        ds = _select_corridor(ds, corridor, year, dl_months, time_step)
+        ds = _normalize_time_dim(ds)
+        logger.info("Downloading and saving to %s ...", filename)
+        _save_with_low_memory(ds, filename)
+    else:
+        logger.info(
+            "Downloading ERA5 wind for %s/%s (%d months) ...",
+            corridor,
+            year,
+            len(dl_months),
+        )
+        _download_by_month(
+            [WIND_U_VAR, WIND_V_VAR],
+            "wind",
+            corridor,
+            year,
+            dl_months,
+            time_step,
+            filename,
+        )
 
-    logger.info("Downloading and saving to %s ...", filename)
-    ds.to_netcdf(filename)
     logger.info("Saved: %s (%.1f MB)", filename, filename.stat().st_size / 1e6)
     return filename
 
@@ -251,7 +353,7 @@ def download_era5_waves_gcs(
     corridor: str = "atlantic",
     year: str = "2024",
     months: list[int] | None = None,
-    time_step: int = 6,
+    time_step: int = 1,
 ) -> Path:
     """Download ERA5 wave data (Hs + direction) from GCS and save as NetCDF.
 
@@ -266,7 +368,7 @@ def download_era5_waves_gcs(
     months : list[int], optional
         Months to include (1-12). Default: all 12.
     time_step : int
-        Hours between time steps (default 6).
+        Hours between time steps (default 1 for hourly).
 
     Returns
     -------
@@ -282,15 +384,33 @@ def download_era5_waves_gcs(
         logger.info("File already exists, skipping: %s", filename)
         return filename
 
-    logger.info("Opening ERA5 wave data on GCS for %s/%s ...", corridor, year)
-    ds = _open_era5_zarr([WAVE_HS_VAR, WAVE_DIR_VAR])
-    ds = _select_corridor(ds, corridor, year, months, time_step)
+    dl_months = months if months is not None else list(range(1, 13))
 
-    # Normalize time dimension to 'valid_time' for CDS compatibility
-    ds = _normalize_time_dim(ds)
+    if len(dl_months) == 1:
+        # Single month — download directly without temp files
+        logger.info("Opening ERA5 wave data on GCS for %s/%s ...", corridor, year)
+        ds = _open_era5_zarr([WAVE_HS_VAR, WAVE_DIR_VAR])
+        ds = _select_corridor(ds, corridor, year, dl_months, time_step)
+        ds = _normalize_time_dim(ds)
+        logger.info("Downloading and saving to %s ...", filename)
+        _save_with_low_memory(ds, filename)
+    else:
+        logger.info(
+            "Downloading ERA5 waves for %s/%s (%d months) ...",
+            corridor,
+            year,
+            len(dl_months),
+        )
+        _download_by_month(
+            [WAVE_HS_VAR, WAVE_DIR_VAR],
+            "waves",
+            corridor,
+            year,
+            dl_months,
+            time_step,
+            filename,
+        )
 
-    logger.info("Downloading and saving to %s ...", filename)
-    ds.to_netcdf(filename)
     logger.info("Saved: %s (%.1f MB)", filename, filename.stat().st_size / 1e6)
     return filename
 
@@ -300,7 +420,7 @@ def download_all_gcs(
     year: str = "2024",
     months: list[int] | None = None,
     corridors: list[str] | None = None,
-    time_step: int = 6,
+    time_step: int = 1,
 ) -> list[Path]:
     """Download all ERA5 data needed for SWOPP3 from GCS.
 

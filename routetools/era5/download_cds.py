@@ -41,7 +41,7 @@ WAVE_VARIABLES = [
 DEFAULT_YEAR = "2024"
 DEFAULT_MONTHS = [f"{m:02d}" for m in range(1, 13)]
 DEFAULT_DAYS = [f"{d:02d}" for d in range(1, 32)]
-DEFAULT_TIMES = [f"{h:02d}:00" for h in range(0, 24, 6)]  # 6-hourly
+DEFAULT_TIMES = [f"{h:02d}:00" for h in range(0, 24)]  # hourly
 
 
 def _output_filename(
@@ -97,7 +97,7 @@ def download_era5_wind(
     days : list[str], optional
         Days (default: all 31).
     times : list[str], optional
-        Hours in ``"HH:00"`` format (default: 6-hourly).
+        Hours in ``"HH:00"`` format (default: hourly).
     grid : list[float], optional
         ``[lat_res, lon_res]`` in degrees (default ``[0.25, 0.25]``).
 
@@ -170,7 +170,7 @@ def download_era5_waves(
     days : list[str], optional
         Days (default: all 31).
     times : list[str], optional
-        Hours in ``"HH:00"`` format (default: 6-hourly).
+        Hours in ``"HH:00"`` format (default: hourly).
     grid : list[float], optional
         ``[lat_res, lon_res]`` in degrees (default ``[0.25, 0.25]``).
 
