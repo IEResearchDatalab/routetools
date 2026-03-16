@@ -28,9 +28,8 @@ export JAX_PLATFORMS=cpu
 export XLA_FLAGS="${XLA_FLAGS:+$XLA_FLAGS }--xla_cpu_multi_thread_eigen=true --xla_force_host_platform_device_count=${SLURM_CPUS_PER_TASK}"
 
 # ── Paths ──
-# Hourly ERA5 data (download with: uv run scripts/download_era5.py --output-dir data/era5_1h)
-DATA="data/era5_1h"
-OUTDIR="output/swopp3_1h_cpu"
+DATA="data/era5"
+OUTDIR="output/swopp3_cpu"
 
 mkdir -p "$OUTDIR"
 

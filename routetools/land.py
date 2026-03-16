@@ -7,6 +7,7 @@ import numpy as np
 from jax import jit
 from jax.scipy.ndimage import map_coordinates
 from perlin_numpy import generate_perlin_noise_2d as pn2d
+from scipy.ndimage import distance_transform_edt
 
 from routetools._cost.haversine import haversine_meters_components
 
@@ -116,6 +117,14 @@ class Land:
 
         self._map_mode = map_mode
         self._map_order = map_order
+
+        # Precompute EDT: distance (in grid cells) from each water cell
+        # to the nearest land cell.  Land cells get distance 0.
+        binary_land = np.asarray(self._array > self.water_level)
+        # distance_transform_edt measures distance from 0-cells to nearest
+        # 1-cell, so we pass the *inverted* mask (water=0 → measure distance).
+        edt = distance_transform_edt(~binary_land)
+        self._edt = jnp.array(edt)
 
     @property
     def array(self) -> jnp.ndarray:
@@ -278,6 +287,48 @@ class Land:
 
         # Return the sum of the number of land intersections times the penalty
         return jnp.sum(is_land, axis=1) * penalty
+
+    @partial(jit, static_argnums=(0,))
+    def distance_penalty(
+        self,
+        curve: jnp.ndarray,
+        weight: float = 1.0,
+        epsilon: float = 1.0,
+    ) -> jnp.ndarray:
+        """Smooth repulsive penalty based on precomputed EDT.
+
+        Samples the Euclidean Distance Transform at each waypoint and
+        returns ``weight * sum(1 / (edt + epsilon))`` per route.  Points on
+        or very near land produce large penalties; points far from land
+        contribute negligibly.  Uses ``map_coordinates`` for O(1) per-point
+        lookups and is fully JIT-compatible.
+
+        Parameters
+        ----------
+        curve : jnp.ndarray
+            Batch of curves, shape ``(W, L, 2)`` with ``(lon, lat)``.
+        weight : float
+            Scaling factor for the penalty (default 1.0).
+        epsilon : float
+            Regularisation constant to avoid division by zero (default 1.0).
+
+        Returns
+        -------
+        jnp.ndarray
+            Penalty per route, shape ``(W,)``.
+        """
+        x_coords = curve[..., 0]
+        y_coords = curve[..., 1]
+
+        x_norm = (x_coords - self.xmin) * self.xnorm
+        y_norm = (y_coords - self.ymin) * self.ynorm
+
+        # Sample the EDT field — order=1 gives bilinear interpolation
+        edt_vals = map_coordinates(self._edt, [x_norm, y_norm], order=1, mode="nearest")
+
+        # Inverse-distance penalty: closer to land → larger cost
+        point_penalty = 1.0 / (edt_vals + epsilon)
+        return weight * jnp.sum(point_penalty, axis=-1)
 
     def distance_to_land(
         self, curve: jnp.ndarray, haversine: bool = False

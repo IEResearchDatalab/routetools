@@ -306,6 +306,8 @@ def run_optimised_departure(
             weather_penalty_weight=100.0,
             travel_time=travel_time,
             time_offset=departure_offset_h,
+            # Smooth distance-to-land repulsion via EDT
+            land_distance_weight=10.0,
         )
         defaults.update(cmaes_kwargs)
 

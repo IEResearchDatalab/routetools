@@ -288,6 +288,8 @@ def _cma_evolution_strategy(
     ]
     | None = None,
     penalty: float = 1e10,
+    land_distance_weight: float = 0.0,
+    land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
@@ -379,6 +381,12 @@ def _cma_evolution_strategy(
             # toward fewer land points.
             cost = jnp.where(has_land, penalty + land_count, cost)
 
+        # Smooth distance-to-land penalty via EDT
+        if land is not None and land_distance_weight > 0:
+            cost += land.distance_penalty(
+                curve, weight=land_distance_weight, epsilon=land_distance_epsilon
+            )
+
         # Weather constraint penalization
         if weather_penalty_weight > 0 and (
             windfield is not None or wavefield is not None
@@ -437,6 +445,8 @@ def optimize(
     ]
     | None = None,
     penalty: float = 1e10,
+    land_distance_weight: float = 0.0,
+    land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
@@ -490,6 +500,11 @@ def optimize(
     penalty : float, optional
         Large penalty applied to routes that intersect land (death-penalty
         scheme), by default 1e10
+    land_distance_weight : float, optional
+        Weight for the smooth distance-to-land penalty via EDT.
+        Set to 0 (default) to disable.
+    land_distance_epsilon : float, optional
+        Regularisation constant for the EDT penalty (default 1.0).
     weather_penalty_weight : float, optional
         Penalty weight for weather constraint violations (TWS, Hs).
         Set to 0 (default) to disable weather penalties.
@@ -596,6 +611,8 @@ def optimize(
         wavefield=wavefield,
         windfield=windfield,
         penalty=penalty,
+        land_distance_weight=land_distance_weight,
+        land_distance_epsilon=land_distance_epsilon,
         weather_penalty_weight=weather_penalty_weight,
         tws_limit=tws_limit,
         hs_limit=hs_limit,
@@ -710,6 +727,8 @@ def optimize_with_increasing_penalization(
     penalty_init: float = 0,
     penalty_increment: float = 10,
     maxiter: int = 10,
+    land_distance_weight: float = 0.0,
+    land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
@@ -827,6 +846,8 @@ def optimize_with_increasing_penalization(
             wavefield=wavefield,
             windfield=windfield,
             penalty=penalty,
+            land_distance_weight=land_distance_weight,
+            land_distance_epsilon=land_distance_epsilon,
             weather_penalty_weight=weather_penalty_weight,
             tws_limit=tws_limit,
             hs_limit=hs_limit,
