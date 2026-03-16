@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+th { background-color: #f5f5f5; }
+code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+pre { background-color: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 4px solid #ddd; margin: 1em 0; padding: 0.5em 1em; color: #555; }
+h1 { color: #2c3e50; }
+h2 { color: #34495e; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+h3 { color: #7f8c8d; }
+</style>
+</head>
+<body>
+<h1>Submission Format</h1>
+<h2>What to Submit</h2>
+<p>Upload a <strong>single <code>.zip</code> file</strong> containing:</p>
+<div class="codehilite"><pre><span></span><code>submission.zip
+├── TeamName-1-AO_WPS.csv         # File A (Atlantic Optimised, with WPS)
+├── TeamName-1-AO_noWPS.csv       # File A (Atlantic Optimised, without WPS)
+├── TeamName-1-AGC_WPS.csv        # File A (Atlantic Great Circle, with WPS)
+├── TeamName-1-AGC_noWPS.csv      # File A (Atlantic Great Circle, without WPS)
+├── TeamName-1-PO_WPS.csv         # File A (Pacific Optimised, with WPS)
+├── TeamName-1-PO_noWPS.csv       # File A (Pacific Optimised, without WPS)
+├── TeamName-1-PGC_WPS.csv        # File A (Pacific Great Circle, with WPS)
+├── TeamName-1-PGC_noWPS.csv      # File A (Pacific Great Circle, without WPS)
+└── tracks/
+    ├── TeamName-1-AO_WPS-20240101.csv    # File B (waypoints)
+    ├── TeamName-1-AO_WPS-20240102.csv
+    ├── ...                               # 366 files per case × 8 cases
+    └── TeamName-1-PGC_noWPS-20241231.csv
+</code></pre></div>
+
+<p>Replace <code>TeamName</code> with your team name and <code>1</code> with your submission number.</p>
+<h2>File A — Energy Summary (one per case)</h2>
+<p><strong>Filename:</strong> <code>TeamName-{submission}-{casename}.csv</code></p>
+<p>Each file has <strong>366 rows</strong> (one per departure) with these columns:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>departure_time_utc</code></td>
+<td>datetime</td>
+<td><code>YYYY-MM-DD HH:MM:SS</code> format</td>
+</tr>
+<tr>
+<td><code>arrival_time_utc</code></td>
+<td>datetime</td>
+<td><code>YYYY-MM-DD HH:MM:SS</code> format</td>
+</tr>
+<tr>
+<td><code>energy_cons_mwh</code></td>
+<td>float</td>
+<td>Total energy consumption in MWh</td>
+</tr>
+<tr>
+<td><code>max_wind_mps</code></td>
+<td>float</td>
+<td>Maximum true wind speed encountered (m/s)</td>
+</tr>
+<tr>
+<td><code>max_hs_m</code></td>
+<td>float</td>
+<td>Maximum significant wave height encountered (m)</td>
+</tr>
+<tr>
+<td><code>sailed_distance_nm</code></td>
+<td>float</td>
+<td>Total sailed distance in nautical miles</td>
+</tr>
+<tr>
+<td><code>details_filename</code></td>
+<td>string</td>
+<td>Name of the corresponding File B CSV</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example:</strong></p>
+<div class="codehilite"><pre><span></span><code>departure_time_utc,arrival_time_utc,energy_cons_mwh,max_wind_mps,max_hs_m,sailed_distance_nm,details_filename
+2024-01-01 12:00:00,2024-01-16 06:00:00,336.375913,17.3875,7.8464,3022.5591,TeamName-1-AO_WPS-20240101.csv
+2024-01-02 12:00:00,2024-01-17 06:00:00,199.891800,17.3153,7.3659,3022.5591,TeamName-1-AO_WPS-20240102.csv
+</code></pre></div>
+
+<h2>File B — Track Waypoints (one per departure per case)</h2>
+<p><strong>Filename:</strong> <code>TeamName-{submission}-{casename}-{YYYYMMDD}.csv</code></p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>time_utc</code></td>
+<td>datetime</td>
+<td><code>YYYY-MM-DD HH:MM:SS</code>, strictly increasing</td>
+</tr>
+<tr>
+<td><code>lat_deg</code></td>
+<td>float</td>
+<td>Latitude in degrees [-90, 90]</td>
+</tr>
+<tr>
+<td><code>lon_deg</code></td>
+<td>float</td>
+<td>Longitude in degrees [-360, 360]</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example:</strong></p>
+<div class="codehilite"><pre><span></span><code>time_utc,lat_deg,lon_deg
+2024-01-01 12:00:00,43.4600,-3.8100
+2024-01-01 15:32:00,43.5100,-5.2300
+...
+2024-01-16 06:00:00,40.5300,-73.8000
+</code></pre></div>
+
+<h2>Important Rules</h2>
+<h3>Passage Time</h3>
+<ul>
+<li><strong>Fixed passage:</strong> Arrival time must equal departure + passage hours (354 h for Atlantic, 583 h for Pacific), with a tolerance of ±1 hour.</li>
+</ul>
+<h3>Departure Schedule</h3>
+<ul>
+<li><strong>All 366 departures required:</strong> One row per day from 2024-01-01 to 2024-12-31, departing at <strong>12:00 UTC</strong>.</li>
+<li>Departure timestamps must match the official schedule exactly.</li>
+</ul>
+<h3>Endpoint Positions</h3>
+<ul>
+<li>First waypoint in File B must be within <strong>0.5°</strong> of the expected source port.</li>
+<li>Last waypoint in File B must be within <strong>0.5°</strong> of the expected destination port.</li>
+<li>First/last waypoint timestamps must match the departure/arrival times from File A.</li>
+</ul>
+<h3>Operational Constraints (Optimised Cases Only)</h3>
+<ul>
+<li><strong>True wind speed:</strong> <code>max_wind_mps</code> must be &lt; <strong>20 m/s</strong> along the route.</li>
+<li><strong>Significant wave height:</strong> <code>max_hs_m</code> must be &lt; <strong>7 m</strong> along the route.</li>
+<li>Submissions exceeding these limits receive a validation error per violation.</li>
+<li><strong>Not enforced for GC cases</strong> — the great circle path is fixed and may traverse severe weather.</li>
+</ul>
+<h3>Land Avoidance (Optimised Cases Only)</h3>
+<ul>
+<li>Waypoints in File B must not cross land. The scoring program checks a sample of waypoints against a Natural Earth shapefile.</li>
+<li><strong>Not enforced for GC cases</strong> — the great circle path is fixed and may cross land (e.g. Newfoundland on the Atlantic route).</li>
+</ul>
+<h3>Numeric Values</h3>
+<ul>
+<li>No negative energy values.</li>
+<li>No NaN values in any numeric column.</li>
+<li><strong>Timestamps must be strictly increasing</strong> in File B.</li>
+</ul>
+<h3>Route Constraints</h3>
+<ul>
+<li><strong>Great Circle cases</strong> (<code>*GC_*</code>): The route must follow the great circle path. Only the speed profile may vary.</li>
+<li><strong>Optimised cases</strong> (<code>*O_*</code>): Both route and speed may be optimised freely.</li>
+</ul>
+<h3>WPS Consistency</h3>
+<ul>
+<li>With wingsails (<code>*_WPS</code>) routes should consume <strong>less or equal</strong> energy compared to the same route without wingsails (<code>*_noWPS</code>). The system flags a warning if this is violated.</li>
+</ul>
+</body>
+</html>

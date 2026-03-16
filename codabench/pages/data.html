@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+th { background-color: #f5f5f5; }
+code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+pre { background-color: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 4px solid #ddd; margin: 1em 0; padding: 0.5em 1em; color: #555; }
+h1 { color: #2c3e50; }
+h2 { color: #34495e; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+h3 { color: #7f8c8d; }
+</style>
+</head>
+<body>
+<h1>Data &amp; Performance Model</h1>
+<p>All participants use the <strong>same ERA5 weather data</strong> and the <strong>same RISE performance model</strong>. You can choose between two approaches to obtain the data.</p>
+<hr />
+<h2>Option A — Download ERA5 from CodaBench (Recommended)</h2>
+<p>The ERA5 NetCDF files are available for direct download from the <strong>Files</strong> tab of this competition. You need 2024 data plus January 2025 (late-December departures extend into January 2025):</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Size (approx.)</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>era5_wind_atlantic_2024.nc</code></td>
+<td>~570 MB</td>
+<td>10 m wind (u10, v10) — Atlantic corridor</td>
+</tr>
+<tr>
+<td><code>era5_waves_atlantic_2024.nc</code></td>
+<td>~570 MB</td>
+<td>Wave height (swh) and direction (mwd) — Atlantic corridor</td>
+</tr>
+<tr>
+<td><code>era5_wind_pacific_2024.nc</code></td>
+<td>~865 MB</td>
+<td>10 m wind (u10, v10) — Pacific corridor</td>
+</tr>
+<tr>
+<td><code>era5_waves_pacific_2024.nc</code></td>
+<td>~865 MB</td>
+<td>Wave height (swh) and direction (mwd) — Pacific corridor</td>
+</tr>
+<tr>
+<td><code>era5_wind_atlantic_2025_01.nc</code></td>
+<td>~49 MB</td>
+<td>10 m wind — January 2025, Atlantic</td>
+</tr>
+<tr>
+<td><code>era5_waves_atlantic_2025_01.nc</code></td>
+<td>~49 MB</td>
+<td>Waves — January 2025, Atlantic</td>
+</tr>
+<tr>
+<td><code>era5_wind_pacific_2025_01.nc</code></td>
+<td>~74 MB</td>
+<td>10 m wind — January 2025, Pacific</td>
+</tr>
+<tr>
+<td><code>era5_waves_pacific_2025_01.nc</code></td>
+<td>~74 MB</td>
+<td>Waves — January 2025, Pacific</td>
+</tr>
+</tbody>
+</table>
+<p>These are the exact same files produced by the <code>routetools</code> downloader. The NetCDF variables are:
+- <strong>Wind:</strong> <code>u10</code> (eastward), <code>v10</code> (northward) in m/s
+- <strong>Waves:</strong> <code>swh</code> (significant wave height in m), <code>mwd</code> (mean wave direction in degrees)
+- <strong>Grid:</strong> 0.25° × 0.25°, 6-hourly time steps (00:00, 06:00, 12:00, 18:00 UTC)</p>
+<p>With these files in hand, implement the RISE performance model from the formulas below.</p>
+<blockquote>
+<p><strong>Tip:</strong> For higher temporal resolution, you can download hourly ERA5 data yourself via the CDS API (Option B) or by using the <code>routetools</code> downloader with <code>--time-step 1</code>.</p>
+</blockquote>
+<hr />
+<h2>Option B — Download ERA5 via CDS API</h2>
+<p>If you prefer to download the data yourself, register for a free account at <a href="https://cds.climate.copernicus.eu/">CDS</a> and install the <code>cdsapi</code> package:</p>
+<div class="codehilite"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>cdsapi
+</code></pre></div>
+
+<p>Download wind and waves for each corridor. You need <strong>both 2024 and 2025</strong> (late-December departures extend into January 2025):</p>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">cdsapi</span>
+
+<span class="n">client</span> <span class="o">=</span> <span class="n">cdsapi</span><span class="o">.</span><span class="n">Client</span><span class="p">()</span>
+
+<span class="n">MONTHS</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">m</span><span class="si">:</span><span class="s2">02d</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">13</span><span class="p">)]</span>
+<span class="n">DAYS</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">d</span><span class="si">:</span><span class="s2">02d</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">32</span><span class="p">)]</span>
+<span class="n">TIMES</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;00:00&quot;</span><span class="p">,</span> <span class="s2">&quot;06:00&quot;</span><span class="p">,</span> <span class="s2">&quot;12:00&quot;</span><span class="p">,</span> <span class="s2">&quot;18:00&quot;</span><span class="p">]</span>
+
+<span class="n">CORRIDORS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;atlantic&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">60</span><span class="p">,</span> <span class="o">-</span><span class="mi">80</span><span class="p">,</span> <span class="mi">25</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span>     <span class="c1"># [N, W, S, E]</span>
+    <span class="s2">&quot;pacific&quot;</span><span class="p">:</span>  <span class="p">[</span><span class="mi">55</span><span class="p">,</span> <span class="mi">120</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">240</span><span class="p">],</span>    <span class="c1"># Uses 0-360° longitude</span>
+<span class="p">}</span>
+
+<span class="n">WIND_VARS</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;10m_u_component_of_wind&quot;</span><span class="p">,</span> <span class="s2">&quot;10m_v_component_of_wind&quot;</span><span class="p">]</span>
+<span class="n">WAVE_VARS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;significant_height_of_combined_wind_waves_and_swell&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;mean_wave_direction&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="k">for</span> <span class="n">year</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;2024&quot;</span><span class="p">,</span> <span class="s2">&quot;2025&quot;</span><span class="p">]:</span>
+    <span class="k">for</span> <span class="n">corridor</span><span class="p">,</span> <span class="n">area</span> <span class="ow">in</span> <span class="n">CORRIDORS</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">var_type</span><span class="p">,</span> <span class="n">variables</span> <span class="ow">in</span> <span class="p">[(</span><span class="s2">&quot;wind&quot;</span><span class="p">,</span> <span class="n">WIND_VARS</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;waves&quot;</span><span class="p">,</span> <span class="n">WAVE_VARS</span><span class="p">)]:</span>
+            <span class="n">client</span><span class="o">.</span><span class="n">retrieve</span><span class="p">(</span>
+                <span class="s2">&quot;reanalysis-era5-single-levels&quot;</span><span class="p">,</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;product_type&quot;</span><span class="p">:</span> <span class="s2">&quot;reanalysis&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;variable&quot;</span><span class="p">:</span> <span class="n">variables</span><span class="p">,</span>
+                    <span class="s2">&quot;year&quot;</span><span class="p">:</span> <span class="n">year</span><span class="p">,</span>
+                    <span class="s2">&quot;month&quot;</span><span class="p">:</span> <span class="n">MONTHS</span><span class="p">,</span>
+                    <span class="s2">&quot;day&quot;</span><span class="p">:</span> <span class="n">DAYS</span><span class="p">,</span>
+                    <span class="s2">&quot;time&quot;</span><span class="p">:</span> <span class="n">TIMES</span><span class="p">,</span>
+                    <span class="s2">&quot;area&quot;</span><span class="p">:</span> <span class="n">area</span><span class="p">,</span>
+                    <span class="s2">&quot;grid&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.25</span><span class="p">,</span> <span class="mf">0.25</span><span class="p">],</span>
+                    <span class="s2">&quot;data_format&quot;</span><span class="p">:</span> <span class="s2">&quot;netcdf&quot;</span><span class="p">,</span>
+                <span class="p">},</span>
+                <span class="sa">f</span><span class="s2">&quot;era5_</span><span class="si">{</span><span class="n">var_type</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">corridor</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">year</span><span class="si">}</span><span class="s2">.nc&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+</code></pre></div>
+
+<p>The resulting NetCDF files contain variables named <code>u10</code>, <code>v10</code> (wind) and <code>swh</code>, <code>mwd</code> (waves), on a 0.25° grid at 6-hourly intervals.</p>
+<blockquote>
+<p><strong>Note:</strong> To download hourly data instead, change <code>TIMES</code> to <code>[f"{h:02d}:00" for h in range(24)]</code>.</p>
+</blockquote>
+<h3>RISE Performance Model — Full Specification</h3>
+<p>The RISE model computes instantaneous <strong>power in kW</strong> for an 88 m cargo ship given:</p>
+<ul>
+<li>$v$ — Ship speed through water (m/s)</li>
+<li>TWS — True wind speed (m/s)</li>
+<li>TWA — True wind angle (degrees, 0° = headwind)</li>
+<li>SWH — Significant wave height (m)</li>
+<li>MWA — Mean wave angle relative to heading (degrees)</li>
+</ul>
+<h4>Constants</h4>
+<table>
+<thead>
+<tr>
+<th>Symbol</th>
+<th>Value</th>
+<th>Exact Fraction</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>$K_H$</td>
+<td>4.2876…</td>
+<td>969 / 226</td>
+</tr>
+<tr>
+<td>$K_A$</td>
+<td>0.153125</td>
+<td>49 / 320</td>
+</tr>
+<tr>
+<td>$A_W$</td>
+<td>11.1395</td>
+<td>—</td>
+</tr>
+<tr>
+<td>$K_W$</td>
+<td>0.28935…</td>
+<td>125 / 432</td>
+</tr>
+<tr>
+<td>$K_S$</td>
+<td>0.85903125</td>
+<td>27489 / 32000</td>
+</tr>
+<tr>
+<td>Dead zone</td>
+<td>10°</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h4>Power Components</h4>
+<p><strong>Hull resistance:</strong></p>
+<p>$$P_{\text{hull}} = K_H \cdot v^3$$</p>
+<p><strong>Apparent wind:</strong></p>
+<p>$$u_x = \text{TWS} \cdot \cos(\text{TWA}) + v$$
+$$u_y = \text{TWS} \cdot \sin(\text{TWA})$$
+$$V_R = \sqrt{u_x^2 + u_y^2}$$</p>
+<p>(TWA in radians for $\cos$/$\sin$ calls.)</p>
+<p><strong>Aerodynamic drag:</strong></p>
+<p>$$P_{\text{wind}} = K_A \cdot v \cdot (V_R \cdot u_x - v^2)$$</p>
+<p><strong>Wave added resistance:</strong></p>
+<p>$$P_{\text{wave}} = A_W \cdot \text{SWH}^2 \cdot v^{3/2} \cdot \exp!\left(-K_W \cdot |\theta_{\text{MWA}}|^3\right)$$</p>
+<p>where $\theta_{\text{MWA}}$ is the mean wave angle in <strong>radians</strong>.</p>
+<p><strong>Wingsail thrust (WPS only):</strong></p>
+<p>$$\text{AWA} = \text{atan2}(|u_y|,\, u_x) \quad \text{(in degrees)}$$</p>
+<p>If $\text{AWA} &lt; 10°$, sail contribution is zero. Otherwise:</p>
+<p>$$\alpha = (\text{AWA} - 10°) \cdot \pi / 180$$
+$$P_{\text{sail}} = K_S \cdot \sin(\alpha) \cdot \left(1 + \frac{3}{20}\sin^2(\alpha)\right) \cdot V_R^2 \cdot v$$</p>
+<h4>Total Power and Energy</h4>
+<p><strong>Without wingsails:</strong></p>
+<p>$$P = \max!\left(0,\; P_{\text{hull}} + P_{\text{wind}} + P_{\text{wave}}\right)$$</p>
+<p><strong>With wingsails (WPS):</strong></p>
+<p>$$P = \max!\left(0,\; P_{\text{hull}} + P_{\text{wind}} + P_{\text{wave}} - P_{\text{sail}}\right)$$</p>
+<p><strong>Energy integration</strong> — sum over all waypoint segments:</p>
+<p>$$E_{\text{MWh}} = \frac{1}{1000} \sum_{i=1}^{n} P_i \cdot \Delta t_{h,i}$$</p>
+<p>where $\Delta t_{h,i}$ is the duration of segment $i$ in hours, and $P_i$ is the power in kW at the midpoint of each segment.</p>
+<h3>Route and Departure Definitions</h3>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Source (lat, lon)</th>
+<th>Destination (lat, lon)</th>
+<th>Passage (h)</th>
+<th>WPS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AO_WPS</td>
+<td>(43.60, −4.00)</td>
+<td>(40.53, −73.80)</td>
+<td>354</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>AO_noWPS</td>
+<td>(43.60, −4.00)</td>
+<td>(40.53, −73.80)</td>
+<td>354</td>
+<td>No</td>
+</tr>
+<tr>
+<td>AGC_WPS</td>
+<td>(43.60, −4.00)</td>
+<td>(40.53, −73.80)</td>
+<td>354</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>AGC_noWPS</td>
+<td>(43.60, −4.00)</td>
+<td>(40.53, −73.80)</td>
+<td>354</td>
+<td>No</td>
+</tr>
+<tr>
+<td>PO_WPS</td>
+<td>(34.80, 140.00)</td>
+<td>(34.40, −121.00)</td>
+<td>583</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PO_noWPS</td>
+<td>(34.80, 140.00)</td>
+<td>(34.40, −121.00)</td>
+<td>583</td>
+<td>No</td>
+</tr>
+<tr>
+<td>PGC_WPS</td>
+<td>(34.80, 140.00)</td>
+<td>(34.40, −121.00)</td>
+<td>583</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PGC_noWPS</td>
+<td>(34.80, 140.00)</td>
+<td>(34.40, −121.00)</td>
+<td>583</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Departures:</strong> 366 departures — every day of 2024 at <strong>12:00 UTC</strong> (from 2024-01-01 to 2024-12-31).</p>
+<p><strong>Great Circle cases</strong> (<code>*GC_*</code>): The route must follow the great circle path between source and destination. Only the speed profile along that path may vary.</p>
+<p><strong>Optimised cases</strong> (<code>*O_*</code>): Both route geometry and speed profile may be freely optimised.</p>
+</body>
+</html>
