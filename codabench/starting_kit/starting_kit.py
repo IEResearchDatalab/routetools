@@ -27,8 +27,6 @@ import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-UTC = UTC
-
 # ─── Configuration ───────────────────────────────────────────────────
 
 TEAM = "MyTeam"

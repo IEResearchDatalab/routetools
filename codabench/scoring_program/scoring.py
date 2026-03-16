@@ -767,9 +767,15 @@ def try_load_era5_scorer(ref_dir: Path):
         lats = np.array([wp[1] for wp in waypoints])
         lons = np.array([wp[2] for wp in waypoints])
 
-        n_seg = n_wp - 1
-        passage_h = float(case_def["passage_h"])
-        dt_h = passage_h / n_seg
+        # Compute per-segment dt from actual waypoint timestamps
+        wp_times = np.array(
+            [np.datetime64(wp[0]) for wp in waypoints], dtype="datetime64[s]"
+        )
+        seg_dt_h = ((wp_times[1:] - wp_times[:-1]) / np.timedelta64(1, "h")).astype(
+            np.float64
+        )
+        # Guard against zero-length segments
+        seg_dt_h = np.maximum(seg_dt_h, 1e-6)
 
         # Normalize lons to match ERA5 grid convention [0, 360)
         grid_lon = wind_grid["lon"]
@@ -781,22 +787,21 @@ def try_load_era5_scorer(ref_dir: Path):
         mid_lat = (lats[:-1] + lats[1:]) / 2
         mid_lon = (lons[:-1] + lons[1:]) / 2
 
-        # Departure offset in hours from grid t0
-        dep_dt64 = np.datetime64(departure_str)
-        dep_offset_h = float((dep_dt64 - wind_grid["t0"]) / np.timedelta64(1, "h"))
-
         # Segment midpoint times (hours since grid t0)
-        seg_times = dep_offset_h + (np.arange(n_seg) + 0.5) * dt_h
+        dep_dt64 = wp_times[0]
+        dep_offset_h = float((dep_dt64 - wind_grid["t0"]) / np.timedelta64(1, "h"))
+        cum_h = np.cumsum(seg_dt_h)
+        seg_mid_h = dep_offset_h + cum_h - seg_dt_h / 2
 
         # Interpolate weather at segment midpoints
-        u10 = _interp_era5(wind_grid, "u10", mid_lat, mid_lon, seg_times)
-        v10 = _interp_era5(wind_grid, "v10", mid_lat, mid_lon, seg_times)
-        swh = _interp_era5(wave_grid, "swh", mid_lat, mid_lon, seg_times)
-        mwd = _interp_era5(wave_grid, "mwd", mid_lat, mid_lon, seg_times)
+        u10 = _interp_era5(wind_grid, "u10", mid_lat, mid_lon, seg_mid_h)
+        v10 = _interp_era5(wind_grid, "v10", mid_lat, mid_lon, seg_mid_h)
+        swh = _interp_era5(wave_grid, "swh", mid_lat, mid_lon, seg_mid_h)
+        mwd = _interp_era5(wave_grid, "mwd", mid_lat, mid_lon, seg_mid_h)
 
         # Ship speed (m/s)
         seg_dist_m = _haversine_m(lats[:-1], lons[:-1], lats[1:], lons[1:])
-        v_mps = seg_dist_m / (dt_h * 3600.0)
+        v_mps = seg_dist_m / (seg_dt_h * 3600.0)
 
         # Ship bearing (degrees)
         bearing_deg = _forward_bearing_deg(lats[:-1], lons[:-1], lats[1:], lons[1:])
@@ -812,8 +817,8 @@ def try_load_era5_scorer(ref_dir: Path):
         # RISE power at each segment
         power_kw = _rise_power(tws, twa_deg, swh, mwa_deg, v_mps, case_def["wps"])
 
-        # Energy integration
-        energy_mwh = float(np.sum(power_kw) * dt_h / 1000.0)
+        # Energy integration (per-segment dt)
+        energy_mwh = float(np.sum(power_kw * seg_dt_h) / 1000.0)
         return energy_mwh
 
     return evaluate_route
@@ -1265,10 +1270,14 @@ def score_submission() -> dict:
                 # Track file missing or departure unknown — cannot re-evaluate
                 re_eval_ok = False
 
-        # Use re-evaluated energy when successful, else penalty
+        # Use re-evaluated energy when successful, else fall back
         if re_eval_ok and era5_scorer is not None:
             case_energy_final = re_eval_energy
+        elif era5_scorer is None:
+            # ERA5 unavailable — use self-reported energy
+            case_energy_final = case_energy
         else:
+            # ERA5 available but re-evaluation failed — penalty
             case_energy_final = 1e12
 
         scores[f"{case}_energy_mwh"] = round(case_energy_final, 4)

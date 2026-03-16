@@ -7,7 +7,7 @@ This benchmark is open to academic and industry researchers worldwide.
 ## Data Usage
 
 - ERA5 weather data is provided by ECMWF under the [Copernicus Climate Data Store licence](https://cds.climate.copernicus.eu/cdsapp/#!/terms/licence-to-use-copernicus-products).
-- The RISE performance model is provided as part of the `routetools` package for benchmark evaluation only.
+- The RISE performance model is documented in the evaluation page and implemented inline in the scoring program. No external dependencies (e.g. `routetools`) are required.
 
 ## Submissions
 
