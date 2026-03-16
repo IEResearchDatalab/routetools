@@ -8,11 +8,10 @@ import numpy as np
 from jax import jit, lax
 
 from routetools._cost.haversine import (
-    curve_distance_nm,
-    haversine_meters_components,
+    haversine_distance_from_curve as haversine_distance_from_curve,
 )
 from routetools._cost.haversine import (
-    haversine_distance_from_curve as haversine_distance_from_curve,
+    haversine_meters_components,
 )
 from routetools._cost.waves import wave_adjusted_speed
 from routetools.land import Land, move_curve_away_from_land
@@ -104,8 +103,12 @@ def evaluate_route_energy(
 
     bearing_deg = segment_bearings_deg(curve)
 
-    distance_nm = curve_distance_nm(curve)
-    v_mps = (distance_nm * 1852.0) / (passage_hours * 3600.0)
+    # Per-segment distances (metres) and per-segment speed.
+    # Each segment has equal time dt but different spatial length,
+    # so speed varies along the route.
+    seg_dist_m = np.asarray(haversine_distance_from_curve(curve), dtype=np.float64)
+    dt_s = (passage_hours / n_seg) * 3600.0
+    v_mps = seg_dist_m / dt_s  # (n_seg,)
 
     if windfield is not None:
         u10, v10 = windfield(jnp.array(mid_lon), jnp.array(mid_lat), jnp.array(t_hours))
@@ -127,8 +130,7 @@ def evaluate_route_energy(
         hs = np.zeros(n_seg)
         mwa = np.zeros(n_seg)
 
-    v_arr = np.full(n_seg, v_mps)
-    power_kw = predict_power_batch(tws, twa, hs, mwa, v_arr, wps=wps)
+    power_kw = predict_power_batch(tws, twa, hs, mwa, v_mps, wps=wps)
 
     dt_hours = passage_hours / n_seg
     energy_kwh = float(jnp.sum(jnp.asarray(power_kw)) * dt_hours)
