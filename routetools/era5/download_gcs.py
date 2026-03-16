@@ -255,9 +255,10 @@ def _download_by_month(
         # Concatenate monthly files into final output
         logger.info("  Merging %d monthly files ...", len(tmp_files))
         ds_merged = xr.open_mfdataset(tmp_files, combine="by_coords")
-        ds_merged.load()
-        ds_merged.to_netcdf(output_path)
-        ds_merged.close()
+        try:
+            _save_with_low_memory(ds_merged, output_path)
+        finally:
+            ds_merged.close()
     finally:
         # Clean up temporary files
         for f in tmp_files:
