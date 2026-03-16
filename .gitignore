@@ -168,3 +168,6 @@ output*
 nohup.out
 *.zip
 output/
+
+# Separate repo
+routingviz/
