@@ -164,10 +164,12 @@ def compare_datasets(
         Per-variable comparison results.
     """
     logger.info("Loading GCS: %s", gcs_path)
-    gcs_ds = _normalise_ds(xr.open_dataset(gcs_path))
+    with xr.open_dataset(gcs_path) as raw_gcs_ds:
+        gcs_ds = _normalise_ds(raw_gcs_ds).load()
 
     logger.info("Loading CDS: %s", cds_path)
-    cds_ds = _normalise_ds(xr.open_dataset(cds_path))
+    with xr.open_dataset(cds_path) as raw_cds_ds:
+        cds_ds = _normalise_ds(raw_cds_ds).load()
 
     # Align time range: slice CDS to match GCS time range
     time_name = "valid_time"
@@ -235,8 +237,6 @@ def compare_datasets(
         r = _compare_field(gcs_ds, cds_ds, var_name, label)
         results.append(r)
 
-    gcs_ds.close()
-    cds_ds.close()
     return results
 
 
@@ -364,7 +364,7 @@ def main() -> None:
                     corridor=args.corridor,
                     year=args.year,
                     months=args.months,
-                    time_step=6,
+                    time_step=1,
                 )
             else:
                 download_era5_waves_gcs(
@@ -372,7 +372,7 @@ def main() -> None:
                     corridor=args.corridor,
                     year=args.year,
                     months=args.months,
-                    time_step=6,
+                    time_step=1,
                 )
 
     # Compare each field
