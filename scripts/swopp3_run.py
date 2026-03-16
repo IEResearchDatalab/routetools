@@ -130,12 +130,18 @@ def main(
     wind_path: Path | None = typer.Option(  # noqa: B008
         None,
         "--wind-path",
-        help="Path to ERA5 wind NetCDF (single corridor, used for all cases).",
+        help=(
+            "Path to ERA5 wind NetCDF used for all selected corridors. "
+            "Overrides the built-in corridor defaults when provided."
+        ),
     ),
     wave_path: Path | None = typer.Option(  # noqa: B008
         None,
         "--wave-path",
-        help="Path to ERA5 wave NetCDF (single corridor, used for all cases).",
+        help=(
+            "Path to ERA5 wave NetCDF used for all selected corridors. "
+            "Overrides the built-in corridor defaults when provided."
+        ),
     ),
     wind_path_atlantic: Path | None = typer.Option(  # noqa: B008
         "data/era5/era5_wind_atlantic_2024.nc",
@@ -231,7 +237,6 @@ def main(
     typer.echo(f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)")
 
     # ---- Build per-corridor field map ----
-    # Resolve which wind/wave paths to use for each corridor.
     corridor_wind: dict[str, Path] = {}
     corridor_wave: dict[str, Path] = {}
 
@@ -244,13 +249,14 @@ def main(
     if wave_path_pacific is not None:
         corridor_wave["pacific"] = wave_path_pacific
 
-    # --wind-path / --wave-path act as fallback for all corridors
+    # Shared paths intentionally override the corridor defaults so the
+    # simplest one-flag workflow still works for single-corridor runs.
     if wind_path is not None:
-        corridor_wind.setdefault("atlantic", wind_path)
-        corridor_wind.setdefault("pacific", wind_path)
+        corridor_wind["atlantic"] = wind_path
+        corridor_wind["pacific"] = wind_path
     if wave_path is not None:
-        corridor_wave.setdefault("atlantic", wave_path)
-        corridor_wave.setdefault("pacific", wave_path)
+        corridor_wave["atlantic"] = wave_path
+        corridor_wave["pacific"] = wave_path
 
     try:
         _validate_required_data_paths(case_ids, corridor_wind, corridor_wave)

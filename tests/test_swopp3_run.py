@@ -17,7 +17,50 @@ def _load_swopp3_run_module():
     return module
 
 
-_validate_required_data_paths = _load_swopp3_run_module()._validate_required_data_paths
+_swopp3_run = _load_swopp3_run_module()
+_validate_required_data_paths = _swopp3_run._validate_required_data_paths
+
+
+def test_shared_cli_paths_override_default_corridor_paths(monkeypatch):
+    """Shared CLI paths should override the built-in corridor defaults."""
+
+    class StopCli(Exception):
+        pass
+
+    captured: dict[str, dict[str, Path]] = {}
+
+    def fake_validate(case_ids, corridor_wind, corridor_wave):
+        captured["wind"] = corridor_wind.copy()
+        captured["wave"] = corridor_wave.copy()
+        raise StopCli()
+
+    monkeypatch.setattr(_swopp3_run, "_validate_required_data_paths", fake_validate)
+
+    with pytest.raises(StopCli):
+        _swopp3_run.main(
+            cases=["AGC_WPS", "PGC_WPS"],
+            strategy=None,
+            wind_path=Path("shared_wind.nc"),
+            wave_path=Path("shared_wave.nc"),
+            wind_path_atlantic=Path("data/era5/era5_wind_atlantic_2024.nc"),
+            wave_path_atlantic=Path("data/era5/era5_waves_atlantic_2024.nc"),
+            wind_path_pacific=Path("data/era5/era5_wind_pacific_2024.nc"),
+            wave_path_pacific=Path("data/era5/era5_waves_pacific_2024.nc"),
+            output_dir=Path("output/swopp3"),
+            submission=1,
+            n_points=100,
+            max_departures=1,
+            quiet=True,
+        )
+
+    assert captured["wind"] == {
+        "atlantic": Path("shared_wind.nc"),
+        "pacific": Path("shared_wind.nc"),
+    }
+    assert captured["wave"] == {
+        "atlantic": Path("shared_wave.nc"),
+        "pacific": Path("shared_wave.nc"),
+    }
 
 
 def test_validate_required_data_paths_reports_missing_files(tmp_path: Path):
