@@ -59,20 +59,57 @@ def _ensure_deps() -> None:
 
 
 def _open_era5_zarr(variables: list[str]) -> xr.Dataset:
-    """Open the ERA5 Zarr store on GCS and select the given variables."""
+    """Open the ERA5 Zarr store on GCS and select the given variables.
+
+    Uses ``drop_variables`` to avoid loading metadata for the ~270
+    other ERA5 fields, which cuts memory from ~16 GB to ~300 MB.
+    """
     import gcsfs
     import xarray as xr
 
     fs = gcsfs.GCSFileSystem(token="anon")
+    store_path = GCS_ERA5_SINGLE_LEVEL.removeprefix("gs://")
+
+    # List top-level entries to discover all variable/coordinate names
+    entries = fs.ls(store_path, detail=False)
+    all_names = [
+        e.split("/")[-1] for e in entries if not e.split("/")[-1].startswith(".")
+    ]
+
+    # Keep only the requested variables + coordinate dimensions
+    coord_names = {"time", "valid_time", "latitude", "longitude", "lat", "lon"}
+    keep = set(variables) | coord_names
+    drop = [n for n in all_names if n not in keep]
+
     store = fs.get_mapper(GCS_ERA5_SINGLE_LEVEL)
-    ds = xr.open_zarr(store, consolidated=True)
+    ds = xr.open_zarr(store, consolidated=True, drop_variables=drop)
     return ds[variables]
+
+
+def _detect_time_dim(ds: xr.Dataset) -> str:
+    """Return the name of the time dimension ('time' or 'valid_time')."""
+    for name in ("time", "valid_time"):
+        if name in ds.dims or name in ds.coords:
+            return name
+    raise KeyError(
+        f"Cannot find time dimension in dataset. "
+        f"Available dims: {list(ds.dims)}, coords: {list(ds.coords)}"
+    )
+
+
+def _normalize_time_dim(ds: xr.Dataset) -> xr.Dataset:
+    """Rename the time dimension to 'valid_time' for CDS compatibility."""
+    time_dim = _detect_time_dim(ds)
+    if time_dim != "valid_time":
+        ds = ds.rename({time_dim: "valid_time"})
+    return ds
 
 
 def _select_corridor(
     ds: xr.Dataset,
     corridor: str,
     year: str = "2024",
+    months: list[int] | None = None,
     time_step: int = 6,
 ) -> xr.Dataset:
     """Subset dataset to a corridor, year, and temporal step.
@@ -85,8 +122,10 @@ def _select_corridor(
         Name of the corridor (``"atlantic"`` or ``"pacific"``).
     year : str
         Year to select.
+    months : list[int], optional
+        Months to include (1-12). Default: all 12.
     time_step : int
-        Hours between time steps (default 6 for 6-hourly).
+        Hours between time steps (default 1 for hourly).
 
     Returns
     -------
@@ -94,11 +133,25 @@ def _select_corridor(
         Subset dataset.
     """
     lat_min, lat_max, lon_min, lon_max = CORRIDORS[corridor]
+    time_dim = _detect_time_dim(ds)
 
     # Time selection
-    ds = ds.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
+    if months is not None:
+        first_month = min(months)
+        last_month = max(months)
+        t_start = f"{year}-{first_month:02d}-01"
+        # Use end of last month by selecting up to the start of next month
+        if last_month == 12:
+            t_end = f"{year}-12-31T23:59:59"
+        else:
+            t_end = f"{year}-{last_month + 1:02d}-01"
+        ds = ds.sel({time_dim: slice(t_start, t_end)})
+        # Filter to exact months in case non-contiguous months are requested
+        ds = ds.sel({time_dim: ds[time_dim].dt.month.isin(months)})
+    else:
+        ds = ds.sel({time_dim: slice(f"{year}-01-01", f"{year}-12-31")})
     if time_step > 1:
-        ds = ds.isel(time=slice(None, None, time_step))
+        ds = ds.isel({time_dim: slice(None, None, time_step)})
 
     # Spatial selection
     # ERA5 latitude is typically 90 to -90 (descending)
@@ -146,11 +199,95 @@ def _select_corridor(
     return ds
 
 
+def _save_with_low_memory(ds: xr.Dataset, path: Path) -> None:
+    """Save a dask-backed dataset to NetCDF with bounded memory usage.
+
+    Uses a bounded thread pool (16 workers) instead of the default
+    scheduler which launches too many concurrent tasks.  This caps
+    the number of chunks held in RAM simultaneously while still
+    downloading in parallel.
+    """
+    import dask
+    from dask.threaded import get as threaded_get
+
+    with dask.config.set(scheduler=threaded_get, num_workers=16):
+        ds.to_netcdf(path)
+
+
+def _download_by_month(
+    variables: list[str],
+    field: str,
+    corridor: str,
+    year: str,
+    months: list[int],
+    time_step: int,
+    output_path: Path,
+) -> None:
+    """Download data month-by-month to bound peak memory usage.
+
+    Opens a fresh Zarr connection per month so the dask graph stays small,
+    writes each month to a temporary NetCDF file, then concatenates them
+    into the final output.
+    """
+    import dask
+    import xarray as xr
+    from dask.threaded import get as threaded_get
+
+    tmp_dir = output_path.parent / f"_tmp_{output_path.stem}"
+    tmp_dir.mkdir(exist_ok=True)
+    tmp_files: list[Path] = []
+
+    try:
+        for month in months:
+            tmp_path = tmp_dir / f"m{month:02d}.nc"
+            if tmp_path.exists():
+                tmp_files.append(tmp_path)
+                continue
+            logger.info("  Month %02d/%s ...", month, year)
+            ds = _open_era5_zarr(variables)
+            ds = _select_corridor(ds, corridor, year, [month], time_step)
+            ds = _normalize_time_dim(ds)
+            with dask.config.set(scheduler=threaded_get, num_workers=16):
+                ds.to_netcdf(tmp_path)
+            del ds
+            tmp_files.append(tmp_path)
+
+        # Concatenate monthly files into final output
+        logger.info("  Merging %d monthly files ...", len(tmp_files))
+        ds_merged = xr.open_mfdataset(tmp_files, combine="by_coords")
+        try:
+            _save_with_low_memory(ds_merged, output_path)
+        finally:
+            ds_merged.close()
+    finally:
+        # Clean up temporary files
+        for f in tmp_files:
+            f.unlink(missing_ok=True)
+        if tmp_dir.exists():
+            tmp_dir.rmdir()
+
+
+def _output_filename(
+    output_dir: Path,
+    field: str,
+    corridor: str,
+    year: str,
+    months: list[int] | None = None,
+) -> Path:
+    """Build the output filename, including month range for partial years."""
+    if months is not None and sorted(months) != list(range(1, 13)):
+        m_min, m_max = min(months), max(months)
+        suffix = f"{m_min:02d}" if m_min == m_max else f"{m_min:02d}-{m_max:02d}"
+        return output_dir / f"era5_{field}_{corridor}_{year}_{suffix}.nc"
+    return output_dir / f"era5_{field}_{corridor}_{year}.nc"
+
+
 def download_era5_wind_gcs(
     output_dir: str | Path = "data/era5",
     corridor: str = "atlantic",
     year: str = "2024",
-    time_step: int = 6,
+    months: list[int] | None = None,
+    time_step: int = 1,
 ) -> Path:
     """Download ERA5 10-m wind data from GCS and save as NetCDF.
 
@@ -162,8 +299,10 @@ def download_era5_wind_gcs(
         Route corridor name.
     year : str
         Year to download.
+    months : list[int], optional
+        Months to include (1-12). Default: all 12.
     time_step : int
-        Hours between time steps (default 6).
+        Hours between time steps (default 1 for hourly).
 
     Returns
     -------
@@ -173,18 +312,39 @@ def download_era5_wind_gcs(
     _ensure_deps()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = output_dir / f"era5_wind_{corridor}_{year}.nc"
+    filename = _output_filename(output_dir, "wind", corridor, year, months)
 
     if filename.exists():
         logger.info("File already exists, skipping: %s", filename)
         return filename
 
-    logger.info("Opening ERA5 wind data on GCS for %s/%s ...", corridor, year)
-    ds = _open_era5_zarr([WIND_U_VAR, WIND_V_VAR])
-    ds = _select_corridor(ds, corridor, year, time_step)
+    dl_months = months if months is not None else list(range(1, 13))
 
-    logger.info("Downloading and saving to %s ...", filename)
-    ds.to_netcdf(filename)
+    if len(dl_months) == 1:
+        # Single month — download directly without temp files
+        logger.info("Opening ERA5 wind data on GCS for %s/%s ...", corridor, year)
+        ds = _open_era5_zarr([WIND_U_VAR, WIND_V_VAR])
+        ds = _select_corridor(ds, corridor, year, dl_months, time_step)
+        ds = _normalize_time_dim(ds)
+        logger.info("Downloading and saving to %s ...", filename)
+        _save_with_low_memory(ds, filename)
+    else:
+        logger.info(
+            "Downloading ERA5 wind for %s/%s (%d months) ...",
+            corridor,
+            year,
+            len(dl_months),
+        )
+        _download_by_month(
+            [WIND_U_VAR, WIND_V_VAR],
+            "wind",
+            corridor,
+            year,
+            dl_months,
+            time_step,
+            filename,
+        )
+
     logger.info("Saved: %s (%.1f MB)", filename, filename.stat().st_size / 1e6)
     return filename
 
@@ -193,7 +353,8 @@ def download_era5_waves_gcs(
     output_dir: str | Path = "data/era5",
     corridor: str = "atlantic",
     year: str = "2024",
-    time_step: int = 6,
+    months: list[int] | None = None,
+    time_step: int = 1,
 ) -> Path:
     """Download ERA5 wave data (Hs + direction) from GCS and save as NetCDF.
 
@@ -205,8 +366,10 @@ def download_era5_waves_gcs(
         Route corridor name.
     year : str
         Year to download.
+    months : list[int], optional
+        Months to include (1-12). Default: all 12.
     time_step : int
-        Hours between time steps (default 6).
+        Hours between time steps (default 1 for hourly).
 
     Returns
     -------
@@ -216,18 +379,39 @@ def download_era5_waves_gcs(
     _ensure_deps()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    filename = output_dir / f"era5_waves_{corridor}_{year}.nc"
+    filename = _output_filename(output_dir, "waves", corridor, year, months)
 
     if filename.exists():
         logger.info("File already exists, skipping: %s", filename)
         return filename
 
-    logger.info("Opening ERA5 wave data on GCS for %s/%s ...", corridor, year)
-    ds = _open_era5_zarr([WAVE_HS_VAR, WAVE_DIR_VAR])
-    ds = _select_corridor(ds, corridor, year, time_step)
+    dl_months = months if months is not None else list(range(1, 13))
 
-    logger.info("Downloading and saving to %s ...", filename)
-    ds.to_netcdf(filename)
+    if len(dl_months) == 1:
+        # Single month — download directly without temp files
+        logger.info("Opening ERA5 wave data on GCS for %s/%s ...", corridor, year)
+        ds = _open_era5_zarr([WAVE_HS_VAR, WAVE_DIR_VAR])
+        ds = _select_corridor(ds, corridor, year, dl_months, time_step)
+        ds = _normalize_time_dim(ds)
+        logger.info("Downloading and saving to %s ...", filename)
+        _save_with_low_memory(ds, filename)
+    else:
+        logger.info(
+            "Downloading ERA5 waves for %s/%s (%d months) ...",
+            corridor,
+            year,
+            len(dl_months),
+        )
+        _download_by_month(
+            [WAVE_HS_VAR, WAVE_DIR_VAR],
+            "waves",
+            corridor,
+            year,
+            dl_months,
+            time_step,
+            filename,
+        )
+
     logger.info("Saved: %s (%.1f MB)", filename, filename.stat().st_size / 1e6)
     return filename
 
@@ -235,8 +419,9 @@ def download_era5_waves_gcs(
 def download_all_gcs(
     output_dir: str | Path = "data/era5",
     year: str = "2024",
+    months: list[int] | None = None,
     corridors: list[str] | None = None,
-    time_step: int = 6,
+    time_step: int = 1,
 ) -> list[Path]:
     """Download all ERA5 data needed for SWOPP3 from GCS.
 
@@ -246,6 +431,8 @@ def download_all_gcs(
         Output directory.
     year : str
         Year to download.
+    months : list[int], optional
+        Months to include (1-12). Default: all 12.
     corridors : list[str], optional
         Corridors to download (default: both).
     time_step : int
@@ -264,6 +451,7 @@ def download_all_gcs(
                 output_dir=output_dir,
                 corridor=corridor,
                 year=year,
+                months=months,
                 time_step=time_step,
             )
         )
@@ -272,6 +460,7 @@ def download_all_gcs(
                 output_dir=output_dir,
                 corridor=corridor,
                 year=year,
+                months=months,
                 time_step=time_step,
             )
         )

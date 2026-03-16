@@ -169,5 +169,14 @@ nohup.out
 *.zip
 output/
 
+# CodaBench competition — large data & build artifacts
+codabench/reference_data/*.nc
+codabench/reference_data/*.shp
+codabench/reference_data/*.shx
+codabench/reference_data/*.dbf
+codabench/reference_data/*.prj
+codabench/logo/
+codabench/test_submission/
+
 # Separate repo
 routingviz/

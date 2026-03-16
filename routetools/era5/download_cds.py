@@ -41,7 +41,24 @@ WAVE_VARIABLES = [
 DEFAULT_YEAR = "2024"
 DEFAULT_MONTHS = [f"{m:02d}" for m in range(1, 13)]
 DEFAULT_DAYS = [f"{d:02d}" for d in range(1, 32)]
-DEFAULT_TIMES = [f"{h:02d}:00" for h in range(0, 24, 6)]  # 6-hourly
+DEFAULT_TIMES = [f"{h:02d}:00" for h in range(0, 24)]  # hourly
+
+
+def _output_filename(
+    output_dir: Path,
+    field: str,
+    corridor: str,
+    year: str,
+    months: list[str],
+) -> Path:
+    """Build the output filename, including month range for partial years."""
+    all_months = [f"{m:02d}" for m in range(1, 13)]
+    sorted_months = sorted(months)
+    if sorted_months != all_months:
+        m_min, m_max = sorted_months[0], sorted_months[-1]
+        suffix = m_min if m_min == m_max else f"{m_min}-{m_max}"
+        return output_dir / f"era5_{field}_{corridor}_{year}_{suffix}.nc"
+    return output_dir / f"era5_{field}_{corridor}_{year}.nc"
 
 
 def _ensure_cdsapi() -> Any:
@@ -81,7 +98,7 @@ def download_era5_wind(
     days : list[str], optional
         Days (default: all 31).
     times : list[str], optional
-        Hours in ``"HH:00"`` format (default: 6-hourly).
+        Hours in ``"HH:00"`` format (default: hourly).
     grid : list[float], optional
         ``[lat_res, lon_res]`` in degrees (default ``[0.25, 0.25]``).
 
@@ -100,7 +117,7 @@ def download_era5_wind(
     grid = grid or [0.25, 0.25]
 
     area = CORRIDORS[corridor]
-    filename = output_dir / f"era5_wind_{corridor}_{year}.nc"
+    filename = _output_filename(output_dir, "wind", corridor, year, months)
 
     if filename.exists():
         logger.info("File already exists, skipping download: %s", filename)
@@ -154,7 +171,7 @@ def download_era5_waves(
     days : list[str], optional
         Days (default: all 31).
     times : list[str], optional
-        Hours in ``"HH:00"`` format (default: 6-hourly).
+        Hours in ``"HH:00"`` format (default: hourly).
     grid : list[float], optional
         ``[lat_res, lon_res]`` in degrees (default ``[0.25, 0.25]``).
 
@@ -173,7 +190,7 @@ def download_era5_waves(
     grid = grid or [0.25, 0.25]
 
     area = CORRIDORS[corridor]
-    filename = output_dir / f"era5_waves_{corridor}_{year}.nc"
+    filename = _output_filename(output_dir, "waves", corridor, year, months)
 
     if filename.exists():
         logger.info("File already exists, skipping download: %s", filename)

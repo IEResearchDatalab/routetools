@@ -7,7 +7,9 @@ requires-python = ">=3.12,<3.13"
 name = "routetools"
 description = "Routing Tools for Continuous Vector Fields"
 readme = "README.md"
-authors = [{ name = "Weather Routing Research", email = "daniel.precioso@ie.edu" }]
+authors = [
+    { name = "Weather Routing Research", email = "daniel.precioso@ie.edu" },
+]
 # For reproducible lockfiles and environments we keep a static version here.
 version = "0.1.0"
 dependencies = [
@@ -32,6 +34,8 @@ dependencies = [
     "opencv-python>=4.13.0.92",
     "dask>=2024.1.0",
     "cartopy>=0.25.0",
+    "gcsfs>=2026.2.0",
+    "zarr>=3.1.5",
 ]
 
 [project.optional-dependencies]
@@ -47,7 +51,12 @@ homepage = "https://github.com/Weather-Routing-Research/cmaes_bezier_demo"
 main = "routetools.main:main"
 
 [tool.setuptools]
-packages = ["routetools", "routetools.era5", "routetools._cost", "routetools.wrr_bench"]
+packages = [
+    "routetools",
+    "routetools.era5",
+    "routetools._cost",
+    "routetools.wrr_bench",
+]
 
 [tool.setuptools_scm]
 # Configure setuptools_scm to write a version file and provide a fallback when
@@ -60,19 +69,19 @@ fallback_version = "0+unknown"
 line-length = 88
 [tool.ruff.lint]
 select = [
-    "E", # pycodestyle
-    "F", # Pyflakes
-    "UP", # pyupgrade
-    "B", # flake8-bugbear
-    "SIM", # flake8-simplify
-    "I", # isort
-    "D", # pydocstyle
-    "C401",  # flake8-comprehensions: unnecessary-generator-set
-    "C402",  # flake8-comprehensions: unnecessary-generator-dict
-    "C403",  # flake8-comprehensions: unnecessary-list-comprehension-set
-    "C404",  # flake8-comprehensions: unnecessary-list-comprehension-dict
-    "C405",  # flake8-comprehensions: unnecessary-literal-set
-    "W605",  # pycodestyle: invalid-escape-sequence
+    "E",    # pycodestyle
+    "F",    # Pyflakes
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "I",    # isort
+    "D",    # pydocstyle
+    "C401", # flake8-comprehensions: unnecessary-generator-set
+    "C402", # flake8-comprehensions: unnecessary-generator-dict
+    "C403", # flake8-comprehensions: unnecessary-list-comprehension-set
+    "C404", # flake8-comprehensions: unnecessary-list-comprehension-dict
+    "C405", # flake8-comprehensions: unnecessary-literal-set
+    "W605", # pycodestyle: invalid-escape-sequence
 ]
 
 # Ignore D100 Missing docstring in public module
@@ -103,16 +112,4 @@ addopts = ["-ra", "--strict-config", "--strict-markers"]
 filterwarnings = ["error", "ignore::DeprecationWarning"]
 
 [dependency-groups]
-dev = [
-    "pytest",
-    "ruff",
-    "mypy",
-    "pre-commit",
-    "ipykernel",
-]
-
-[tool.uv]
-find-links = ["release_package/wheels"]
-
-
-
+dev = ["pytest", "ruff", "mypy", "pre-commit", "ipykernel"]
