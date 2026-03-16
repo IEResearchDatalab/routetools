@@ -380,9 +380,29 @@ def main(
         return land
 
     # ---- Run ----
+    prev_corridor: str | None = None
     for cid in case_ids:
         case = SWOPP3_CASES[cid]
         corridor = case["route"]  # "atlantic" or "pacific"
+
+        # Free previous corridor data when switching to a new one so that
+        # both corridors' arrays don't coexist on the GPU.
+        if prev_corridor is not None and corridor != prev_corridor:
+            _loaded_wind.pop(prev_corridor, None)
+            _loaded_wave.pop(prev_corridor, None)
+            _loaded_vf.pop(prev_corridor, None)
+            _loaded_land.pop(prev_corridor, None)
+            import gc
+
+            gc.collect()
+            import jax
+
+            jax.clear_caches()
+            typer.echo(
+                f"[info] Freed {prev_corridor} corridor data before loading {corridor}"
+            )
+        prev_corridor = corridor
+
         typer.echo(f"\n{'=' * 60}")
         typer.echo(f"Case {cid}: {case['label']}")
         typer.echo(
