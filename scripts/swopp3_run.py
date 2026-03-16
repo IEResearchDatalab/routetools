@@ -3,39 +3,109 @@ r"""Run SWOPP3 cases — CLI entry-point.
 
 Usage
 -----
-Run all 8 cases (GC only, no ERA5 data required):
+Default pipeline for the full 2024 SWOPP3 dataset:
 
-    python scripts/swopp3_run.py --strategy gc --output-dir output/swopp3
+    uv run scripts/download_era5.py
+    uv run scripts/swopp3_run.py
 
-Run Atlantic cases with ERA5 data:
+The defaults in this script expect the four NetCDF files written by
+``scripts/download_era5.py`` for year 2024. If any required file is missing,
+the command fails before execution and explains exactly which datasets are
+missing and why they are required.
 
-    python scripts/swopp3_run.py \\
-        --cases AGC_WPS AGC_noWPS \\
-        --wind-path data/era5/era5_wind_atlantic_2024.nc \\
-        --wave-path data/era5/era5_waves_atlantic_2024.nc \\
+Run all 8 cases with explicit per-corridor paths:
+
+    uv run scripts/swopp3_run.py \
+        --wind-path-atlantic data/era5/era5_wind_atlantic_2024.nc \
+        --wave-path-atlantic data/era5/era5_waves_atlantic_2024.nc \
+        --wind-path-pacific  data/era5/era5_wind_pacific_2024.nc  \
+        --wave-path-pacific  data/era5/era5_waves_pacific_2024.nc  \
         --output-dir output/swopp3
 
-Run all 8 cases with per-corridor ERA5 data:
+Run only Atlantic cases after downloading Atlantic data:
 
-    python scripts/swopp3_run.py \\
-        --wind-path-atlantic data/era5/era5_wind_atlantic_2024.nc \\
-        --wave-path-atlantic data/era5/era5_waves_atlantic_2024.nc \\
-        --wind-path-pacific  data/era5/era5_wind_pacific_2024.nc  \\
-        --wave-path-pacific  data/era5/era5_waves_pacific_2024.nc  \\
+    uv run scripts/swopp3_run.py \
+        --cases AGC_WPS AGC_noWPS \
+        --wind-path data/era5/era5_wind_atlantic_2024.nc \
+        --wave-path data/era5/era5_waves_atlantic_2024.nc \
         --output-dir output/swopp3
 
 Run only the first 3 departures (quick test):
 
-    python scripts/swopp3_run.py --max-departures 3 --output-dir output/swopp3
+    uv run scripts/swopp3_run.py --max-departures 3 --output-dir output/swopp3
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
-app = typer.Typer(help="SWOPP3 competition runner.")
+if TYPE_CHECKING:
+    from routetools.swopp3_runner import FieldClosure
+
+app = typer.Typer(
+    help=(
+        "SWOPP3 competition runner. Expects ERA5 files produced by "
+        "scripts/download_era5.py unless explicit paths are provided."
+    )
+)
+
+
+def _selected_corridors(case_ids: list[str]) -> list[str]:
+    """Return the sorted set of route corridors required by ``case_ids``."""
+    from routetools.swopp3 import SWOPP3_CASES
+
+    return sorted({str(SWOPP3_CASES[cid]["route"]) for cid in case_ids})
+
+
+def _validate_required_data_paths(
+    case_ids: list[str],
+    corridor_wind: dict[str, Path],
+    corridor_wave: dict[str, Path],
+) -> None:
+    """Fail fast when the ERA5 inputs required by the selected cases are missing."""
+    required_corridors = _selected_corridors(case_ids)
+    missing: list[str] = []
+
+    for corridor in required_corridors:
+        wind = corridor_wind.get(corridor)
+        wave = corridor_wave.get(corridor)
+
+        if wind is None:
+            missing.append(f"{corridor} wind dataset path is not configured")
+        elif not Path(wind).exists():
+            missing.append(f"{corridor} wind dataset not found: {wind}")
+
+        if wave is None:
+            missing.append(f"{corridor} wave dataset path is not configured")
+        elif not Path(wave).exists():
+            missing.append(f"{corridor} wave dataset not found: {wave}")
+
+    if not missing:
+        return
+
+    corridor_list = ", ".join(required_corridors)
+    missing_lines = "\n".join(f"- {item}" for item in missing)
+    raise FileNotFoundError(
+        "SWOPP3 input validation failed.\n\n"
+        f"Selected cases require ERA5 datasets for corridor(s): {corridor_list}.\n"
+        "This CLI requires weather data for every selected case:\n"
+        "- GC cases use wind and wave data during SWOPP3 energy evaluation.\n"
+        "- Optimised cases use wind data to build the CMA-ES vectorfield "
+        "and use wind/wave data during energy evaluation.\n"
+        "- Missing ERA5 files are a hard error; there is no fallback "
+        "to GC or no-weather mode.\n\n"
+        f"Missing inputs:\n{missing_lines}\n\n"
+        "Fix:\n"
+        "- Run `uv run scripts/download_era5.py` to download the default "
+        "2024 Atlantic and Pacific datasets, then rerun "
+        "`uv run scripts/swopp3_run.py`.\n"
+        "- If you downloaded a different year or only one corridor, "
+        "pass matching `--wind-path*` and `--wave-path*` options."
+    )
 
 
 @app.command()
@@ -55,32 +125,50 @@ def main(
     wind_path: Path | None = typer.Option(  # noqa: B008
         None,
         "--wind-path",
-        help="Path to ERA5 wind NetCDF (single corridor, used for all cases).",
+        help=(
+            "Path to ERA5 wind NetCDF used for all selected corridors. "
+            "Overrides the built-in corridor defaults when provided."
+        ),
     ),
     wave_path: Path | None = typer.Option(  # noqa: B008
         None,
         "--wave-path",
-        help="Path to ERA5 wave NetCDF (single corridor, used for all cases).",
+        help=(
+            "Path to ERA5 wave NetCDF used for all selected corridors. "
+            "Overrides the built-in corridor defaults when provided."
+        ),
     ),
     wind_path_atlantic: Path | None = typer.Option(  # noqa: B008
-        None,
+        "data/era5/era5_wind_atlantic_2024.nc",
         "--wind-path-atlantic",
-        help="Path to ERA5 wind NetCDF for Atlantic corridor.",
+        help=(
+            "Path to ERA5 wind NetCDF for Atlantic corridor. Defaults to the "
+            "file written by scripts/download_era5.py for year 2024."
+        ),
     ),
     wave_path_atlantic: Path | None = typer.Option(  # noqa: B008
-        None,
+        "data/era5/era5_waves_atlantic_2024.nc",
         "--wave-path-atlantic",
-        help="Path to ERA5 wave NetCDF for Atlantic corridor.",
+        help=(
+            "Path to ERA5 wave NetCDF for Atlantic corridor. Defaults to the "
+            "file written by scripts/download_era5.py for year 2024."
+        ),
     ),
     wind_path_pacific: Path | None = typer.Option(  # noqa: B008
-        None,
+        "data/era5/era5_wind_pacific_2024.nc",
         "--wind-path-pacific",
-        help="Path to ERA5 wind NetCDF for Pacific corridor.",
+        help=(
+            "Path to ERA5 wind NetCDF for Pacific corridor. Defaults to the "
+            "file written by scripts/download_era5.py for year 2024."
+        ),
     ),
     wave_path_pacific: Path | None = typer.Option(  # noqa: B008
-        None,
+        "data/era5/era5_waves_pacific_2024.nc",
         "--wave-path-pacific",
-        help="Path to ERA5 wave NetCDF for Pacific corridor.",
+        help=(
+            "Path to ERA5 wave NetCDF for Pacific corridor. Defaults to the "
+            "file written by scripts/download_era5.py for year 2024."
+        ),
     ),
     output_dir: Path = typer.Option(  # noqa: B008
         "output/swopp3",
@@ -111,7 +199,22 @@ def main(
         help="Suppress progress output.",
     ),
 ) -> None:
-    """Run SWOPP3 competition cases."""
+    """Run SWOPP3 competition cases.
+
+    The default invocation expects the 2024 ERA5 files produced by
+    ``scripts/download_era5.py``. The command validates those inputs before
+    loading any corridor and exits with a precise message if a required file
+    is missing.
+    """
+    import xarray as xr
+
+    from routetools.era5.loader import (
+        load_dataset_epoch,
+        load_era5_vectorfield,
+        load_era5_wavefield,
+        load_era5_windfield,
+        load_natural_earth_land_mask,
+    )
     from routetools.swopp3 import SWOPP3_CASES, departures_2024
     from routetools.swopp3_runner import run_case
 
@@ -141,9 +244,8 @@ def main(
     typer.echo(f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)")
 
     # ---- Build per-corridor field map ----
-    # Resolve which wind/wave paths to use for each corridor.
-    corridor_wind = {}
-    corridor_wave = {}
+    corridor_wind: dict[str, Path] = {}
+    corridor_wave: dict[str, Path] = {}
 
     if wind_path_atlantic is not None:
         corridor_wind["atlantic"] = wind_path_atlantic
@@ -154,64 +256,61 @@ def main(
     if wave_path_pacific is not None:
         corridor_wave["pacific"] = wave_path_pacific
 
-    # --wind-path / --wave-path act as fallback for all corridors
+    # Shared paths intentionally override the corridor defaults so the
+    # simplest one-flag workflow still works for single-corridor runs.
     if wind_path is not None:
-        corridor_wind.setdefault("atlantic", wind_path)
-        corridor_wind.setdefault("pacific", wind_path)
+        corridor_wind["atlantic"] = wind_path
+        corridor_wind["pacific"] = wind_path
     if wave_path is not None:
-        corridor_wave.setdefault("atlantic", wave_path)
-        corridor_wave.setdefault("pacific", wave_path)
+        corridor_wave["atlantic"] = wave_path
+        corridor_wave["pacific"] = wave_path
+
+    try:
+        _validate_required_data_paths(case_ids, corridor_wind, corridor_wave)
+    except FileNotFoundError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
     # ---- Load fields per corridor (cache so we load each file once) ----
-    from routetools.era5.loader import (
-        load_dataset_epoch,
-        load_era5_vectorfield,
-        load_era5_wavefield,
-        load_era5_windfield,
-        load_natural_earth_land_mask,
-    )
 
-    _loaded_wind: dict[str, tuple] = {}  # corridor -> (windfield, epoch)
-    _loaded_wave: dict[str, tuple] = {}  # corridor -> (wavefield, epoch)
-    _loaded_vf: dict[str, object] = {}  # corridor -> vectorfield
+    _loaded_wind: dict[str, tuple[FieldClosure, datetime]] = {}
+    _loaded_wave: dict[str, tuple[FieldClosure, datetime]] = {}
+    _loaded_vf: dict[str, FieldClosure] = {}  # corridor -> vectorfield
     _loaded_land: dict[str, object] = {}  # corridor -> Land
 
-    def _get_wind(corridor: str):
-        """Return (windfield_closure, dataset_epoch) for corridor, or (None, None)."""
+    def _get_wind(corridor: str) -> tuple[FieldClosure, datetime]:
+        """Return (windfield_closure, dataset_epoch) for corridor."""
         if corridor in _loaded_wind:
             return _loaded_wind[corridor]
         wp = corridor_wind.get(corridor)
         if wp is None:
-            _loaded_wind[corridor] = (None, None)
-            return None, None
+            raise ValueError(f"No wind path available for corridor '{corridor}'")
         typer.echo(f"Loading wind field for {corridor} from {wp} …")
         epoch = load_dataset_epoch(wp)
         wf = load_era5_windfield(wp)
         _loaded_wind[corridor] = (wf, epoch)
         return wf, epoch
 
-    def _get_vectorfield(corridor: str):
-        """Return vectorfield closure for corridor, or None."""
+    def _get_vectorfield(corridor: str) -> FieldClosure:
+        """Return vectorfield closure for corridor."""
         if corridor in _loaded_vf:
             return _loaded_vf[corridor]
         wp = corridor_wind.get(corridor)
         if wp is None:
-            _loaded_vf[corridor] = None
-            return None
+            raise ValueError(f"No wind path available for corridor '{corridor}'")
         # Reuse the wind-load epoch but build a vectorfield
         typer.echo(f"Loading vectorfield for {corridor} from {wp} …")
         vf = load_era5_vectorfield(wp)
         _loaded_vf[corridor] = vf
         return vf
 
-    def _get_wave(corridor: str):
-        """Return (wavefield_closure, dataset_epoch) for corridor, or (None, None)."""
+    def _get_wave(corridor: str) -> tuple[FieldClosure, datetime]:
+        """Return (wavefield_closure, dataset_epoch) for corridor."""
         if corridor in _loaded_wave:
             return _loaded_wave[corridor]
         wp = corridor_wave.get(corridor)
         if wp is None:
-            _loaded_wave[corridor] = (None, None)
-            return None, None
+            raise ValueError(f"No wave path available for corridor '{corridor}'")
         typer.echo(f"Loading wave field for {corridor} from {wp} …")
         epoch = load_dataset_epoch(wp)
         wvf = load_era5_wavefield(wp)
@@ -225,9 +324,7 @@ def main(
         # Determine corridor extent from the ERA5 wave or wind file
         wp = corridor_wave.get(corridor) or corridor_wind.get(corridor)
         if wp is None:
-            _loaded_land[corridor] = None
-            return None
-        import xarray as xr
+            raise ValueError(f"No wind/wave path available for corridor '{corridor}'")
 
         with xr.open_dataset(wp) as ds:
             for cname in ("longitude", "lon"):
@@ -270,7 +367,7 @@ def main(
 
         # Use the wind field epoch as canonical dataset epoch (both fields
         # share the same 2024-01-01 epoch from the ERA5 download).
-        dataset_epoch = wind_epoch or wave_epoch
+        dataset_epoch = wind_epoch
 
         results = run_case(
             cid,
