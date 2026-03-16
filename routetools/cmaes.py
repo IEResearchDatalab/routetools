@@ -390,6 +390,8 @@ def _cma_evolution_strategy(
                 tws_limit=tws_limit,
                 hs_limit=hs_limit,
                 penalty=weather_penalty_weight,
+                travel_time=travel_time,
+                time_offset=time_offset,
             )
 
         # Replace the worst solutions with the best found so far
@@ -667,6 +669,8 @@ def optimize(
                 tws_limit=tws_limit,
                 hs_limit=hs_limit,
                 penalty=weather_penalty_weight,
+                travel_time=travel_time,
+                time_offset=time_offset,
             ).item()
         if cost_initial < cost_best:
             warnings.warn(

@@ -261,6 +261,7 @@ def weather_penalty(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Compute a hard penalty for weather constraint violations.
 
@@ -288,6 +289,9 @@ def weather_penalty(
         Total travel time (seconds); distributed proportionally by distance.
     spherical_correction : bool
         Use haversine distances (default ``True``).
+    time_offset : float
+        Hours from the field epoch to departure.  Added to ``t_mid`` so
+        that the field is sampled at the correct absolute time.
 
     Returns
     -------
@@ -300,6 +304,7 @@ def weather_penalty(
         travel_time=travel_time,
         spherical_correction=spherical_correction,
     )
+    t_mid = t_mid + time_offset
 
     violations = jnp.zeros(curve.shape[0])
 
@@ -337,6 +342,7 @@ def weather_penalty_smooth(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Compute a smooth (differentiable) penalty for weather violations.
 
@@ -369,6 +375,9 @@ def weather_penalty_smooth(
         Total travel time (seconds); distributed proportionally by distance.
     spherical_correction : bool
         Use haversine distances (default ``True``).
+    time_offset : float
+        Hours from the field epoch to departure.  Added to ``t_mid`` so
+        that the field is sampled at the correct absolute time.
 
     Returns
     -------
@@ -381,6 +390,7 @@ def weather_penalty_smooth(
         travel_time=travel_time,
         spherical_correction=spherical_correction,
     )
+    t_mid = t_mid + time_offset
 
     total = jnp.zeros(curve.shape[0])
 
