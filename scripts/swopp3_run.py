@@ -39,19 +39,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
-import xarray as xr
 
-from routetools.era5.loader import (
-    load_dataset_epoch,
-    load_era5_vectorfield,
-    load_era5_wavefield,
-    load_era5_windfield,
-    load_natural_earth_land_mask,
-)
-from routetools.swopp3 import SWOPP3_CASES, departures_2024
-from routetools.swopp3_runner import FieldClosure, run_case
+if TYPE_CHECKING:
+    from routetools.swopp3_runner import FieldClosure
 
 app = typer.Typer(
     help=(
@@ -63,6 +56,8 @@ app = typer.Typer(
 
 def _selected_corridors(case_ids: list[str]) -> list[str]:
     """Return the sorted set of route corridors required by ``case_ids``."""
+    from routetools.swopp3 import SWOPP3_CASES
+
     return sorted({str(SWOPP3_CASES[cid]["route"]) for cid in case_ids})
 
 
@@ -211,6 +206,18 @@ def main(
     loading any corridor and exits with a precise message if a required file
     is missing.
     """
+    import xarray as xr
+
+    from routetools.era5.loader import (
+        load_dataset_epoch,
+        load_era5_vectorfield,
+        load_era5_wavefield,
+        load_era5_windfield,
+        load_natural_earth_land_mask,
+    )
+    from routetools.swopp3 import SWOPP3_CASES, departures_2024
+    from routetools.swopp3_runner import run_case
+
     # ---- Select cases ----
     if cases is not None:
         case_ids = cases
