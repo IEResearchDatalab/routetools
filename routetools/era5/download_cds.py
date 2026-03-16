@@ -53,8 +53,9 @@ def _output_filename(
 ) -> Path:
     """Build the output filename, including month range for partial years."""
     all_months = [f"{m:02d}" for m in range(1, 13)]
-    if sorted(months) != all_months:
-        m_min, m_max = months[0], months[-1]
+    sorted_months = sorted(months)
+    if sorted_months != all_months:
+        m_min, m_max = sorted_months[0], sorted_months[-1]
         suffix = m_min if m_min == m_max else f"{m_min}-{m_max}"
         return output_dir / f"era5_{field}_{corridor}_{year}_{suffix}.nc"
     return output_dir / f"era5_{field}_{corridor}_{year}.nc"
