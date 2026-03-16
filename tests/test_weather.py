@@ -474,4 +474,4 @@ class TestTimeOffset:
         pen = weather_penalty_smooth(
             curve, windfield=wf, travel_time=10.0, time_offset=200.0
         )
-        assert pen > 0.0
+        assert float(pen[0]) > 0.0

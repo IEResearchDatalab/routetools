@@ -94,10 +94,12 @@ def _segment_midpoints(
         Shape ``(B, L, 2)`` with ``(lon, lat)``.
     travel_stw : float, optional
         Constant speed through water (m/s).  Used to estimate elapsed time
-        per segment as ``distance / travel_stw``.
+        per segment as ``distance / travel_stw``; ``t_mid`` will be in
+        seconds when ``spherical_correction`` is ``True``.
     travel_time : float, optional
-        Total travel time (seconds).  Time is distributed proportionally
-        by segment distance.
+        Total travel time.  Time is distributed proportionally by segment
+        distance.  The units of ``travel_time`` carry through to ``t_mid``
+        (e.g. pass hours to get hours).
     spherical_correction : bool
         If ``True`` (default), use haversine distances (metres).
 
@@ -105,7 +107,8 @@ def _segment_midpoints(
     -------
     mid_lon, mid_lat, t_mid : jnp.ndarray
         Each of shape ``(B, L-1)``.  ``t_mid`` is the estimated elapsed
-        time (in seconds) at the midpoint of each segment.
+        time at the midpoint of each segment, in the same units as
+        ``travel_time`` or seconds when ``travel_stw`` is used.
     """
     mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
     mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
@@ -290,8 +293,10 @@ def weather_penalty(
     spherical_correction : bool
         Use haversine distances (default ``True``).
     time_offset : float
-        Hours from the field epoch to departure.  Added to ``t_mid`` so
-        that the field is sampled at the correct absolute time.
+        Offset added to ``t_mid`` before querying field closures.  Must
+        be in the same units as ``travel_time`` (or seconds when using
+        ``travel_stw``).  Typically the departure offset in hours when
+        ``travel_time`` is also in hours.
 
     Returns
     -------
@@ -376,8 +381,10 @@ def weather_penalty_smooth(
     spherical_correction : bool
         Use haversine distances (default ``True``).
     time_offset : float
-        Hours from the field epoch to departure.  Added to ``t_mid`` so
-        that the field is sampled at the correct absolute time.
+        Offset added to ``t_mid`` before querying field closures.  Must
+        be in the same units as ``travel_time`` (or seconds when using
+        ``travel_stw``).  Typically the departure offset in hours when
+        ``travel_time`` is also in hours.
 
     Returns
     -------

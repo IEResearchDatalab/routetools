@@ -124,7 +124,7 @@ class Land:
         # distance_transform_edt measures distance from 0-cells to nearest
         # 1-cell, so we pass the *inverted* mask (water=0 → measure distance).
         edt = distance_transform_edt(~binary_land)
-        self._edt = jnp.array(edt)
+        self._edt = jnp.asarray(edt, dtype=jnp.float32)
 
     @property
     def array(self) -> jnp.ndarray:
@@ -323,8 +323,13 @@ class Land:
         x_norm = (x_coords - self.xmin) * self.xnorm
         y_norm = (y_coords - self.ymin) * self.ynorm
 
-        # Sample the EDT field — order=1 gives bilinear interpolation
-        edt_vals = map_coordinates(self._edt, [x_norm, y_norm], order=1, mode="nearest")
+        # Sample the EDT field using instance interpolation settings
+        edt_vals = map_coordinates(
+            self._edt,
+            [x_norm, y_norm],
+            order=self._map_order,
+            mode=self._map_mode,
+        )
 
         # Inverse-distance penalty: closer to land → larger cost
         point_penalty = 1.0 / (edt_vals + epsilon)
