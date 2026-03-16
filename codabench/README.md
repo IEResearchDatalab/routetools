@@ -46,7 +46,7 @@ and a combined `competition_bundle.zip`. See `build_bundle.sh` for details.
    - **Title:** `SWOPP3 Weather Routing Benchmark`
    - **Logo:** Upload a logo (PNG)
    - **Description:** Copy from `pages/overview.md` or write a summary
-   - **Competition Docker Image:** Use `python:3.11-slim`
+   - **Competition Docker Image:** Use `fjsuarez/swopp3-scorer:latest`
    - **Competition Type:** Competition
 4. **Pages** tab:
    - Add pages from the `pages/` directory (Overview, Data, Submission, Evaluation, Terms)

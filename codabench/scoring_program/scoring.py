@@ -24,10 +24,11 @@ from __future__ import annotations
 
 import base64
 import csv
+import gc
+import html as html_mod
 import io
 import json
 import math
-import re
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,6 +36,10 @@ from pathlib import Path
 import numpy as np
 
 # ─── CodaBench entry point ───────────────────────────────────────────
+
+if len(sys.argv) < 3:
+    print(f"Usage: {sys.argv[0]} <input_dir> <output_dir>", file=sys.stderr)
+    sys.exit(1)
 
 input_dir = Path(sys.argv[1])
 output_dir = Path(sys.argv[2])
@@ -166,9 +171,9 @@ def _coord_distance_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> f
 def find_team_prefix(sub_dir: Path) -> str | None:
     """Detect the team name prefix from submitted CSV files."""
     for f in sub_dir.glob("*.csv"):
-        match = re.match(r"^([\w]+-\d+)-", f.name)
-        if match:
-            return match.group(1)
+        for case in CASE_NAMES:
+            if f.name.endswith(f"-{case}.csv"):
+                return f.name[: -(len(case) + 5)]  # strip "-{case}.csv"
     return None
 
 
@@ -485,7 +490,8 @@ def _load_era5_grid(nc_paths: list[str]) -> dict | None:
     for ds in datasets:
         t_name = "valid_time" if "valid_time" in ds.variables else "time"
         t_var = ds.variables[t_name]
-        times = netCDF4.num2date(t_var[:], t_var.units, t_var.calendar)
+        cal = getattr(t_var, "calendar", "standard")
+        times = netCDF4.num2date(t_var[:], t_var.units, cal)
         all_times.extend(times)
         for v in var_names:
             short = LONG_TO_SHORT.get(v, v)
@@ -716,6 +722,7 @@ def try_load_era5_scorer(ref_dir: Path):
             # Release previous corridor data
             _cache["wind"] = None
             _cache["waves"] = None
+            gc.collect()
             _cache["corridor"] = corridor
             files = corridor_files.get(corridor)
             if files is None:
@@ -1087,17 +1094,20 @@ def _write_detailed_results(
     # Scores table
     html_parts.append("<h2>Scores</h2><table><tr><th>Metric</th><th>Value</th></tr>")
     for k, v in scores.items():
+        ek = html_mod.escape(str(k))
         if isinstance(v, float) and v < 1e11:
-            html_parts.append(f"<tr><td>{k}</td><td>{v:,.4f}</td></tr>")
+            html_parts.append(f"<tr><td>{ek}</td><td>{v:,.4f}</td></tr>")
         else:
-            html_parts.append(f"<tr><td>{k}</td><td>{v}</td></tr>")
+            html_parts.append(
+                f"<tr><td>{ek}</td><td>{html_mod.escape(str(v))}</td></tr>"
+            )
     html_parts.append("</table>")
 
     # Warnings
     if all_warnings:
         html_parts.append(f'<h2 class="warn">Warnings ({len(all_warnings)})</h2><ul>')
         for w in all_warnings:
-            html_parts.append(f"<li>{w}</li>")
+            html_parts.append(f"<li>{html_mod.escape(w)}</li>")
         html_parts.append("</ul>")
 
     # Errors
@@ -1106,7 +1116,7 @@ def _write_detailed_results(
             f'<h2 class="err">Validation Errors ({len(all_errors)})</h2><ul>'
         )
         for e in all_errors[:100]:  # cap at 100 to keep HTML manageable
-            html_parts.append(f"<li>{e}</li>")
+            html_parts.append(f"<li>{html_mod.escape(e)}</li>")
         if len(all_errors) > 100:
             html_parts.append(f"<li>... and {len(all_errors) - 100} more</li>")
         html_parts.append("</ul>")
@@ -1119,9 +1129,10 @@ def _write_detailed_results(
     if plots:
         html_parts.append("<h2>Figures</h2>")
         for title, img_b64 in plots:
-            html_parts.append(f"<h3>{title}</h3>")
+            safe_title = html_mod.escape(title)
+            html_parts.append(f"<h3>{safe_title}</h3>")
             html_parts.append(
-                f'<img src="data:image/png;base64,{img_b64}" alt="{title}">'
+                f'<img src="data:image/png;base64,{img_b64}"' f' alt="{safe_title}">'
             )
 
     html_parts.append("</body></html>")
@@ -1196,6 +1207,7 @@ def score_submission() -> dict:
         for row in fa_rows:
             fb_name = row.get("details_filename", "")
             if not fb_name:
+                all_errors.append(f"{case}: Missing details_filename in File A row")
                 re_eval_ok = False
                 continue
 
