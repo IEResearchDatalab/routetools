@@ -12,10 +12,18 @@ import xarray as xr
 from routetools.era5.loader import load_dataset_epoch
 
 
-def _write_dataset(path: Path, time_coord: str) -> None:
+def _write_dataset(
+    path: Path,
+    time_coord: str,
+    times: np.ndarray | None = None,
+) -> None:
     """Write a minimal ERA5-like dataset with a configurable time coordinate."""
-    times = np.array(
-        ["2024-01-01T12:00:00", "2024-01-01T13:00:00"], dtype="datetime64[ns]"
+    times = (
+        times
+        if times is not None
+        else np.array(
+            ["2024-01-01T12:00:00", "2024-01-01T13:00:00"], dtype="datetime64[ns]"
+        )
     )
     ds = xr.Dataset(
         {
@@ -47,6 +55,27 @@ class TestLoadDatasetEpoch:
         _write_dataset(nc, "valid_time")
 
         epoch = load_dataset_epoch(nc)
+        assert epoch == datetime(2024, 1, 1, 12, 0, 0)
+
+    def test_reads_earliest_time_from_multiple_files(self, tmp_path: Path):
+        later = tmp_path / "wind_later.nc"
+        earlier = tmp_path / "wind_earlier.nc"
+        _write_dataset(
+            later,
+            "time",
+            np.array(
+                ["2024-01-02T12:00:00", "2024-01-02T13:00:00"], dtype="datetime64[ns]"
+            ),
+        )
+        _write_dataset(
+            earlier,
+            "valid_time",
+            np.array(
+                ["2024-01-01T12:00:00", "2024-01-01T13:00:00"], dtype="datetime64[ns]"
+            ),
+        )
+
+        epoch = load_dataset_epoch([later, earlier])
         assert epoch == datetime(2024, 1, 1, 12, 0, 0)
 
     def test_raises_without_time_coord(self, tmp_path: Path):

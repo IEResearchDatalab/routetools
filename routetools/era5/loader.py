@@ -20,7 +20,7 @@ interpolation via ``jax.scipy.ndimage.map_coordinates`` works correctly.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from math import ceil
 from pathlib import Path
@@ -79,7 +79,7 @@ def _normalize_time_coord(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
-def _load_datasets(paths: str | Path | list[str | Path]) -> xr.Dataset:
+def _load_datasets(paths: str | Path | Sequence[str | Path]) -> xr.Dataset:
     """Open one or more NetCDF files and concatenate along the time axis.
 
     When multiple files are provided they are concatenated in order.  The
@@ -178,20 +178,21 @@ def _prepare_grid(
     }
 
 
-def load_dataset_epoch(path: str | Path) -> datetime:
+def load_dataset_epoch(path: str | Path | Sequence[str | Path]) -> datetime:
     """Return the first ERA5 timestamp as a naive UTC datetime.
 
     Parameters
     ----------
-    path : str or Path
-        Path to an ERA5 NetCDF dataset.
+    path : str, Path, or list thereof
+        Path(s) to ERA5 NetCDF dataset(s). When multiple paths are provided,
+        they are concatenated and the earliest timestamp is returned.
 
     Returns
     -------
     datetime
         First dataset timestamp as timezone-naive UTC datetime.
     """
-    ds = _load_dataset(path)
+    ds = _load_datasets(path)
     try:
         time_name = _get_coord_name(ds, ["time", "valid_time"])
         epoch_np = ds[time_name].values[0]
@@ -300,7 +301,7 @@ def _build_field_closure(
 
 
 def load_era5_windfield(
-    path: str | Path | list[str | Path],
+    path: str | Path | Sequence[str | Path],
     departure_time: datetime | str | np.datetime64 | None = None,
     voyage_hours: float | None = None,
     order: int = 1,
@@ -419,7 +420,7 @@ def load_era5_windfield(
 
 
 def load_era5_vectorfield(
-    path: str | Path | list[str | Path],
+    path: str | Path | Sequence[str | Path],
     departure_time: datetime | str | np.datetime64 | None = None,
     voyage_hours: float | None = None,
     order: int = 1,
@@ -451,7 +452,7 @@ def load_era5_vectorfield(
 
 
 def load_era5_wavefield(
-    path: str | Path | list[str | Path],
+    path: str | Path | Sequence[str | Path],
     departure_time: datetime | str | np.datetime64 | None = None,
     voyage_hours: float | None = None,
     order: int = 1,

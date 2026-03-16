@@ -37,6 +37,7 @@ Run only the first 3 departures (quick test):
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -53,12 +54,32 @@ app = typer.Typer(
     )
 )
 
+_ERA5_FILE_RE = re.compile(
+    r"^(?P<prefix>era5_[^_]+_[^_]+_)(?P<year>\d{4})(?:_(?P<suffix>\d{2}(?:-\d{2})?))?\.nc$"
+)
+
 
 def _selected_corridors(case_ids: list[str]) -> list[str]:
     """Return the sorted set of route corridors required by ``case_ids``."""
     from routetools.swopp3 import SWOPP3_CASES
 
     return sorted({str(SWOPP3_CASES[cid]["route"]) for cid in case_ids})
+
+
+def _loadable_era5_paths(path: Path) -> list[Path]:
+    """Return the base ERA5 file plus any next-year continuation files."""
+    match = _ERA5_FILE_RE.match(path.name)
+    if match is None:
+        return [path]
+
+    prefix = match.group("prefix")
+    next_year = int(match.group("year")) + 1
+    exact_next_year = path.with_name(f"{prefix}{next_year}.nc")
+    if exact_next_year.exists():
+        return [path, exact_next_year]
+
+    continuation_paths = sorted(path.parent.glob(f"{prefix}{next_year}_*.nc"))
+    return [path, *continuation_paths]
 
 
 def _validate_required_data_paths(
@@ -285,9 +306,14 @@ def main(
         wp = corridor_wind.get(corridor)
         if wp is None:
             raise ValueError(f"No wind path available for corridor '{corridor}'")
-        typer.echo(f"Loading wind field for {corridor} from {wp} …")
-        epoch = load_dataset_epoch(wp)
-        wf = load_era5_windfield(wp)
+        load_paths = _loadable_era5_paths(wp)
+        load_target = load_paths if len(load_paths) > 1 else load_paths[0]
+        typer.echo(
+            f"Loading wind field for {corridor} from "
+            f"{', '.join(str(path) for path in load_paths)} …"
+        )
+        epoch = load_dataset_epoch(load_target)
+        wf = load_era5_windfield(load_target)
         _loaded_wind[corridor] = (wf, epoch)
         return wf, epoch
 
@@ -298,9 +324,14 @@ def main(
         wp = corridor_wind.get(corridor)
         if wp is None:
             raise ValueError(f"No wind path available for corridor '{corridor}'")
+        load_paths = _loadable_era5_paths(wp)
+        load_target = load_paths if len(load_paths) > 1 else load_paths[0]
         # Reuse the wind-load epoch but build a vectorfield
-        typer.echo(f"Loading vectorfield for {corridor} from {wp} …")
-        vf = load_era5_vectorfield(wp)
+        typer.echo(
+            f"Loading vectorfield for {corridor} from "
+            f"{', '.join(str(path) for path in load_paths)} …"
+        )
+        vf = load_era5_vectorfield(load_target)
         _loaded_vf[corridor] = vf
         return vf
 
@@ -311,9 +342,14 @@ def main(
         wp = corridor_wave.get(corridor)
         if wp is None:
             raise ValueError(f"No wave path available for corridor '{corridor}'")
-        typer.echo(f"Loading wave field for {corridor} from {wp} …")
-        epoch = load_dataset_epoch(wp)
-        wvf = load_era5_wavefield(wp)
+        load_paths = _loadable_era5_paths(wp)
+        load_target = load_paths if len(load_paths) > 1 else load_paths[0]
+        typer.echo(
+            f"Loading wave field for {corridor} from "
+            f"{', '.join(str(path) for path in load_paths)} …"
+        )
+        epoch = load_dataset_epoch(load_target)
+        wvf = load_era5_wavefield(load_target)
         _loaded_wave[corridor] = (wvf, epoch)
         return wvf, epoch
 
@@ -325,6 +361,7 @@ def main(
         wp = corridor_wave.get(corridor) or corridor_wind.get(corridor)
         if wp is None:
             raise ValueError(f"No wind/wave path available for corridor '{corridor}'")
+        wp = _loadable_era5_paths(wp)[0]
 
         with xr.open_dataset(wp) as ds:
             for cname in ("longitude", "lon"):

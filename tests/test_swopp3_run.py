@@ -18,7 +18,20 @@ def _load_swopp3_run_module():
 
 
 _swopp3_run = _load_swopp3_run_module()
+_loadable_era5_paths = _swopp3_run._loadable_era5_paths
 _validate_required_data_paths = _swopp3_run._validate_required_data_paths
+
+
+def test_loadable_era5_paths_adds_next_year_continuation(tmp_path: Path):
+    """Runner should pick up next-year continuation files automatically."""
+    base = tmp_path / "era5_wind_pacific_2024.nc"
+    jan = tmp_path / "era5_wind_pacific_2025_01.nc"
+    feb = tmp_path / "era5_wind_pacific_2025_02.nc"
+    base.touch()
+    jan.touch()
+    feb.touch()
+
+    assert _loadable_era5_paths(base) == [base, jan, feb]
 
 
 def test_shared_cli_paths_override_default_corridor_paths(monkeypatch):
