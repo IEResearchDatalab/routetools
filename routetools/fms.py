@@ -109,12 +109,11 @@ def _apply_curve_constraints(
         spherical_correction=spherical_correction,
         time_offset=time_offset,
     )
-    if enforce_weather_limits and weather_violations.any():
-        curve_constrained = jnp.where(
-            weather_violations[:, None, None],
-            curve_old,
-            curve_constrained,
-        )
+    curve_constrained = jnp.where(
+        weather_violations[:, None, None],
+        curve_old,
+        curve_constrained,
+    )
 
     return curve_constrained
 

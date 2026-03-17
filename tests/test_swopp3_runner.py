@@ -606,6 +606,88 @@ class TestRunCase:
         fb_files = list(fb_dir.glob("*.csv"))
         assert len(fb_files) == 2
 
+    def test_incremental_output_replaces_stale_summary_and_appends_rows(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Incremental output should rewrite File A and append one row per result."""
+        deps = [_DEP, _DEP + timedelta(days=1)]
+        curves_by_departure = {
+            deps[0]: jnp.array(
+                [[-4.0, 43.6], [-38.9, 42.0], [-73.8, 40.53]],
+                dtype=jnp.float32,
+            ),
+            deps[1]: jnp.array(
+                [[-4.0, 43.6], [-39.5, 41.5], [-73.8, 40.53]],
+                dtype=jnp.float32,
+            ),
+        }
+        summary_path = tmp_path / "IEUniversity-1-AGC_noWPS.csv"
+        summary_path.write_text("stale_header\nstale_row\n")
+
+        def fake_run_gc_departure(
+            case_id,
+            departure,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+            n_points=100,
+        ):
+            curve = curves_by_departure[departure]
+            day_index = (departure - deps[0]).days
+            return DepartureResult(
+                departure=departure,
+                curve=curve,
+                energy_mwh=100.0 + day_index,
+                max_tws_mps=10.0 + day_index,
+                max_hs_m=2.0 + day_index,
+                distance_nm=3000.0 + day_index,
+                comp_time_s=1.0 + day_index,
+            )
+
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.run_gc_departure",
+            fake_run_gc_departure,
+        )
+
+        run_case(
+            "AGC_noWPS",
+            deps,
+            output_dir=tmp_path,
+            submission=1,
+            n_points=3,
+            verbose=False,
+        )
+
+        summary_lines = summary_path.read_text().splitlines()
+        assert summary_lines == [
+            (
+                "departure_time_utc,arrival_time_utc,energy_cons_mwh,"
+                "max_wind_mps,max_hs_m,sailed_distance_nm,details_filename"
+            ),
+            summary_lines[1],
+            summary_lines[2],
+        ]
+        assert all("stale" not in line for line in summary_lines)
+
+        with summary_path.open() as f:
+            rows = list(csv.DictReader(f))
+
+        assert len(rows) == 2
+        assert [row["departure_time_utc"] for row in rows] == [
+            dep.strftime("%Y-%m-%d %H:%M:%S") for dep in deps
+        ]
+        assert len({row["details_filename"] for row in rows}) == 2
+
+        for dep, row in zip(deps, rows, strict=False):
+            track_path = tmp_path / "tracks" / row["details_filename"]
+            assert track_path.exists(), f"Track CSV not found: {track_path}"
+            with track_path.open() as f:
+                track_rows = list(csv.DictReader(f))
+            assert len(track_rows) == curves_by_departure[dep].shape[0]
+            assert track_rows[0]["time_utc"] == dep.strftime("%Y-%m-%d %H:%M:%S")
+
     def test_optimised_case_with_vectorfield(self, tmp_path: Path):
         """Optimised case writes output when the required vectorfield is provided."""
         import warnings

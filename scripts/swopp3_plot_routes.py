@@ -37,6 +37,12 @@ _FILE_A_REQUIRED_COLUMNS = {
     "details_filename",
 }
 
+_MISSING_OR_PARTIAL_CSV_EXCEPTIONS = (
+    FileNotFoundError,
+    pd.errors.EmptyDataError,
+    pd.errors.ParserError,
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -48,10 +54,7 @@ def _skip(message: str) -> None:
 
 def _is_missing_or_partial_csv(exc: Exception) -> bool:
     """Return whether an exception likely came from partial output files."""
-    return isinstance(
-        exc,
-        (FileNotFoundError | pd.errors.EmptyDataError | pd.errors.ParserError),
-    )
+    return isinstance(exc, _MISSING_OR_PARTIAL_CSV_EXCEPTIONS)
 
 
 def _load_summary(
