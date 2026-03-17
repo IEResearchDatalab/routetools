@@ -321,9 +321,6 @@ def run_optimised_departure(
         # This directly minimises SWOPP3 energy (MWh) instead of the
         # ocean-current proxy ‖SOG − wind‖².
         _wps = case["wps"]
-        fms_patience = cmaes_kwargs.pop("fms_patience", 50)
-        fms_damping = cmaes_kwargs.pop("fms_damping", 0.9)
-        fms_maxfevals = cmaes_kwargs.pop("fms_maxfevals", 5000)
 
         def _rise_cost(curve_batch: jnp.ndarray) -> jnp.ndarray:
             return cost_function_rise(
@@ -345,7 +342,7 @@ def run_optimised_departure(
                 time_offset=departure_offset_h,
             )
 
-        defaults = dict(
+        defaults_cmaes = dict(
             K=10,
             L=n_points,
             curve0=gc_init,
@@ -367,8 +364,14 @@ def run_optimised_departure(
             # Geographic bounds on control points (prevents wild turns)
             bounds=ctrl_bounds,
         )
-        defaults.update(cmaes_kwargs)
-        cmaes_verbose = bool(defaults["verbose"])
+        defaults_cmaes.update(cmaes_kwargs)
+
+        defaults_fms = dict(
+            patience=cmaes_kwargs.pop("fms_patience", 50),
+            damping=cmaes_kwargs.pop("fms_damping", 0.9),
+            maxfevals=cmaes_kwargs.pop("fms_maxfevals", 5000),
+            verbose=bool(defaults_cmaes["verbose"]),
+        )
 
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -390,7 +393,7 @@ def run_optimised_departure(
                 src=src_opt,
                 dst=dst_opt,
                 land=land,
-                **defaults,
+                **defaults_cmaes,
             )
         curve_fms, _ = optimize_fms(
             vectorfield=vectorfield,
@@ -398,11 +401,8 @@ def run_optimised_departure(
             land=land,
             wavefield=wavefield,
             travel_time=travel_time,
-            patience=fms_patience,
-            damping=fms_damping,
-            maxfevals=fms_maxfevals,
             costfun=_rise_fms_cost,
-            verbose=cmaes_verbose,
+            **defaults_fms,
         )
         curve = curve_fms[0]
     else:
