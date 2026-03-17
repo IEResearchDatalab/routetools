@@ -350,7 +350,7 @@ def run_optimised_departure(
             L=n_points,
             curve0=gc_init,
             cost_fn=_rise_cost,
-            maxfevals=int(1e6),
+            maxfevals=int(1e5),
             tolfun=1.0,
             penalty=1e6,
             land_margin=2,
@@ -358,6 +358,7 @@ def run_optimised_departure(
             # Operational weather constraints (SWOPP3: TWS < 20 m/s, Hs < 7 m)
             windfield=windfield,
             wavefield=wavefield,
+            spherical_correction=True,
             weather_penalty_weight=100.0,
             travel_time=travel_time,
             time_offset=departure_offset_h,
