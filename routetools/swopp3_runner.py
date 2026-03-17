@@ -302,22 +302,6 @@ def run_optimised_departure(
         src_opt = jnp.array([gc_init[0, 0], gc_init[0, 1]])
         dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
 
-        # Compute geographic bounds for CMA-ES control points from the
-        # GC route envelope.  Control points are flattened as
-        # [lon1, lat1, lon2, lat2, …], so bounds alternate lon/lat.
-        gc_lons = gc_init[:, 0]
-        gc_lats = gc_init[:, 1]
-        lon_margin = 15.0  # degrees margin around GC corridor
-        lat_margin = 10.0
-        lon_lo = float(jnp.min(gc_lons)) - lon_margin
-        lon_hi = float(jnp.max(gc_lons)) + lon_margin
-        lat_lo = float(jnp.max(jnp.array([jnp.min(gc_lats) - lat_margin, -85.0])))
-        lat_hi = float(jnp.min(jnp.array([jnp.max(gc_lats) + lat_margin, 85.0])))
-        n_free = (10 - 2) * 2  # K=10 → 8 free points × 2 coords
-        ctrl_lower = [lon_lo if i % 2 == 0 else lat_lo for i in range(n_free)]
-        ctrl_upper = [lon_hi if i % 2 == 0 else lat_hi for i in range(n_free)]
-        ctrl_bounds = [ctrl_lower, ctrl_upper]
-
         # Build a RISE-based cost closure for CMA-ES.
         # This directly minimises SWOPP3 energy (MWh) instead of the
         # ocean-current proxy ‖SOG − wind‖².
@@ -359,8 +343,6 @@ def run_optimised_departure(
             time_offset=departure_offset_h,
             # Smooth distance-to-land repulsion via EDT
             land_distance_weight=50.0,
-            # Geographic bounds on control points (prevents wild turns)
-            bounds=ctrl_bounds,
         )
         defaults_fms = dict(
             patience=cmaes_kwargs.pop("fms_patience", 50),

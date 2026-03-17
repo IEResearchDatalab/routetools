@@ -17,7 +17,10 @@
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
-cd "$HOME/routetools"
+
+# Work from local SSD (staged by swopp3_slurm_stage.sh)
+SCRATCH="/scratch/${USER}/routetools"
+cd "$SCRATCH"
 source .venv/bin/activate
 
 export JAX_PLATFORMS=cuda
@@ -34,6 +37,7 @@ echo "SWOPP3 Atlantic on $(hostname)"
 echo "Date:     $(date)"
 echo "GPU:      $(nvidia-smi -L 2>/dev/null | head -1 || echo 'unknown')"
 echo "n-points: 355  (dt ≈ 1.0h)"
+echo "Workdir:  $SCRATCH"
 echo "Output:   ${OUTDIR}"
 echo "======================================"
 
@@ -43,6 +47,11 @@ python scripts/swopp3_run.py \
     --wave-path-atlantic "${DATA}/era5_waves_atlantic_2024.nc" \
     --output-dir "$OUTDIR" \
     --n-points 355
+
+# ── Copy results back to /home ──
+HOME_OUTDIR="$HOME/routetools/output/swopp3_gpu"
+mkdir -p "$HOME_OUTDIR"
+cp -rv "$OUTDIR"/* "$HOME_OUTDIR/"
 
 echo ""
 echo "Atlantic completed at $(date)"
