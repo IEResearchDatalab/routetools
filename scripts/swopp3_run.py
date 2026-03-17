@@ -20,7 +20,8 @@ Run all 8 cases with explicit per-corridor paths:
         --wave-path-atlantic "data/era5/era5_waves_atlantic_2024.nc" \
         --wind-path-pacific  "data/era5/era5_wind_pacific_2024.nc" \
         --wave-path-pacific  "data/era5/era5_waves_pacific_2024.nc" \
-        --output-dir "output"  --verbosity 2
+        --output-dir "output" \
+        --n-points 500  --verbosity 2
 
 Run only Atlantic cases after downloading Atlantic data:
 
