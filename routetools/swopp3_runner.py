@@ -334,7 +334,6 @@ def run_optimised_departure(
             K=10,
             L=n_points,
             curve0=gc_init,
-            sigma0=0.1,
             cost_fn=_rise_cost,
             penalty=1e6,
             land_margin=2,
