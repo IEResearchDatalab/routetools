@@ -38,7 +38,7 @@ echo "Output:   ${OUTDIR}"
 echo "======================================"
 
 python scripts/swopp3_run.py \
-    --cases PO_WPS PO_noWPS PGC_WPS PGC_noWPS \
+    --cases PO_WPS --cases PO_noWPS --cases PGC_WPS --cases PGC_noWPS \
     --wind-path-pacific "${DATA}/era5_wind_pacific_2024.nc" \
     --wave-path-pacific "${DATA}/era5_waves_pacific_2024.nc" \
     --output-dir "$OUTDIR" \
