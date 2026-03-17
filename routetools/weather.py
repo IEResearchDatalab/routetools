@@ -289,7 +289,10 @@ def weather_penalty(
     travel_stw : float, optional
         Constant speed through water (m/s) for elapsed-time estimation.
     travel_time : float, optional
-        Total travel time (seconds); distributed proportionally by distance.
+        Total travel time with arbitrary time units; distributed
+        proportionally by distance. Units must match those used by
+        ``time_offset`` and the time coordinate expected by the field
+        closures.
     spherical_correction : bool
         Use haversine distances (default ``True``).
     time_offset : float
