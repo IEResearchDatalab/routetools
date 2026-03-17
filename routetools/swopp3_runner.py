@@ -60,6 +60,22 @@ FieldClosure = Callable[
 ]
 
 
+def _resolve_runner_verbosity(
+    verbose: bool | None,
+    verbosity: int | None,
+    *,
+    default: int = 1,
+) -> int:
+    """Resolve backward-compatible runner verbosity settings."""
+    if verbosity is not None:
+        if verbosity not in (0, 1, 2):
+            raise ValueError("verbosity must be one of 0, 1, or 2")
+        return verbosity
+    if verbose is None:
+        return default
+    return 1 if verbose else 0
+
+
 # ---------------------------------------------------------------------------
 # Result container
 # ---------------------------------------------------------------------------
@@ -205,6 +221,7 @@ def run_optimised_departure(
     land=None,
     departure_offset_h: float = 0.0,
     n_points: int = 100,
+    verbosity: int | None = None,
     **cmaes_kwargs,
 ) -> DepartureResult:
     """Optimise and evaluate a single departure using CMA-ES.
@@ -232,6 +249,11 @@ def run_optimised_departure(
         Time offset (hours) from field origin to departure.
     n_points : int
         Number of waypoints (CMA-ES ``L`` parameter).
+    verbosity : int, optional
+        Output level used to choose the default CMA-ES verbosity when
+        ``verbose`` is not provided in ``cmaes_kwargs``. ``0`` disables
+        routine output, ``1`` shows runner prints only, and ``2`` enables
+        CMA-ES verbose printing.
     **cmaes_kwargs
         Additional keyword arguments passed to :func:`routetools.cmaes.optimize`.
 
@@ -249,6 +271,7 @@ def run_optimised_departure(
     case = SWOPP3_CASES[case_id]
     src, dst = case_endpoints(case_id)
     travel_time = float(case["passage_hours"])
+    resolved_verbosity = _resolve_runner_verbosity(None, verbosity)
 
     t0 = _time.time()
 
@@ -315,7 +338,7 @@ def run_optimised_departure(
             cost_fn=_rise_cost,
             penalty=1e6,
             land_margin=2,
-            verbose=False,
+            verbose=resolved_verbosity >= 2,
             # Operational weather constraints (SWOPP3: TWS < 20 m/s, Hs < 7 m)
             windfield=windfield,
             wavefield=wavefield,
@@ -380,8 +403,9 @@ def run_case(
     output_dir: str | Path | None = None,
     submission: int = 1,
     n_points: int = 100,
-    verbose: bool = True,
+    verbose: bool | None = True,
     dataset_epoch: datetime | None = None,
+    verbosity: int | None = None,
     **cmaes_kwargs,
 ) -> list[DepartureResult]:
     """Run all departures for a single SWOPP3 case.
@@ -408,13 +432,18 @@ def run_case(
         Submission number for file naming.
     n_points : int
         Number of route waypoints.
-    verbose : bool
-        Print progress.
+    verbose : bool | None
+        Backward-compatible runner progress flag. ``True`` maps to
+        ``verbosity=1`` and ``False`` maps to ``verbosity=0``. Ignored when
+        ``verbosity`` is provided.
     dataset_epoch : datetime, optional
         First timestamp of the loaded ERA5 dataset (UTC).  When provided,
         the departure-to-field time offset is computed automatically for
         each departure.  If ``None``, offset = 0 (suitable only when each
         departure loads its own field with ``departure_time``).
+    verbosity : int, optional
+        Output level. ``0`` silences routine prints, ``1`` prints runner
+        progress, and ``2`` also enables CMA-ES verbose printing.
     **cmaes_kwargs
         Extra arguments for CMA-ES (optimised cases only). Optimised cases
         require ``vectorfield`` to be provided.
@@ -428,9 +457,10 @@ def run_case(
     casename = case["name"]
     is_gc = case["strategy"] == "gc"
     results: list[DepartureResult] = []
+    resolved_verbosity = _resolve_runner_verbosity(verbose, verbosity)
 
     for i, dep in enumerate(departures):
-        if verbose:
+        if resolved_verbosity >= 1:
             print(
                 f"[{casename}] Departure {i + 1}/{len(departures)}  "
                 f"{dep.strftime('%Y-%m-%d')}",
@@ -471,11 +501,12 @@ def run_case(
                 land=land,
                 departure_offset_h=departure_offset_h,
                 n_points=n_points,
+                verbosity=resolved_verbosity,
                 **cmaes_kwargs,
             )
 
         results.append(result)
-        if verbose:
+        if resolved_verbosity >= 1:
             print(
                 f"E={result.energy_mwh:.2f} MWh  "
                 f"d={result.distance_nm:.0f} nm  "

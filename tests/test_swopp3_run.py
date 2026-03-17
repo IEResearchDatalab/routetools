@@ -63,7 +63,7 @@ def test_shared_cli_paths_override_default_corridor_paths(monkeypatch):
             submission=1,
             n_points=100,
             max_departures=1,
-            quiet=True,
+            verbosity=0,
         )
 
     assert captured["wind"] == {
