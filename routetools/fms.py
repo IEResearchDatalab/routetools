@@ -334,6 +334,11 @@ def optimize_fms(
         # Average distance between points
         d = jnp.mean(jnp.linalg.norm(curve[:, 1:] - curve[:, :-1], axis=-1))
         h = float(d / travel_stw)
+        # NOTE: segment_time_offsets is derived from the initial route geometry
+        # and remains fixed throughout the optimization.  As the route evolves,
+        # the actual per-segment travel times change, so the time offsets become
+        # approximate.  This is acceptable for weakly time-variant fields but
+        # may introduce drift for strongly time-variant fields over many fevals.
         segment_time_offsets = jnp.asarray(
             time_offset + jnp.arange(curve.shape[1] - 1) * h,
             dtype=jnp.float32,
