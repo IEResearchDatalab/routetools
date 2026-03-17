@@ -136,6 +136,7 @@ def optimize_fms(
     costfun: Callable | None = None,
     seed: int = 0,
     verbose: bool = True,
+    time_offset: float = 0.0,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
     Optimize a curve using the FMS algorithm.
@@ -183,6 +184,9 @@ def optimize_fms(
         Random seed for reproducibility, by default 0
     verbose : bool, optional
         Print optimization progress, by default True
+    time_offset : float, optional
+        Offset added to segment timestamps before querying time-variant
+        fields, by default 0.0
 
     Returns
     -------
@@ -221,23 +225,53 @@ def optimize_fms(
     if costfun is None:
         costfun = cost_function
 
+    def _evaluate_cost(
+        curve_eval: jnp.ndarray,
+        *,
+        travel_stw_eval: float | None = None,
+        travel_time_eval: float | None = None,
+        time_offset_eval: float = 0.0,
+    ) -> jnp.ndarray:
+        kwargs = dict(
+            vectorfield=vectorfield,
+            curve=curve_eval,
+            wavefield=wavefield,
+            travel_stw=travel_stw_eval,
+            travel_time=travel_time_eval,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset_eval,
+        )
+        try:
+            return costfun(**kwargs)
+        except TypeError as exc:
+            if "time_offset" not in str(exc):
+                raise
+            kwargs.pop("time_offset")
+            return costfun(**kwargs)
+
     # Initialize lagrangians
     if travel_stw is not None:
         # Average distance between points
         d = jnp.mean(jnp.linalg.norm(curve[:, 1:] - curve[:, :-1], axis=-1))
         h = float(d / travel_stw)
+        segment_time_offsets = jnp.asarray(
+            time_offset + jnp.arange(curve.shape[1] - 1) * h,
+            dtype=jnp.float32,
+        )
 
-        def lagrangian(q0: jnp.ndarray, q1: jnp.ndarray) -> jnp.ndarray:
+        def lagrangian(
+            q0: jnp.ndarray,
+            q1: jnp.ndarray,
+            segment_time_offset: float,
+        ) -> jnp.ndarray:
             # Stack q0 and q1 to form array of shape (1, 2, 2)
             q = jnp.vstack([q0, q1])[None, ...]
-            lag = costfun(
-                vectorfield=vectorfield,
-                curve=q,
-                wavefield=wavefield,
-                travel_stw=travel_stw,
-                weight_l1=weight_l1,
-                weight_l2=weight_l2,
-                spherical_correction=spherical_correction,
+            lag = _evaluate_cost(
+                q,
+                travel_stw_eval=travel_stw,
+                time_offset_eval=segment_time_offset,
             )
             ld = jnp.sum(h * lag**2)
             # Do note: The original formula used q0, q1 to compute l1, l2 and then
@@ -247,19 +281,23 @@ def optimize_fms(
 
     elif travel_time is not None:
         assert travel_time > 0, "Travel time must be positive"
-        h = float(travel_time / curve.shape[1])
+        h = float(travel_time / (curve.shape[1] - 1))
+        segment_time_offsets = jnp.asarray(
+            time_offset + jnp.arange(curve.shape[1] - 1) * h,
+            dtype=jnp.float32,
+        )
 
-        def lagrangian(q0: jnp.ndarray, q1: jnp.ndarray) -> jnp.ndarray:
+        def lagrangian(
+            q0: jnp.ndarray,
+            q1: jnp.ndarray,
+            segment_time_offset: float,
+        ) -> jnp.ndarray:
             # Stack q0 and q1 to form array of shape (1, 2, 2)
             q = jnp.vstack([q0, q1])[None, ...]
-            lag = costfun(
-                vectorfield=vectorfield,
-                curve=q,
-                wavefield=wavefield,
-                travel_time=h,
-                weight_l1=weight_l1,
-                weight_l2=weight_l2,
-                spherical_correction=spherical_correction,
+            lag = _evaluate_cost(
+                q,
+                travel_time_eval=h,
+                time_offset_eval=segment_time_offset,
             )
             ld = jnp.sum(h * lag)
             # Do note: The original formula used q0, q1 to compute l1, l2 and then
@@ -276,33 +314,45 @@ def optimize_fms(
     d22ld = hessian(lagrangian, argnums=1)
 
     @jit  # type: ignore[misc]
-    def jacobian(qkm1: jnp.ndarray, qk: jnp.ndarray, qkp1: jnp.ndarray) -> jnp.ndarray:
-        b = -d2ld(qkm1, qk) - d1ld(qk, qkp1)
-        a = d22ld(qkm1, qk) + d11ld(qk, qkp1)
+    def jacobian(
+        qkm1: jnp.ndarray,
+        qk: jnp.ndarray,
+        qkp1: jnp.ndarray,
+        left_time_offset: float,
+        right_time_offset: float,
+    ) -> jnp.ndarray:
+        b = -d2ld(qkm1, qk, left_time_offset) - d1ld(qk, qkp1, right_time_offset)
+        a = d22ld(qkm1, qk, left_time_offset) + d11ld(
+            qk,
+            qkp1,
+            right_time_offset,
+        )
         q: jnp.ndarray = jnp.linalg.solve(a, b)
         return jnp.nan_to_num(q)
 
-    jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0), out_axes=(0))
+    jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=(0))
 
     @jit  # type: ignore[misc]
     def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
         curve_new = jnp.copy(curve)
-        q = jac_vectorized(curve[:-2], curve[1:-1], curve[2:])
+        q = jac_vectorized(
+            curve[:-2],
+            curve[1:-1],
+            curve[2:],
+            segment_time_offsets[:-1],
+            segment_time_offsets[1:],
+        )
         return curve_new.at[1:-1].set((1 - damping) * q + curve[1:-1])
 
     solve_vectorized: Callable[[jnp.ndarray], jnp.ndarray] = vmap(
         solve_equation, in_axes=(0), out_axes=(0)
     )
 
-    cost_now = costfun(
-        vectorfield=vectorfield,
-        curve=curve,
-        wavefield=wavefield,
-        travel_stw=travel_stw,
-        travel_time=travel_time,
-        weight_l1=weight_l1,
-        weight_l2=weight_l2,
-        spherical_correction=spherical_correction,
+    cost_now = _evaluate_cost(
+        curve,
+        travel_stw_eval=travel_stw,
+        travel_time_eval=travel_time,
+        time_offset_eval=time_offset,
     )
     cost_best = cost_now.copy()
     curve_best = curve.copy()
@@ -317,15 +367,11 @@ def optimize_fms(
         if land is not None and penalty > 0:
             is_land = land(curve) > 0
             curve = jnp.where(is_land[..., None], curve_old, curve)
-        cost_now = costfun(
-            vectorfield=vectorfield,
-            curve=curve,
-            wavefield=wavefield,
-            travel_stw=travel_stw,
-            travel_time=travel_time,
-            weight_l1=weight_l1,
-            weight_l2=weight_l2,
-            spherical_correction=spherical_correction,
+        cost_now = _evaluate_cost(
+            curve,
+            travel_stw_eval=travel_stw,
+            travel_time_eval=travel_time,
+            time_offset_eval=time_offset,
         )
 
         # Update early stopping counter
