@@ -102,9 +102,19 @@ class TestDistancePenalty:
         land = Land(
             xlim, ylim, water_level=0.5, random_seed=1, resolution=10, interpolate=0
         )
-        # Overwrite: all water, then a vertical land strip at columns 48-52
+        # Overwrite: all water, then a vertical land strip centered at x≈0
         land._array = land._array.at[:, :].set(0)
-        land._array = land._array.at[48:53, :].set(1)
+        # Determine the index along the first axis corresponding to x≈0
+        x_coords = getattr(land, "x", None)
+        if x_coords is None:
+            # Fallback: assume uniform spacing over xlim for the first axis
+            nx = land._array.shape[0]
+            x_coords = jnp.linspace(xlim[0], xlim[1], nx)
+        center_idx = int(jnp.argmin(jnp.abs(x_coords - 0.0)))
+        strip_half_width = 2  # total width = 2*half_width + 1 = 5 cells
+        start_idx = max(center_idx - strip_half_width, 0)
+        end_idx = min(center_idx + strip_half_width + 1, land._array.shape[0])
+        land._array = land._array.at[start_idx:end_idx, :].set(1)
         # Recompute EDT
         import numpy as np
         from scipy.ndimage import distance_transform_edt
