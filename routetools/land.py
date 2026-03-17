@@ -7,7 +7,6 @@ import numpy as np
 from jax import jit
 from jax.scipy.ndimage import map_coordinates
 from perlin_numpy import generate_perlin_noise_2d as pn2d
-from scipy.ndimage import distance_transform_edt
 
 from routetools._cost.haversine import haversine_meters_components
 
@@ -123,6 +122,8 @@ class Land:
         binary_land = np.asarray(self._array > self.water_level)
         # distance_transform_edt measures distance from 0-cells to nearest
         # 1-cell, so we pass the *inverted* mask (water=0 → measure distance).
+        from scipy.ndimage import distance_transform_edt
+
         edt = distance_transform_edt(~binary_land)
         self._edt = jnp.asarray(edt, dtype=jnp.float32)
 
