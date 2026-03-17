@@ -287,14 +287,14 @@ class TestRunOptimisedDeparture:
             land=None,
             wavefield=None,
             travel_time=None,
-            costfun,
+            eval_costfun,
             time_offset=None,
             **kwargs,
         ):
             cast_calls = captured.setdefault("calls", [])
             cast_calls.append("fms")
             captured["fms_time_offset"] = time_offset
-            _ = costfun(
+            _ = eval_costfun(
                 vectorfield=vectorfield,
                 curve=curve[None, ...],
                 wavefield=wavefield,
@@ -366,7 +366,7 @@ class TestRunOptimisedDeparture:
             land=None,
             wavefield=None,
             travel_time=None,
-            costfun,
+            eval_costfun,
             time_offset=None,
             **kwargs,
         ):
@@ -438,7 +438,7 @@ class TestRunOptimisedDeparture:
             land=None,
             wavefield=None,
             travel_time=None,
-            costfun,
+            eval_costfun,
             time_offset=None,
             enforce_weather_limits=False,
             tws_limit=20.0,
@@ -453,7 +453,7 @@ class TestRunOptimisedDeparture:
             captured["travel_time"] = travel_time
             captured["time_offset"] = time_offset
             captured["spherical_correction"] = spherical_correction
-            _ = costfun(
+            _ = eval_costfun(
                 curve=curve[None, ...],
                 wavefield=wavefield,
                 travel_time=travel_time,
@@ -520,7 +520,7 @@ class TestRunOptimisedDeparture:
             land=None,
             wavefield=None,
             travel_time=None,
-            costfun,
+            eval_costfun,
             time_offset=None,
             **kwargs,
         ):

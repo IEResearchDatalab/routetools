@@ -206,6 +206,7 @@ def optimize_fms(
     weight_l2: float = 0.0,
     spherical_correction: bool = False,
     costfun: Callable | None = None,
+    eval_costfun: Callable | None = None,
     seed: int = 0,
     verbose: bool = True,
     time_offset: float = 0.0,
@@ -256,7 +257,16 @@ def optimize_fms(
     spherical_correction : bool, optional
         Whether to apply spherical correction, by default False
     costfun : Callable | None, optional
-        Custom cost function, by default None
+        Custom cost function used by the Euler-Lagrange equations to drive
+        waypoint motion, by default None (uses the physics ``‖SOG-wind‖²``
+        cost which has a well-conditioned cross-track gradient).
+    eval_costfun : Callable | None, optional
+        If provided, used to evaluate route quality for best-route selection
+        and early-stopping (``cost_best`` in the returned dict is computed
+        with this function).  The Lagrangian still uses ``costfun``.
+        This decouples the *motion* cost (should be well-conditioned) from
+        the *selection* cost (e.g. RISE energy).  When ``None``, the same
+        ``costfun`` is used for both motion and tracking.
     seed : int, optional
         Random seed for reproducibility, by default 0
     verbose : bool, optional
@@ -309,6 +319,29 @@ def optimize_fms(
     # Define cost function
     if costfun is None:
         costfun = cost_function
+
+    # For tracking (cost_best, early_stop, curve_best) use eval_costfun when
+    # provided; otherwise fall back to costfun.
+    _tracking_costfun = eval_costfun if eval_costfun is not None else costfun
+
+    def _evaluate_track_cost(
+        curve_eval: jnp.ndarray,
+        *,
+        travel_stw_eval: float | None = None,
+        travel_time_eval: float | None = None,
+        time_offset_eval: float = 0.0,
+    ) -> jnp.ndarray:
+        return _tracking_costfun(
+            vectorfield=vectorfield,
+            curve=curve_eval,
+            wavefield=wavefield,
+            travel_stw=travel_stw_eval,
+            travel_time=travel_time_eval,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset_eval,
+        )
 
     def _evaluate_cost(
         curve_eval: jnp.ndarray,
@@ -431,7 +464,7 @@ def optimize_fms(
         solve_equation, in_axes=(0), out_axes=(0)
     )
 
-    cost_now = _evaluate_cost(
+    cost_now = _evaluate_track_cost(
         curve,
         travel_stw_eval=travel_stw,
         travel_time_eval=travel_time,
@@ -460,7 +493,7 @@ def optimize_fms(
         curve_old = curve.copy()
         curve = solve_vectorized(curve)
         curve = _apply_curve_constraints(curve, curve_old, land=land, penalty=penalty)
-        cost_now = _evaluate_cost(
+        cost_now = _evaluate_track_cost(
             curve,
             travel_stw_eval=travel_stw,
             travel_time_eval=travel_time,
