@@ -317,7 +317,7 @@ def optimize_fms(
         travel_time_eval: float | None = None,
         time_offset_eval: float = 0.0,
     ) -> jnp.ndarray:
-        kwargs = dict(
+        return costfun(
             vectorfield=vectorfield,
             curve=curve_eval,
             wavefield=wavefield,
@@ -328,13 +328,6 @@ def optimize_fms(
             spherical_correction=spherical_correction,
             time_offset=time_offset_eval,
         )
-        try:
-            return costfun(**kwargs)
-        except TypeError as exc:
-            if "time_offset" not in str(exc):
-                raise
-            kwargs.pop("time_offset")
-            return costfun(**kwargs)
 
     # Initialize lagrangians
     if travel_stw is not None:
