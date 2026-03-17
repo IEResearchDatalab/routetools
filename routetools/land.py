@@ -331,6 +331,18 @@ class Land:
             mode=self._map_mode,
         )
 
+        # If requested, treat out-of-bounds points as land by forcing
+        # their EDT to zero, which yields the maximum penalty via
+        # 1 / (edt + epsilon), consistent with Land.__call__.
+        if getattr(self, "outbounds_is_land", False):
+            oob_mask = (
+                (x_coords < self.xmin)
+                | (x_coords > self.xmax)
+                | (y_coords < self.ymin)
+                | (y_coords > self.ymax)
+            )
+            edt_vals = jnp.where(oob_mask, 0.0, edt_vals)
+
         # Inverse-distance penalty: closer to land → larger cost
         point_penalty = 1.0 / (edt_vals + epsilon)
         return weight * jnp.sum(point_penalty, axis=-1)
