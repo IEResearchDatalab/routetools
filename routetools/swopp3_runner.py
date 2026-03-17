@@ -350,7 +350,7 @@ def run_optimised_departure(
             L=n_points,
             curve0=gc_init,
             cost_fn=_rise_cost,
-            maxfevals=int(1e5),
+            maxfevals=50000,
             tolfun=1.0,
             penalty=1e6,
             land_margin=2,
