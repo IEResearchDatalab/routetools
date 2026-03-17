@@ -4,8 +4,8 @@ Orchestrates the end-to-end pipeline:
 
 1. **Great-Circle (GC) cases** — fixed geodesic route, constant speed,
    energy evaluated via the RISE performance model.
-2. **Optimised (O) cases** — CMA-ES route optimisation followed by energy
-   evaluation.
+2. **Optimised (O) cases** — CMA-ES route optimisation, FMS refinement,
+    and energy evaluation.
 
 Both modes support WPS (wingsails on) and noWPS (engine only).
 
@@ -224,10 +224,11 @@ def run_optimised_departure(
     verbosity: int | None = None,
     **cmaes_kwargs,
 ) -> DepartureResult:
-    """Optimise and evaluate a single departure using CMA-ES.
+    """Optimise and evaluate a single departure using CMA-ES and FMS.
 
-    The CMA-ES optimizer minimises travel cost through the wind field.
-    Energy is then evaluated post-hoc with the SWOPP3 performance model.
+    The CMA-ES optimizer minimises SWOPP3 energy through the RISE cost.
+    The resulting route is then refined with FMS before post-hoc energy
+    evaluation with the SWOPP3 performance model.
     Missing optimisation inputs are treated as an error; this function does
     not fall back to a great-circle route.
 
@@ -276,9 +277,9 @@ def run_optimised_departure(
     t0 = _time.time()
 
     if vectorfield is not None:
-        if windfield is None:
-            import warnings
+        import warnings
 
+        if windfield is None:
             warnings.warn(
                 "vectorfield provided without windfield; defaulting "
                 "windfield to vectorfield for RISE energy cost.",
@@ -288,6 +289,7 @@ def run_optimised_departure(
         # Lazy import to avoid circular dependency / heavy JAX load
         from routetools.cmaes import optimize as cmaes_optimize
         from routetools.cost import cost_function_rise
+        from routetools.fms import optimize_fms
 
         # Initialise from the great-circle route so CMA-ES starts near
         # the geodesic.
@@ -319,6 +321,9 @@ def run_optimised_departure(
         # This directly minimises SWOPP3 energy (MWh) instead of the
         # ocean-current proxy ‖SOG − wind‖².
         _wps = case["wps"]
+        fms_patience = cmaes_kwargs.pop("fms_patience", 50)
+        fms_damping = cmaes_kwargs.pop("fms_damping", 0.9)
+        fms_maxfevals = cmaes_kwargs.pop("fms_maxfevals", 5000)
 
         def _rise_cost(curve_batch: jnp.ndarray) -> jnp.ndarray:
             return cost_function_rise(
@@ -330,11 +335,23 @@ def run_optimised_departure(
                 time_offset=departure_offset_h,
             )
 
+        def _rise_fms_cost(*, curve: jnp.ndarray, travel_time: float, **kwargs):
+            return cost_function_rise(
+                windfield=windfield,
+                curve=curve,
+                travel_time=travel_time,
+                wavefield=kwargs.get("wavefield"),
+                wps=_wps,
+                time_offset=departure_offset_h,
+            )
+
         defaults = dict(
             K=10,
             L=n_points,
             curve0=gc_init,
             cost_fn=_rise_cost,
+            maxfevals=int(1e6),
+            tolfun=1.0,
             penalty=1e6,
             land_margin=2,
             verbose=resolved_verbosity >= 2,
@@ -350,14 +367,43 @@ def run_optimised_departure(
             bounds=ctrl_bounds,
         )
         defaults.update(cmaes_kwargs)
+        cmaes_verbose = bool(defaults["verbose"])
 
-        curve, info = cmaes_optimize(
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"Sampling standard deviation i=.*",
+                category=UserWarning,
+                module=r"cma\.evolution_strategy",
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    r"\[WARNING\] The optimized curve has a higher cost "
+                    r"than the initial curve0 provided .*"
+                ),
+                category=UserWarning,
+            )
+            curve, info = cmaes_optimize(
+                vectorfield=vectorfield,
+                src=src_opt,
+                dst=dst_opt,
+                land=land,
+                **defaults,
+            )
+        curve_fms, _ = optimize_fms(
             vectorfield=vectorfield,
-            src=src_opt,
-            dst=dst_opt,
+            curve=curve,
             land=land,
-            **defaults,
+            wavefield=wavefield,
+            travel_time=travel_time,
+            patience=fms_patience,
+            damping=fms_damping,
+            maxfevals=fms_maxfevals,
+            costfun=_rise_fms_cost,
+            verbose=cmaes_verbose,
         )
+        curve = curve_fms[0]
     else:
         # No vectorfield → raise error
         raise ValueError(

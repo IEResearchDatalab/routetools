@@ -256,6 +256,86 @@ class TestRunOptimisedDeparture:
         assert isinstance(result, DepartureResult)
         assert captured["windfield"] is _zero_windfield
 
+    def test_fms_refines_curve_before_energy_evaluation(self, monkeypatch):
+        """FMS output should be the route that gets evaluated and returned."""
+        captured: dict[str, object] = {}
+
+        def fake_cost_function_rise(
+            *,
+            windfield,
+            curve,
+            travel_time,
+            wavefield,
+            wps,
+            time_offset,
+        ):
+            captured["fms_cost_travel_time"] = travel_time
+            return jnp.zeros(curve.shape[0], dtype=jnp.float32)
+
+        def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
+            captured["calls"] = ["cmaes"]
+            curve = great_circle_route(src, dst, n_points=kwargs["L"])
+            return curve, {"cost": 0.0}
+
+        def fake_optimize_fms(
+            *,
+            vectorfield,
+            curve,
+            land=None,
+            wavefield=None,
+            travel_time=None,
+            costfun,
+            **kwargs,
+        ):
+            cast_calls = captured.setdefault("calls", [])
+            cast_calls.append("fms")
+            _ = costfun(
+                vectorfield=vectorfield,
+                curve=curve[None, ...],
+                wavefield=wavefield,
+                travel_time=travel_time,
+            )
+            refined_curve = curve + jnp.array([0.1, 0.0])
+            captured["refined_curve"] = refined_curve
+            return refined_curve[None, ...], {"cost": [0.0]}
+
+        def fake_evaluate_energy(
+            curve,
+            departure,
+            passage_hours,
+            wps,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+        ):
+            captured["evaluated_curve"] = curve
+            return 12.0, 3.0, 4.0
+
+        monkeypatch.setattr(
+            "routetools.cost.cost_function_rise",
+            fake_cost_function_rise,
+        )
+        monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
+        monkeypatch.setattr("routetools.fms.optimize_fms", fake_optimize_fms)
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.evaluate_energy",
+            fake_evaluate_energy,
+        )
+
+        result = run_optimised_departure(
+            "AO_WPS",
+            _DEP,
+            vectorfield=_zero_windfield,
+            windfield=_zero_windfield,
+            n_points=20,
+        )
+
+        assert isinstance(result, DepartureResult)
+        assert captured["calls"] == ["cmaes", "fms"]
+        assert jnp.allclose(result.curve, captured["refined_curve"])
+        assert jnp.allclose(captured["evaluated_curve"], captured["refined_curve"])
+        assert captured["fms_cost_travel_time"] == pytest.approx(354.0)
+
 
 # ---------------------------------------------------------------------------
 # run_case
