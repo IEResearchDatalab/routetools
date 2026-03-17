@@ -378,16 +378,22 @@ def weather_penalty_smooth(
     sharpness : float
         Linear multiplier on the squared excess (default 5).
     travel_stw : float, optional
-        Constant speed through water (m/s) for elapsed-time estimation.
+        Constant speed through water (m/s) used to infer elapsed time from
+        segment distances.  When provided, elapsed times are computed in
+        seconds.
     travel_time : float, optional
-        Total travel time (seconds); distributed proportionally by distance.
+        Total travel duration in arbitrary time units; distributed
+        proportionally by segment distance.  Units are not interpreted by
+        this function, but they are carried through to ``t_mid`` and must
+        be consistent with what ``windfield``/``wavefield`` expect.
     spherical_correction : bool
         Use haversine distances (default ``True``).
     time_offset : float
         Offset added to ``t_mid`` before querying field closures.  Must
-        be in the same units as ``travel_time`` (or seconds when using
-        ``travel_stw``).  Typically the departure offset in hours when
-        ``travel_time`` is also in hours.
+        be in the same units as the resulting time axis: seconds when
+        using ``travel_stw``, or the same arbitrary units as
+        ``travel_time`` when it is provided directly (for example, hours
+        when ``travel_time`` is in hours).
 
     Returns
     -------
