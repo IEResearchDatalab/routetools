@@ -300,17 +300,21 @@ class TestRunCase:
 
     def test_optimised_case_with_vectorfield(self, tmp_path: Path):
         """Optimised case writes output when the required vectorfield is provided."""
+        import warnings
+
         deps = [_DEP]
-        results = run_case(
-            "AO_WPS",
-            deps,
-            vectorfield=_zero_windfield,
-            windfield=_zero_windfield,
-            output_dir=tmp_path,
-            submission=1,
-            n_points=20,
-            verbose=False,
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            results = run_case(
+                "AO_WPS",
+                deps,
+                vectorfield=_zero_windfield,
+                windfield=_zero_windfield,
+                output_dir=tmp_path,
+                submission=1,
+                n_points=20,
+                verbose=False,
+            )
         assert len(results) == 1
         fa = tmp_path / "IEUniversity-1-AO_WPS.csv"
         assert fa.exists()
