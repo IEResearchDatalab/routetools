@@ -16,19 +16,29 @@ missing and why they are required.
 Run all 8 cases with explicit per-corridor paths:
 
     uv run scripts/swopp3_run.py \
-        --wind-path-atlantic data/era5/era5_wind_atlantic_2024.nc \
-        --wave-path-atlantic data/era5/era5_waves_atlantic_2024.nc \
-        --wind-path-pacific  data/era5/era5_wind_pacific_2024.nc  \
-        --wave-path-pacific  data/era5/era5_waves_pacific_2024.nc  \
-        --output-dir output/swopp3
+        --wind-path-atlantic "${DATA}/era5_wind_atlantic_2024.nc" \
+        --wave-path-atlantic "${DATA}/era5_waves_atlantic_2024.nc" \
+        --wind-path-pacific  "${DATA}/era5_wind_pacific_2024.nc" \
+        --wave-path-pacific  "${DATA}/era5_waves_pacific_2024.nc" \
+        --output-dir "$OUTDIR"
 
 Run only Atlantic cases after downloading Atlantic data:
 
-    uv run scripts/swopp3_run.py \
-        --cases AGC_WPS AGC_noWPS \
-        --wind-path data/era5/era5_wind_atlantic_2024.nc \
-        --wave-path data/era5/era5_waves_atlantic_2024.nc \
-        --output-dir output/swopp3
+    uv run python scripts/swopp3_run.py \
+    --cases AGC_WPS --cases AGC_noWPS --cases AGC_GC_WPS --cases AGC_GC_noWPS \
+    --wind-path-atlantic "${DATA}/era5_wind_atlantic_2024.nc" \
+    --wave-path-atlantic "${DATA}/era5_waves_atlantic_2024.nc" \
+    --output-dir "$OUTDIR" \
+    --n-points 355
+
+Run only Pacific cases after downloading Pacific data:
+
+    uv run python scripts/swopp3_run.py \
+    --cases PO_WPS --cases PO_noWPS --cases PGC_WPS --cases PGC_noWPS \
+    --wind-path-pacific "${DATA}/era5_wind_pacific_2024.nc" \
+    --wave-path-pacific "${DATA}/era5_waves_pacific_2024.nc" \
+    --output-dir "$OUTDIR" \
+    --n-points 584
 
 Run only the first 3 departures (quick test):
 
