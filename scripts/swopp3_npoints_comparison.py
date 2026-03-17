@@ -21,7 +21,7 @@ import argparse
 import csv
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -33,8 +33,9 @@ def resample_curve(curve: np.ndarray, n_out: int) -> np.ndarray:
     Uses cumulative haversine distances to place n_out evenly-spaced
     points along the original route, preserving the exact start and end.
     """
-    from routetools._cost.haversine import haversine_distance_from_curve
     import jax.numpy as jnp
+
+    from routetools._cost.haversine import haversine_distance_from_curve
 
     seg_dist = np.asarray(
         haversine_distance_from_curve(jnp.array(curve)), dtype=np.float64
@@ -52,21 +53,22 @@ def resample_curve(curve: np.ndarray, n_out: int) -> np.ndarray:
 
 
 def load_track(path: Path) -> tuple[np.ndarray, datetime]:
-    """Load a track CSV (time_utc, lat_deg, lon_deg) -> (L,2) lon/lat array + departure."""
+    """Load a track CSV -> (L,2) lon/lat array + departure."""
     with open(path) as f:
         reader = csv.DictReader(f)
         rows = list(reader)
     lons = np.array([float(r["lon_deg"]) for r in rows])
     lats = np.array([float(r["lat_deg"]) for r in rows])
     dep = datetime.strptime(rows[0]["time_utc"], "%Y-%m-%d %H:%M:%S").replace(
-        tzinfo=timezone.utc
+        tzinfo=UTC
     )
     return np.column_stack([lons, lats]), dep
 
 
 def main() -> None:
+    """Resample existing tracks and compare energy."""
     parser = argparse.ArgumentParser(
-        description="Resample existing tracks and compare energy at different resolutions.",
+        description="Resample tracks and compare energy.",
     )
     parser.add_argument(
         "--corridor",
@@ -156,7 +158,7 @@ def main() -> None:
     print(f"Resample comparison — {case_id}")
     print(f"  Native L:  {native}")
     print(f"  Test L:    {npoints_list}")
-    print(f"  Selected departures:")
+    print("  Selected departures:")
     for label, dep_str, orig_e in selected:
         print(f"    {label:>6}: {dep_str}  ({orig_e:.1f} MWh original)")
     print("=" * 75)
@@ -195,12 +197,10 @@ def main() -> None:
     results: list[dict] = []
 
     # Ensure epoch is timezone-aware for offset calculation
-    epoch_aware = epoch if epoch.tzinfo else epoch.replace(tzinfo=timezone.utc)
+    epoch_aware = epoch if epoch.tzinfo else epoch.replace(tzinfo=UTC)
 
     for label, dep_str, orig_energy in selected:
-        dep_dt = datetime.strptime(dep_str, "%Y-%m-%d %H:%M:%S").replace(
-            tzinfo=timezone.utc
-        )
+        dep_dt = datetime.strptime(dep_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
         dep_date = dep_dt.strftime("%Y%m%d")
         dep_offset_h = (dep_dt - epoch_aware).total_seconds() / 3600.0
 
@@ -215,13 +215,17 @@ def main() -> None:
         actual_L = curve_orig.shape[0]
 
         print(f"\n{'─' * 65}")
-        print(f"{label.upper()} departure: {dep_str}  "
-              f"(original: {orig_energy:.1f} MWh, L={actual_L})")
-        print(f"  {'L':>6}  {'Energy MWh':>12}  {'Dist nm':>10}  "
-              f"{'max TWS':>8}  {'max Hs':>8}  {'Δ energy':>10}")
+        print(
+            f"{label.upper()} departure: {dep_str}  "
+            f"(original: {orig_energy:.1f} MWh, L={actual_L})"
+        )
+        print(
+            f"  {'L':>6}  {'Energy MWh':>12}  {'Dist nm':>10}  "
+            f"{'max TWS':>8}  {'max Hs':>8}  {'Δ energy':>10}"
+        )
 
         for npts in npoints_list:
-            if npts == native or npts == actual_L:
+            if npts in (native, actual_L):
                 curve = jnp.array(curve_orig)
                 tag = " (native)"
             else:
@@ -238,6 +242,7 @@ def main() -> None:
             )
 
             from routetools.swopp3_output import sailed_distance_nm
+
             dist_nm = sailed_distance_nm(curve)
 
             pct = ((energy_mwh - orig_energy) / orig_energy) * 100
@@ -247,17 +252,19 @@ def main() -> None:
                 f"{max_tws:>8.2f}  {max_hs:>8.2f}  {pct:>+9.2f}%"
             )
 
-            results.append({
-                "label": label,
-                "departure": dep_str,
-                "original_mwh": orig_energy,
-                "n_points": npts,
-                "energy_mwh": float(energy_mwh),
-                "distance_nm": float(dist_nm),
-                "max_tws_mps": float(max_tws),
-                "max_hs_m": float(max_hs),
-                "delta_pct": float(pct),
-            })
+            results.append(
+                {
+                    "label": label,
+                    "departure": dep_str,
+                    "original_mwh": orig_energy,
+                    "n_points": npts,
+                    "energy_mwh": float(energy_mwh),
+                    "distance_nm": float(dist_nm),
+                    "max_tws_mps": float(max_tws),
+                    "max_hs_m": float(max_hs),
+                    "delta_pct": float(pct),
+                }
+            )
 
     # ---- Summary ----
     print(f"\n{'=' * 75}")
