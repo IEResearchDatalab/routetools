@@ -18,17 +18,8 @@ set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
 
-# ── Stage repo + data onto local SSD (/scratch) ──
+# Work from local SSD (staged by swopp3_slurm_stage.sh)
 SCRATCH="/scratch/${USER}/routetools"
-mkdir -p "$SCRATCH"
-rsync -a --delete \
-    --exclude '.git' \
-    --exclude '__pycache__' \
-    --exclude '*.pyc' \
-    --exclude 'output' \
-    "$HOME/routetools/" "$SCRATCH/"
-echo "Staged repo to $SCRATCH ($(du -sh $SCRATCH | cut -f1))"
-
 cd "$SCRATCH"
 source .venv/bin/activate
 
