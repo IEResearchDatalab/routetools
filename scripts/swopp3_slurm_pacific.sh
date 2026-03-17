@@ -17,7 +17,19 @@
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
-cd "$HOME/routetools"
+
+# ── Stage repo + data onto local SSD (/scratch) ──
+SCRATCH="/scratch/${USER}/routetools"
+mkdir -p "$SCRATCH"
+rsync -a --delete \
+    --exclude '.git' \
+    --exclude '__pycache__' \
+    --exclude '*.pyc' \
+    --exclude 'output' \
+    "$HOME/routetools/" "$SCRATCH/"
+echo "Staged repo to $SCRATCH ($(du -sh $SCRATCH | cut -f1))"
+
+cd "$SCRATCH"
 source .venv/bin/activate
 
 export JAX_PLATFORMS=cuda
@@ -34,6 +46,7 @@ echo "SWOPP3 Pacific on $(hostname)"
 echo "Date:     $(date)"
 echo "GPU:      $(nvidia-smi -L 2>/dev/null | head -1 || echo 'unknown')"
 echo "n-points: 584  (dt ≈ 1.0h)"
+echo "Workdir:  $SCRATCH"
 echo "Output:   ${OUTDIR}"
 echo "======================================"
 
@@ -43,6 +56,11 @@ python scripts/swopp3_run.py \
     --wave-path-pacific "${DATA}/era5_waves_pacific_2024.nc" \
     --output-dir "$OUTDIR" \
     --n-points 584
+
+# ── Copy results back to /home ──
+HOME_OUTDIR="$HOME/routetools/output/swopp3_gpu"
+mkdir -p "$HOME_OUTDIR"
+cp -v "$OUTDIR"/* "$HOME_OUTDIR/"
 
 echo ""
 echo "Pacific completed at $(date)"
