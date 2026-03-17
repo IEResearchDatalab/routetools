@@ -19,6 +19,7 @@ Main entry points:
 
 from __future__ import annotations
 
+import csv
 import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -387,6 +388,7 @@ def run_optimised_departure(
                 ),
                 category=UserWarning,
             )
+            cmaes_t0 = _time.time()
             curve_cmaes, _ = cmaes_optimize(
                 vectorfield=vectorfield,
                 src=src_opt,
@@ -394,6 +396,7 @@ def run_optimised_departure(
                 land=land,
                 **defaults_cmaes,
             )
+        cmaes_distance_nm = sailed_distance_nm(curve_cmaes)
         energy_cmaes, max_tws_cmaes, max_hs_cmaes = evaluate_energy(
             curve_cmaes,
             departure,
@@ -403,6 +406,8 @@ def run_optimised_departure(
             wavefield=wavefield,
             departure_offset_h=departure_offset_h,
         )
+        cmaes_comp_time_s = _time.time() - cmaes_t0
+        fms_t0 = _time.time()
         curve_fms, _ = optimize_fms(
             vectorfield=vectorfield,
             curve=curve_cmaes,
@@ -414,6 +419,7 @@ def run_optimised_departure(
             **defaults_fms,
         )
         curve_fms = curve_fms[0]
+        fms_distance_nm = sailed_distance_nm(curve_fms)
         energy_fms, max_tws_fms, max_hs_fms = evaluate_energy(
             curve_fms,
             departure,
@@ -423,6 +429,19 @@ def run_optimised_departure(
             wavefield=wavefield,
             departure_offset_h=departure_offset_h,
         )
+        fms_comp_time_s = _time.time() - fms_t0
+        if resolved_verbosity >= 1:
+            print()
+            print(
+                f"    CMA-ES  E={energy_cmaes:.2f} MWh  "
+                f"d={cmaes_distance_nm:.0f} nm  "
+                f"t={cmaes_comp_time_s:.1f}s"
+            )
+            print(
+                f"    FMS     E={energy_fms:.2f} MWh  "
+                f"d={fms_distance_nm:.0f} nm  "
+                f"t={fms_comp_time_s:.1f}s"
+            )
         if (
             energy_fms < energy_cmaes
             and max_tws_fms <= tws_limit
@@ -436,22 +455,19 @@ def run_optimised_departure(
             # Warn if FMS refinement fails to improve energy
             # or violates weather constraints
             if resolved_verbosity >= 1 and energy_fms >= energy_cmaes:
-                warnings.warn(
+                print(
                     f"FMS refinement did not reduce energy: "
-                    f"{energy_fms:.2f} MWh (FMS) vs {energy_cmaes:.2f} MWh (CMA-ES).",
-                    stacklevel=2,
+                    f"{energy_fms:.2f} MWh (FMS) vs {energy_cmaes:.2f} MWh (CMA-ES)."
                 )
             if resolved_verbosity >= 1 and max_tws_fms > tws_limit:
-                warnings.warn(
+                print(
                     f"FMS refinement exceeded TWS limit: "
-                    f"{max_tws_fms:.1f} m/s > {tws_limit:.1f} m/s.",
-                    stacklevel=2,
+                    f"{max_tws_fms:.1f} m/s > {tws_limit:.1f} m/s."
                 )
             if resolved_verbosity >= 1 and max_hs_fms > hs_limit:
-                warnings.warn(
+                print(
                     f"FMS refinement exceeded Hs limit: "
-                    f"{max_hs_fms:.1f} m > {hs_limit:.1f} m.",
-                    stacklevel=2,
+                    f"{max_hs_fms:.1f} m > {hs_limit:.1f} m."
                 )
             curve = curve_cmaes
             energy_mwh = energy_cmaes
@@ -547,6 +563,11 @@ def run_case(
     results: list[DepartureResult] = []
     resolved_verbosity = _resolve_runner_verbosity(verbose, verbosity)
 
+    output_path: Path | None = None
+    if output_dir is not None:
+        output_path = Path(output_dir)
+        _prepare_case_output(case_id, output_path, submission=submission)
+
     for i, dep in enumerate(departures):
         if resolved_verbosity >= 1:
             print(
@@ -594,6 +615,13 @@ def run_case(
             )
 
         results.append(result)
+        if output_path is not None:
+            _append_case_output(
+                case_id,
+                result,
+                output_path,
+                submission=submission,
+            )
         if resolved_verbosity >= 1:
             print(
                 f"E={result.energy_mwh:.2f} MWh  "
@@ -601,17 +629,59 @@ def run_case(
                 f"t={result.comp_time_s:.1f}s"
             )
 
-    # ---- Write outputs ----
-    if output_dir is not None:
-        output_dir = Path(output_dir)
-        _write_case_outputs(
-            case_id,
-            results,
-            output_dir,
-            submission=submission,
-        )
-
     return results
+
+
+# ---------------------------------------------------------------------------
+# Incremental output writing
+# ---------------------------------------------------------------------------
+def _prepare_case_output(
+    case_id: str,
+    output_dir: Path,
+    submission: int = 1,
+) -> None:
+    """Prepare case output files for incremental writes."""
+    case = SWOPP3_CASES[case_id]
+    fa_path = output_dir / file_a_name(submission, case["name"])
+    if fa_path.exists():
+        fa_path.unlink()
+
+
+def _append_case_output(
+    case_id: str,
+    result: DepartureResult,
+    output_dir: Path,
+    submission: int = 1,
+) -> None:
+    """Persist a single departure result to File A and File B."""
+    case = SWOPP3_CASES[case_id]
+    casename = case["name"]
+    passage_hours = case["passage_hours"]
+
+    file_b_dir = output_dir / "tracks"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    file_b_dir.mkdir(parents=True, exist_ok=True)
+
+    fb_name = file_b_name(submission, casename, result.departure)
+    times = waypoint_times(result.curve, result.departure, passage_hours)
+    write_file_b(result.curve, times, file_b_dir / fb_name)
+
+    row = file_a_row(
+        departure=result.departure,
+        passage_hours=passage_hours,
+        energy_mwh=result.energy_mwh,
+        max_wind_mps=result.max_tws_mps,
+        max_hs_m=result.max_hs_m,
+        distance_nm=result.distance_nm,
+        details_filename=fb_name,
+    )
+    fa_path = output_dir / file_a_name(submission, casename)
+    write_header = not fa_path.exists() or fa_path.stat().st_size == 0
+    with fa_path.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row))
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
 
 
 # ---------------------------------------------------------------------------
