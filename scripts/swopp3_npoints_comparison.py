@@ -194,12 +194,15 @@ def main() -> None:
     # ---- Evaluate ----
     results: list[dict] = []
 
+    # Ensure epoch is timezone-aware for offset calculation
+    epoch_aware = epoch if epoch.tzinfo else epoch.replace(tzinfo=timezone.utc)
+
     for label, dep_str, orig_energy in selected:
         dep_dt = datetime.strptime(dep_str, "%Y-%m-%d %H:%M:%S").replace(
             tzinfo=timezone.utc
         )
         dep_date = dep_dt.strftime("%Y%m%d")
-        dep_offset_h = (dep_dt - epoch).total_seconds() / 3600.0
+        dep_offset_h = (dep_dt - epoch_aware).total_seconds() / 3600.0
 
         # Load the original track
         track_name = f"IEUniversity-1-{case_id}-{dep_date}.csv"
