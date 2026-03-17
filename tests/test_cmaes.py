@@ -233,3 +233,41 @@ def test_curve_to_control_piecewise(L: int = 127, K: int = 10, num_pieces: int =
     assert jnp.allclose(
         reconstructed_curve, curve, atol=1e-1
     ), "Reconstructed curve does not match original curve"
+
+
+def test_optimize_with_bounds():
+    """CMA-ES respects geographic bounds on control points."""
+    src = jnp.array([0.0, 0.0])
+    dst = jnp.array([6.0, 2.0])
+    L = 32
+    K = 6  # 4 free interior control points → 8 parameters
+
+    # Tight bounds: lon in [0, 6], lat in [-1, 3]
+    n_free = (K - 2) * 2
+    lower = [0.0 if i % 2 == 0 else -1.0 for i in range(n_free)]
+    upper = [6.0 if i % 2 == 0 else 3.0 for i in range(n_free)]
+
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        curve, info = optimize(
+            vectorfield_fourvortices,
+            src=src,
+            dst=dst,
+            travel_stw=1,
+            K=K,
+            L=L,
+            popsize=10,
+            sigma0=1,
+            seed=1,
+            maxfevals=500,
+            verbose=False,
+            bounds=[lower, upper],
+        )
+
+    # All waypoints must stay within the prescribed corridor
+    assert curve[:, 0].min() >= -1.0, "Longitude below lower bound"
+    assert curve[:, 0].max() <= 7.0, "Longitude above upper bound"
+    assert curve[:, 1].min() >= -2.0, "Latitude below lower bound"
+    assert curve[:, 1].max() <= 4.0, "Latitude above upper bound"
