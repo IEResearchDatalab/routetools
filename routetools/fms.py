@@ -11,6 +11,75 @@ from jax import grad, jacfwd, jacrev, jit, vmap
 from routetools.cost import cost_function
 from routetools.land import Land
 from routetools.vectorfield import vectorfield_fourvortices
+from routetools.weather import (
+    DEFAULT_HS_LIMIT,
+    DEFAULT_TWS_LIMIT,
+)
+from routetools.weather import (
+    weather_penalty as _weather_penalty,
+)
+
+
+def _apply_curve_constraints(
+    curve: jnp.ndarray,
+    curve_old: jnp.ndarray,
+    *,
+    land: Land | None = None,
+    penalty: float = 0.0,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    enforce_weather_limits: bool = False,
+    tws_limit: float = DEFAULT_TWS_LIMIT,
+    hs_limit: float = DEFAULT_HS_LIMIT,
+    travel_stw: float | None = None,
+    travel_time: float | None = None,
+    spherical_correction: bool = False,
+    time_offset: float = 0.0,
+) -> jnp.ndarray:
+    """Reject invalid FMS updates and keep the previous feasible curve.
+
+    Land updates are reverted point-wise. Weather violations are route-level,
+    so the whole updated route is rolled back to the previous iteration.
+    """
+    curve_constrained = curve
+
+    if land is not None and penalty > 0:
+        is_land = land(curve_constrained) > 0
+        curve_constrained = jnp.where(
+            is_land[..., None],
+            curve_old,
+            curve_constrained,
+        )
+
+    if enforce_weather_limits and (windfield is not None or wavefield is not None):
+        weather_violations = (
+            _weather_penalty(
+                curve_constrained,
+                windfield=windfield,
+                wavefield=wavefield,
+                tws_limit=tws_limit,
+                hs_limit=hs_limit,
+                penalty=1.0,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
+            )
+            > 0
+        )
+        curve_constrained = jnp.where(
+            weather_violations[:, None, None],
+            curve_old,
+            curve_constrained,
+        )
+
+    return curve_constrained
 
 
 def random_piecewise_curve(
@@ -118,6 +187,10 @@ def optimize_fms(
     dst: jnp.ndarray | None = None,
     curve: jnp.ndarray | None = None,
     land: Land | None = None,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
     wavefield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
     ]
@@ -137,6 +210,9 @@ def optimize_fms(
     seed: int = 0,
     verbose: bool = True,
     time_offset: float = 0.0,
+    enforce_weather_limits: bool = False,
+    tws_limit: float = DEFAULT_TWS_LIMIT,
+    hs_limit: float = DEFAULT_HS_LIMIT,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
     Optimize a curve using the FMS algorithm.
@@ -156,6 +232,8 @@ def optimize_fms(
         Curve to optimize, shape L x 2, by default None
     land_function : Callable[[jnp.ndarray], jnp.ndarray] | None, optional
         Land function, by default None
+    windfield : Callable, optional
+        Wind field closure used to enforce route weather limits.
     num_curves : int, optional
         Number of curves to optimize, only used when initial curves are not provided,
         by default 10
@@ -187,6 +265,14 @@ def optimize_fms(
     time_offset : float, optional
         Offset added to segment timestamps before querying time-variant
         fields, by default 0.0
+    enforce_weather_limits : bool, optional
+        Reject FMS updates that violate the configured weather limits,
+        by default False.
+    tws_limit : float, optional
+        Maximum allowed true wind speed in m/s when weather limits are enforced.
+    hs_limit : float, optional
+        Maximum allowed significant wave height in m when weather limits are
+        enforced.
 
     Returns
     -------
@@ -363,10 +449,21 @@ def optimize_fms(
     while (idx < maxfevals) & (early_stop < patience).any():
         curve_old = curve.copy()
         curve = solve_vectorized(curve)
-        # Replace points on land with previous iteration
-        if land is not None and penalty > 0:
-            is_land = land(curve) > 0
-            curve = jnp.where(is_land[..., None], curve_old, curve)
+        curve = _apply_curve_constraints(
+            curve,
+            curve_old,
+            land=land,
+            penalty=penalty,
+            windfield=windfield,
+            wavefield=wavefield,
+            enforce_weather_limits=enforce_weather_limits,
+            tws_limit=tws_limit,
+            hs_limit=hs_limit,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+        )
         cost_now = _evaluate_cost(
             curve,
             travel_stw_eval=travel_stw,
