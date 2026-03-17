@@ -339,16 +339,13 @@ def run_optimised_departure(
                 travel_time=travel_time,
                 wavefield=kwargs.get("wavefield"),
                 wps=_wps,
-                time_offset=departure_offset_h,
+                time_offset=kwargs.get("time_offset", departure_offset_h),
             )
 
         defaults_cmaes = dict(
-            K=10,
             L=n_points,
             curve0=gc_init,
             cost_fn=_rise_cost,
-            maxfevals=50000,
-            tolfun=1.0,
             penalty=1e6,
             land_margin=2,
             verbose=resolved_verbosity >= 2,
@@ -364,14 +361,16 @@ def run_optimised_departure(
             # Geographic bounds on control points (prevents wild turns)
             bounds=ctrl_bounds,
         )
-        defaults_cmaes.update(cmaes_kwargs)
-
         defaults_fms = dict(
             patience=cmaes_kwargs.pop("fms_patience", 50),
             damping=cmaes_kwargs.pop("fms_damping", 0.9),
             maxfevals=cmaes_kwargs.pop("fms_maxfevals", 5000),
-            verbose=bool(defaults_cmaes["verbose"]),
         )
+
+        defaults_cmaes.update(cmaes_kwargs)
+        defaults_fms["verbose"] = bool(defaults_cmaes["verbose"])
+        tws_limit = float(defaults_cmaes.get("tws_limit", 20.0))
+        hs_limit = float(defaults_cmaes.get("hs_limit", 7.0))
 
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -388,23 +387,76 @@ def run_optimised_departure(
                 ),
                 category=UserWarning,
             )
-            curve, info = cmaes_optimize(
+            curve_cmaes, _ = cmaes_optimize(
                 vectorfield=vectorfield,
                 src=src_opt,
                 dst=dst_opt,
                 land=land,
                 **defaults_cmaes,
             )
+        energy_cmaes, max_tws_cmaes, max_hs_cmaes = evaluate_energy(
+            curve_cmaes,
+            departure,
+            case["passage_hours"],
+            wps=case["wps"],
+            windfield=windfield,
+            wavefield=wavefield,
+            departure_offset_h=departure_offset_h,
+        )
         curve_fms, _ = optimize_fms(
             vectorfield=vectorfield,
-            curve=curve,
+            curve=curve_cmaes,
             land=land,
             wavefield=wavefield,
             travel_time=travel_time,
+            time_offset=departure_offset_h,
             costfun=_rise_fms_cost,
             **defaults_fms,
         )
-        curve = curve_fms[0]
+        curve_fms = curve_fms[0]
+        energy_fms, max_tws_fms, max_hs_fms = evaluate_energy(
+            curve_fms,
+            departure,
+            case["passage_hours"],
+            wps=case["wps"],
+            windfield=windfield,
+            wavefield=wavefield,
+            departure_offset_h=departure_offset_h,
+        )
+        if (
+            energy_fms < energy_cmaes
+            and max_tws_fms <= tws_limit
+            and max_hs_fms <= hs_limit
+        ):
+            curve = curve_fms
+            energy_mwh = energy_fms
+            max_tws = max_tws_fms
+            max_hs = max_hs_fms
+        else:
+            # Warn if FMS refinement fails to improve energy
+            # or violates weather constraints
+            if resolved_verbosity >= 1 and energy_fms >= energy_cmaes:
+                warnings.warn(
+                    f"FMS refinement did not reduce energy: "
+                    f"{energy_fms:.2f} MWh (FMS) vs {energy_cmaes:.2f} MWh (CMA-ES).",
+                    stacklevel=2,
+                )
+            if resolved_verbosity >= 1 and max_tws_fms > tws_limit:
+                warnings.warn(
+                    f"FMS refinement exceeded TWS limit: "
+                    f"{max_tws_fms:.1f} m/s > {tws_limit:.1f} m/s.",
+                    stacklevel=2,
+                )
+            if resolved_verbosity >= 1 and max_hs_fms > hs_limit:
+                warnings.warn(
+                    f"FMS refinement exceeded Hs limit: "
+                    f"{max_hs_fms:.1f} m > {hs_limit:.1f} m.",
+                    stacklevel=2,
+                )
+            curve = curve_cmaes
+            energy_mwh = energy_cmaes
+            max_tws = max_tws_cmaes
+            max_hs = max_hs_cmaes
     else:
         # No vectorfield → raise error
         raise ValueError(
@@ -413,16 +465,6 @@ def run_optimised_departure(
         )
 
     distance_nm = sailed_distance_nm(curve)
-
-    energy_mwh, max_tws, max_hs = evaluate_energy(
-        curve,
-        departure,
-        case["passage_hours"],
-        wps=case["wps"],
-        windfield=windfield,
-        wavefield=wavefield,
-        departure_offset_h=departure_offset_h,
-    )
     comp_time = _time.time() - t0
 
     return DepartureResult(
