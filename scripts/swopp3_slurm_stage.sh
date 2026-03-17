@@ -24,6 +24,12 @@ if [ -d "$SCRATCH/.git" ]; then
     git -C "$SCRATCH" fetch origin "$BRANCH"
     git -C "$SCRATCH" checkout "$BRANCH"
     git -C "$SCRATCH" reset --hard "origin/$BRANCH"
+elif [ -d "$SCRATCH" ]; then
+    echo "Directory exists without .git – initialising repo in place…"
+    git -C "$SCRATCH" init
+    git -C "$SCRATCH" remote add origin "$HOME/routetools"
+    git -C "$SCRATCH" fetch origin "$BRANCH"
+    git -C "$SCRATCH" checkout -f "$BRANCH"
 else
     echo "First run – cloning repo to $SCRATCH …"
     git clone --branch "$BRANCH" --single-branch \
