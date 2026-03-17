@@ -66,56 +66,19 @@ def _apply_curve_constraints(
     *,
     land: Land | None = None,
     penalty: float = 0.0,
-    windfield: Callable[
-        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
-    ]
-    | None = None,
-    wavefield: Callable[
-        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
-    ]
-    | None = None,
-    enforce_weather_limits: bool = False,
-    tws_limit: float = DEFAULT_TWS_LIMIT,
-    hs_limit: float = DEFAULT_HS_LIMIT,
-    travel_stw: float | None = None,
-    travel_time: float | None = None,
-    spherical_correction: bool = False,
-    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Reject invalid FMS updates and keep the previous feasible curve.
 
-    Land updates are reverted point-wise. Weather violations are route-level,
-    so the whole updated route is rolled back to the previous iteration.
+    Land updates are reverted point-wise.  Weather is *not* enforced here;
+    callers use ``_weather_violation_mask`` + ``effective_cost`` to gate
+    ``curve_best`` updates instead.  Rolling back an entire route on weather
+    violations would prevent FMS from escaping an initially-violating state.
     """
-    curve_constrained = curve
+    if land is None or penalty <= 0:
+        return curve
 
-    if land is not None and penalty > 0:
-        is_land = land(curve_constrained) > 0
-        curve_constrained = jnp.where(
-            is_land[..., None],
-            curve_old,
-            curve_constrained,
-        )
-
-    weather_violations = _weather_violation_mask(
-        curve_constrained,
-        windfield=windfield,
-        wavefield=wavefield,
-        enforce_weather_limits=enforce_weather_limits,
-        tws_limit=tws_limit,
-        hs_limit=hs_limit,
-        travel_stw=travel_stw,
-        travel_time=travel_time,
-        spherical_correction=spherical_correction,
-        time_offset=time_offset,
-    )
-    curve_constrained = jnp.where(
-        weather_violations[:, None, None],
-        curve_old,
-        curve_constrained,
-    )
-
-    return curve_constrained
+    is_land = land(curve) > 0
+    return jnp.where(is_land[..., None], curve_old, curve)
 
 
 def random_piecewise_curve(
@@ -498,21 +461,7 @@ def optimize_fms(
     while (idx < maxfevals) & (early_stop < patience).any():
         curve_old = curve.copy()
         curve = solve_vectorized(curve)
-        curve = _apply_curve_constraints(
-            curve,
-            curve_old,
-            land=land,
-            penalty=penalty,
-            windfield=windfield,
-            wavefield=wavefield,
-            enforce_weather_limits=enforce_weather_limits,
-            tws_limit=tws_limit,
-            hs_limit=hs_limit,
-            travel_stw=travel_stw,
-            travel_time=travel_time,
-            spherical_correction=spherical_correction,
-            time_offset=time_offset,
-        )
+        curve = _apply_curve_constraints(curve, curve_old, land=land, penalty=penalty)
         cost_now = _evaluate_cost(
             curve,
             travel_stw_eval=travel_stw,
@@ -533,8 +482,13 @@ def optimize_fms(
         )
         effective_cost_now = jnp.where(weather_violations, jnp.inf, cost_now)
 
-        # Update early stopping counter
-        early_stop += jnp.where(effective_cost_now >= cost_best, 1, 0)
+        # Update early stopping counter.
+        # Only count stagnation once a feasible (finite-cost) solution exists;
+        # while cost_best is still inf the optimizer is still searching.
+        has_feasible_best = jnp.isfinite(cost_best)
+        early_stop += jnp.where(
+            has_feasible_best & (effective_cost_now >= cost_best), 1, 0
+        )
         early_stop = jnp.where(cost_best > effective_cost_now, 0, early_stop)
 
         # Store best solution
