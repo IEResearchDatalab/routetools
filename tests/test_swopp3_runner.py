@@ -410,6 +410,139 @@ class TestRunOptimisedDeparture:
         assert not jnp.allclose(result.curve, captured["refined_curve"])
         assert result.energy_mwh == pytest.approx(12.0)
 
+    def test_fms_cost_includes_weather_penalty(self, monkeypatch):
+        """FMS cost should include weather penalties during refinement."""
+        captured: dict[str, object] = {"penalty_calls": []}
+
+        def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
+            curve = great_circle_route(src, dst, n_points=kwargs["L"])
+            captured["cmaes_curve"] = curve
+            return curve, {"cost": 0.0}
+
+        def fake_cost_function_rise(
+            *,
+            windfield,
+            curve,
+            travel_time,
+            wavefield,
+            wps,
+            time_offset,
+        ):
+            if "refined_curve" in captured and jnp.allclose(
+                curve, captured["refined_curve"][None, ...]
+            ):
+                return jnp.full(curve.shape[0], 9.0)
+            return jnp.full(curve.shape[0], 10.0)
+
+        def fake_weather_penalty_smooth(
+            curve,
+            windfield=None,
+            wavefield=None,
+            tws_limit=20.0,
+            hs_limit=7.0,
+            penalty=10.0,
+            sharpness=5.0,
+            travel_stw=None,
+            travel_time=None,
+            spherical_correction=True,
+            time_offset=0.0,
+        ):
+            penalty_calls = captured.setdefault("penalty_calls", [])
+            penalty_calls.append(
+                {
+                    "tws_limit": tws_limit,
+                    "hs_limit": hs_limit,
+                    "penalty": penalty,
+                    "travel_time": travel_time,
+                    "time_offset": time_offset,
+                }
+            )
+            if "refined_curve" in captured and jnp.allclose(
+                curve, captured["refined_curve"][None, ...]
+            ):
+                return jnp.full(curve.shape[0], 100.0)
+            return jnp.zeros(curve.shape[0])
+
+        def fake_optimize_fms(
+            *,
+            vectorfield,
+            curve,
+            land=None,
+            wavefield=None,
+            travel_time=None,
+            costfun,
+            time_offset=None,
+            **kwargs,
+        ):
+            refined_curve = curve + jnp.array([0.2, 0.0])
+            captured["refined_curve"] = refined_curve
+            base_cost = float(
+                costfun(
+                    curve=curve[None, ...],
+                    wavefield=wavefield,
+                    travel_time=travel_time,
+                    time_offset=time_offset,
+                )[0]
+            )
+            refined_cost = float(
+                costfun(
+                    curve=refined_curve[None, ...],
+                    wavefield=wavefield,
+                    travel_time=travel_time,
+                    time_offset=time_offset,
+                )[0]
+            )
+            captured["base_fms_cost"] = base_cost
+            captured["refined_fms_cost"] = refined_cost
+            if refined_cost < base_cost:
+                return refined_curve[None, ...], {"cost": [refined_cost]}
+            return curve[None, ...], {"cost": [base_cost]}
+
+        def fake_evaluate_energy(
+            curve,
+            departure,
+            passage_hours,
+            wps,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+        ):
+            return 10.0, 18.0, 6.0
+
+        monkeypatch.setattr(
+            "routetools.cost.cost_function_rise",
+            fake_cost_function_rise,
+        )
+        monkeypatch.setattr(
+            "routetools.weather.weather_penalty_smooth",
+            fake_weather_penalty_smooth,
+        )
+        monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
+        monkeypatch.setattr("routetools.fms.optimize_fms", fake_optimize_fms)
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.evaluate_energy",
+            fake_evaluate_energy,
+        )
+
+        result = run_optimised_departure(
+            "AO_WPS",
+            _DEP,
+            vectorfield=_zero_windfield,
+            windfield=_zero_windfield,
+            n_points=20,
+            verbosity=0,
+        )
+
+        assert isinstance(result, DepartureResult)
+        assert jnp.allclose(result.curve, captured["cmaes_curve"])
+        assert captured["base_fms_cost"] == pytest.approx(10.0)
+        assert captured["refined_fms_cost"] == pytest.approx(109.0)
+        assert len(captured["penalty_calls"]) == 2
+        assert captured["penalty_calls"][0]["tws_limit"] == pytest.approx(20.0)
+        assert captured["penalty_calls"][0]["hs_limit"] == pytest.approx(7.0)
+        assert captured["penalty_calls"][0]["penalty"] == pytest.approx(100.0)
+        assert captured["penalty_calls"][0]["travel_time"] == pytest.approx(354.0)
+
 
 # ---------------------------------------------------------------------------
 # run_case

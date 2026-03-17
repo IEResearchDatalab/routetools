@@ -291,6 +291,7 @@ def run_optimised_departure(
         from routetools.cmaes import optimize as cmaes_optimize
         from routetools.cost import cost_function_rise
         from routetools.fms import optimize_fms
+        from routetools.weather import weather_penalty_smooth
 
         # Initialise from the great-circle route so CMA-ES starts near
         # the geodesic.
@@ -334,7 +335,7 @@ def run_optimised_departure(
             )
 
         def _rise_fms_cost(*, curve: jnp.ndarray, travel_time: float, **kwargs):
-            return cost_function_rise(
+            cost = cost_function_rise(
                 windfield=windfield,
                 curve=curve,
                 travel_time=travel_time,
@@ -342,6 +343,20 @@ def run_optimised_departure(
                 wps=_wps,
                 time_offset=kwargs.get("time_offset", departure_offset_h),
             )
+            if weather_penalty_weight > 0 and (
+                windfield is not None or kwargs.get("wavefield") is not None
+            ):
+                cost = cost + weather_penalty_smooth(
+                    curve,
+                    windfield=windfield,
+                    wavefield=kwargs.get("wavefield"),
+                    tws_limit=tws_limit,
+                    hs_limit=hs_limit,
+                    penalty=weather_penalty_weight,
+                    travel_time=travel_time,
+                    time_offset=kwargs.get("time_offset", departure_offset_h),
+                )
+            return cost
 
         defaults_cmaes = dict(
             L=n_points,
@@ -370,6 +385,9 @@ def run_optimised_departure(
 
         defaults_cmaes.update(cmaes_kwargs)
         defaults_fms["verbose"] = bool(defaults_cmaes["verbose"])
+        weather_penalty_weight = float(
+            defaults_cmaes.get("weather_penalty_weight", 0.0)
+        )
         tws_limit = float(defaults_cmaes.get("tws_limit", 20.0))
         hs_limit = float(defaults_cmaes.get("hs_limit", 7.0))
 
