@@ -20,6 +20,46 @@ from routetools.weather import (
 )
 
 
+def _weather_violation_mask(
+    curve: jnp.ndarray,
+    *,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    enforce_weather_limits: bool = False,
+    tws_limit: float = DEFAULT_TWS_LIMIT,
+    hs_limit: float = DEFAULT_HS_LIMIT,
+    travel_stw: float | None = None,
+    travel_time: float | None = None,
+    spherical_correction: bool = False,
+    time_offset: float = 0.0,
+) -> jnp.ndarray:
+    """Return a per-route mask for weather-limit violations."""
+    if not enforce_weather_limits or (windfield is None and wavefield is None):
+        return jnp.zeros(curve.shape[0], dtype=bool)
+
+    return (
+        _weather_penalty(
+            curve,
+            windfield=windfield,
+            wavefield=wavefield,
+            tws_limit=tws_limit,
+            hs_limit=hs_limit,
+            penalty=1.0,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+        )
+        > 0
+    )
+
+
 def _apply_curve_constraints(
     curve: jnp.ndarray,
     curve_old: jnp.ndarray,
@@ -57,22 +97,19 @@ def _apply_curve_constraints(
             curve_constrained,
         )
 
-    if enforce_weather_limits and (windfield is not None or wavefield is not None):
-        weather_violations = (
-            _weather_penalty(
-                curve_constrained,
-                windfield=windfield,
-                wavefield=wavefield,
-                tws_limit=tws_limit,
-                hs_limit=hs_limit,
-                penalty=1.0,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            )
-            > 0
-        )
+    weather_violations = _weather_violation_mask(
+        curve_constrained,
+        windfield=windfield,
+        wavefield=wavefield,
+        enforce_weather_limits=enforce_weather_limits,
+        tws_limit=tws_limit,
+        hs_limit=hs_limit,
+        travel_stw=travel_stw,
+        travel_time=travel_time,
+        spherical_correction=spherical_correction,
+        time_offset=time_offset,
+    )
+    if enforce_weather_limits and weather_violations.any():
         curve_constrained = jnp.where(
             weather_violations[:, None, None],
             curve_old,
@@ -440,7 +477,20 @@ def optimize_fms(
         travel_time_eval=travel_time,
         time_offset_eval=time_offset,
     )
-    cost_best = cost_now.copy()
+    initial_weather_violations = _weather_violation_mask(
+        curve,
+        windfield=windfield,
+        wavefield=wavefield,
+        enforce_weather_limits=enforce_weather_limits,
+        tws_limit=tws_limit,
+        hs_limit=hs_limit,
+        travel_stw=travel_stw,
+        travel_time=travel_time,
+        spherical_correction=spherical_correction,
+        time_offset=time_offset,
+    )
+    effective_cost_now = jnp.where(initial_weather_violations, jnp.inf, cost_now)
+    cost_best = effective_cost_now.copy()
     curve_best = curve.copy()
     early_stop = jnp.zeros(cost_now.shape)
 
@@ -470,24 +520,37 @@ def optimize_fms(
             travel_time_eval=travel_time,
             time_offset_eval=time_offset,
         )
+        weather_violations = _weather_violation_mask(
+            curve,
+            windfield=windfield,
+            wavefield=wavefield,
+            enforce_weather_limits=enforce_weather_limits,
+            tws_limit=tws_limit,
+            hs_limit=hs_limit,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+        )
+        effective_cost_now = jnp.where(weather_violations, jnp.inf, cost_now)
 
         # Update early stopping counter
-        early_stop += jnp.where(cost_now >= cost_best, 1, 0)
-        early_stop = jnp.where(cost_best > cost_now, 0, early_stop)
+        early_stop += jnp.where(effective_cost_now >= cost_best, 1, 0)
+        early_stop = jnp.where(cost_best > effective_cost_now, 0, early_stop)
 
         # Store best solution
-        improved = cost_now < cost_best
-        cost_best = jnp.where(improved, cost_now, cost_best)
+        improved = effective_cost_now < cost_best
+        cost_best = jnp.where(improved, effective_cost_now, cost_best)
         curve_best = jnp.where(improved[:, None, None], curve, curve_best)
 
         idx += 1
         if verbose and (idx % 500 == 0 or idx == 1):
-            print(f"FMS - Iteration {idx}, cost: {cost_now.min():.4f}")
+            print(f"FMS - Iteration {idx}, cost: {effective_cost_now.min():.4f}")
 
     if verbose:
         print("FMS - Number of iterations:", idx)
         print("FMS - Optimization time:", time.time() - start)
-        print("FMS - Fuel cost:", cost_now.min())
+        print("FMS - Fuel cost:", cost_best.min())
 
     dict_fms = {
         "cost": cost_best.tolist(),

@@ -443,6 +443,7 @@ class TestRunOptimisedDeparture:
             enforce_weather_limits=False,
             tws_limit=20.0,
             hs_limit=7.0,
+            spherical_correction=False,
             **kwargs,
         ):
             captured["windfield"] = windfield
@@ -451,6 +452,7 @@ class TestRunOptimisedDeparture:
             captured["hs_limit"] = hs_limit
             captured["travel_time"] = travel_time
             captured["time_offset"] = time_offset
+            captured["spherical_correction"] = spherical_correction
             _ = costfun(
                 curve=curve[None, ...],
                 wavefield=wavefield,
@@ -500,6 +502,67 @@ class TestRunOptimisedDeparture:
         assert captured["hs_limit"] == pytest.approx(6.5)
         assert captured["travel_time"] == pytest.approx(354.0)
         assert captured["time_offset"] == pytest.approx(0.0)
+        assert captured["spherical_correction"] is True
+
+    def test_feasible_fms_beats_infeasible_cmaes(self, monkeypatch):
+        """A feasible FMS route should beat an infeasible CMA-ES route."""
+        captured: dict[str, object] = {}
+
+        def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
+            curve = great_circle_route(src, dst, n_points=kwargs["L"])
+            captured["cmaes_curve"] = curve
+            return curve, {"cost": 0.0}
+
+        def fake_optimize_fms(
+            *,
+            vectorfield,
+            curve,
+            land=None,
+            wavefield=None,
+            travel_time=None,
+            costfun,
+            time_offset=None,
+            **kwargs,
+        ):
+            refined_curve = curve + jnp.array([0.2, 0.0])
+            captured["refined_curve"] = refined_curve
+            return refined_curve[None, ...], {"cost": [0.0]}
+
+        def fake_evaluate_energy(
+            curve,
+            departure,
+            passage_hours,
+            wps,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+        ):
+            if "refined_curve" in captured and jnp.allclose(
+                curve, captured["refined_curve"]
+            ):
+                return 13.0, 18.0, 6.0
+            return 12.0, 18.0, 8.0
+
+        monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
+        monkeypatch.setattr("routetools.fms.optimize_fms", fake_optimize_fms)
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.evaluate_energy",
+            fake_evaluate_energy,
+        )
+
+        result = run_optimised_departure(
+            "AO_WPS",
+            _DEP,
+            vectorfield=_zero_windfield,
+            windfield=_zero_windfield,
+            n_points=20,
+            verbosity=0,
+        )
+
+        assert isinstance(result, DepartureResult)
+        assert jnp.allclose(result.curve, captured["refined_curve"])
+        assert result.energy_mwh == pytest.approx(13.0)
+        assert result.max_hs_m == pytest.approx(6.0)
 
 
 # ---------------------------------------------------------------------------

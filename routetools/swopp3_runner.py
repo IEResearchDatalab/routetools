@@ -400,6 +400,7 @@ def run_optimised_departure(
             windfield=windfield,
             wavefield=wavefield,
             travel_time=travel_time,
+            spherical_correction=True,
             time_offset=departure_offset_h,
             enforce_weather_limits=weather_penalty_weight > 0,
             tws_limit=tws_limit,
@@ -431,11 +432,15 @@ def run_optimised_departure(
                 f"d={fms_distance_nm:.0f} nm  "
                 f"t={fms_comp_time_s:.1f}s"
             )
-        if (
-            energy_fms < energy_cmaes
-            and max_tws_fms <= tws_limit
-            and max_hs_fms <= hs_limit
-        ):
+        cmaes_is_valid = max_tws_cmaes <= tws_limit and max_hs_cmaes <= hs_limit
+        fms_is_valid = max_tws_fms <= tws_limit and max_hs_fms <= hs_limit
+
+        if fms_is_valid and (not cmaes_is_valid or energy_fms < energy_cmaes):
+            if resolved_verbosity >= 1 and not cmaes_is_valid:
+                print(
+                    "Selected FMS refinement because the CMA-ES route "
+                    "exceeded weather limits."
+                )
             curve = curve_fms
             energy_mwh = energy_fms
             max_tws = max_tws_fms
@@ -443,7 +448,11 @@ def run_optimised_departure(
         else:
             # Warn if FMS refinement fails to improve energy
             # or violates weather constraints
-            if resolved_verbosity >= 1 and energy_fms >= energy_cmaes:
+            if (
+                resolved_verbosity >= 1
+                and cmaes_is_valid
+                and energy_fms >= energy_cmaes
+            ):
                 print(
                     f"FMS refinement did not reduce energy: "
                     f"{energy_fms:.2f} MWh (FMS) vs {energy_cmaes:.2f} MWh (CMA-ES)."
@@ -457,6 +466,16 @@ def run_optimised_departure(
                 print(
                     f"FMS refinement exceeded Hs limit: "
                     f"{max_hs_fms:.1f} m > {hs_limit:.1f} m."
+                )
+            if resolved_verbosity >= 1 and max_tws_cmaes > tws_limit:
+                print(
+                    f"CMA-ES route exceeded TWS limit: "
+                    f"{max_tws_cmaes:.1f} m/s > {tws_limit:.1f} m/s."
+                )
+            if resolved_verbosity >= 1 and max_hs_cmaes > hs_limit:
+                print(
+                    f"CMA-ES route exceeded Hs limit: "
+                    f"{max_hs_cmaes:.1f} m > {hs_limit:.1f} m."
                 )
             curve = curve_cmaes
             energy_mwh = energy_cmaes
