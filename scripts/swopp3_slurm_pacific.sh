@@ -51,7 +51,7 @@ python scripts/swopp3_run.py \
 # ── Copy results back to /home ──
 HOME_OUTDIR="$HOME/routetools/output/swopp3_gpu"
 mkdir -p "$HOME_OUTDIR"
-cp -v "$OUTDIR"/* "$HOME_OUTDIR/"
+cp -rv "$OUTDIR"/* "$HOME_OUTDIR/"
 
 echo ""
 echo "Pacific completed at $(date)"
