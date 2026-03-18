@@ -292,7 +292,7 @@ def run_optimised_departure(
             )
 
         defaults = dict(
-            K=6,
+            K=10,
             L=n_points,
             curve0=gc_init,
             sigma0=0.1,
@@ -304,6 +304,7 @@ def run_optimised_departure(
             windfield=windfield,
             wavefield=wavefield,
             weather_penalty_weight=100.0,
+            weather_penalty_type="smooth",
             travel_time=travel_time,
             time_offset=departure_offset_h,
             # Smooth distance-to-land repulsion via EDT
