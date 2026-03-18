@@ -300,7 +300,7 @@ def simulate_fms_history(
         )
     )
 
-    for _ in range(frames):
+    for frame in range(frames):
         route_batch, info = optimize_fms(
             vectorfield=vectorfield,
             curve=route,
@@ -324,7 +324,7 @@ def simulate_fms_history(
             enforce_weather_limits=True,
             tws_limit=DEFAULT_TWS_LIMIT,
             hs_limit=DEFAULT_HS_LIMIT,
-            verbose=True,
+            verbose=False,
         )
         route = route_batch[0]
         total_niter += int(info["niter"])
@@ -346,6 +346,10 @@ def simulate_fms_history(
         )
         if cost_now >= previous_cost:
             break
+        print(
+            f"Frame {frame + 1}/{frames}: "
+            f"cost={cost_now:.3f}, max TWS={max_tws_now:.2f}, max Hs={max_hs_now:.2f}"
+        )
 
     return frames_out, sample_field_limits(
         windfield=windfield,
@@ -414,7 +418,7 @@ def render_animation(
     ax_limits = fig.add_subplot(grid[1, 1])
 
     contours = ax_route.contourf(xx, yy, hs, levels=12, cmap="Blues", alpha=0.85)
-    ax_route.quiver(xx, yy, u, v, color="#444444", alpha=0.7, scale=70)
+    ax_route.quiver(xx, yy, u, v, color="#444444", alpha=0.7, scale=SAFE_WIND_MAX * 20)
     fig.colorbar(contours, ax=ax_route, label="Hs [m] at mid-passage")
 
     initial_curve = history[0].curve
