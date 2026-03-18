@@ -19,11 +19,16 @@ import typer
 
 from routetools.cost import cost_function_rise
 from routetools.fms import optimize_fms
-from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT, evaluate_weather
+from routetools.weather import (
+    DEFAULT_HS_LIMIT,
+    DEFAULT_TWS_LIMIT,
+    evaluate_weather,
+    weather_penalty_smooth,
+)
 
-SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 1.1
-SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 1.1
-DEFAULT_INITIAL_NOISE_SCALE = 0.4
+SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 2.0
+SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 1.2
+DEFAULT_INITIAL_NOISE_SCALE = 0.2
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,33 @@ class FmsFrame:
     max_tws: float
     max_hs: float
     niter: int
+
+
+def _penalized_rise_cost(
+    curve: jnp.ndarray,
+    *,
+    windfield,
+    wavefield,
+    travel_time: float,
+    wps: bool = False,
+    time_offset: float = 0.0,
+) -> jnp.ndarray:
+    """Return the demo objective: RISE energy plus smooth weather penalty."""
+    return cost_function_rise(
+        curve=curve,
+        windfield=windfield,
+        wavefield=wavefield,
+        travel_time=travel_time,
+        wps=wps,
+        time_offset=time_offset,
+    ) + weather_penalty_smooth(
+        curve,
+        windfield=windfield,
+        wavefield=wavefield,
+        travel_time=travel_time,
+        spherical_correction=False,
+        time_offset=time_offset,
+    )
 
 
 def make_noisy_gc_curve(
@@ -217,8 +249,8 @@ def _route_metrics(
 ) -> tuple[float, float, float]:
     curve_batch = curve[None, ...]
     cost = float(
-        cost_function_rise(
-            curve=curve_batch,
+        _penalized_rise_cost(
+            curve_batch,
             windfield=windfield,
             wavefield=wavefield,
             travel_time=travel_time,
@@ -283,14 +315,16 @@ def simulate_fms_history(
     )
 
     def costfun(curve: jnp.ndarray, travel_time: float, **kwargs):
-        return cost_function_rise(
-            windfield=windfield,
+        return _penalized_rise_cost(
             curve=curve,
-            travel_time=travel_time,
+            windfield=windfield,
             wavefield=wavefield,
+            travel_time=travel_time,
             wps=wps,
+            time_offset=kwargs.get("time_offset", 0.0),
         )
 
+    n_patience = 0
     for frame in range(frames):
         route_batch, info = optimize_fms(
             vectorfield=windfield,
@@ -329,7 +363,13 @@ def simulate_fms_history(
             )
         )
         if cost_now >= previous_cost:
-            break
+            n_patience += 1
+            if n_patience >= patience:
+                print(
+                    f"Stopping early at frame {frame + 1} after {total_niter} FMS "
+                    f"evaluations: cost did not reduce relative to previous frame."
+                )
+                break
         print(
             f"Frame {frame + 1}/{frames}: "
             f"cost={cost_now:.3f}, max TWS={max_tws_now:.2f}, max Hs={max_hs_now:.2f}"
@@ -506,12 +546,12 @@ def render_animation(
 
 def main(
     output_path: Path = Path("output/fms_weather.gif"),
-    frames: int = 60,
+    frames: int = 200,
     step_fevals: int = 10,
-    num_points: int = 200,
+    num_points: int = 100,
     damping: float = 0.9,
     patience: int = 20,
-    travel_time: float = 60,
+    travel_time: float = 120,
     wps: bool = True,
     seed: int = 7,
     initial_noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
