@@ -21,9 +21,9 @@ from routetools.cost import cost_function_rise
 from routetools.fms import optimize_fms
 from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT, evaluate_weather
 
-SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 0.9
-SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 0.9
-DEFAULT_INITIAL_NOISE_SCALE = 0.2
+SAFE_WIND_MAX = DEFAULT_TWS_LIMIT
+SAFE_WAVE_MAX = DEFAULT_HS_LIMIT
+DEFAULT_INITIAL_NOISE_SCALE = 0.4
 
 
 def _rise_cost(
@@ -186,11 +186,8 @@ def make_safe_synthetic_wavefield(
         x = (lon - x_mid) / x_span
         y = (lat - y_mid) / y_span
         phase = 2.0 * jnp.pi * t / period
-        hs = (
-            1.8
-            + 0.7 * jnp.sin(0.6 * phase + 4.0 * x)
-            + 0.4 * jnp.cos(0.3 * phase - 3.0 * y)
-        )
+        center_bump = jnp.exp(-4.0 * (x**2 + y**2))
+        hs = 0.8 + SAFE_WAVE_MAX * center_bump * (0.75 + 0.25 * jnp.cos(0.4 * phase))
         hs = jnp.clip(hs, 0.0, SAFE_WAVE_MAX)
         mwd = jnp.mod(
             220.0
@@ -522,7 +519,7 @@ def render_animation(
 
 def main(
     output_path: Path = Path("output/fms_weather.gif"),
-    frames: int = 80,
+    frames: int = 100,
     step_fevals: int = 50,
     num_points: int = 100,
     damping: float = 0.9,
