@@ -18,7 +18,10 @@ set -euo pipefail
 
 # ── Environment ──
 export PATH="$HOME/.local/bin:$PATH"
-cd "$HOME/routetools"
+
+# Work from local SSD (staged by swopp3_slurm_stage.sh)
+SCRATCH="/scratch/${USER}/routetools"
+cd "$SCRATCH"
 source .venv/bin/activate
 
 # Force JAX to use CPU (avoid GPU OOM with large 0.125° grids)
@@ -80,5 +83,11 @@ echo "======================================"
 echo ""
 echo "Output files:"
 ls -lh "$OUTDIR"/*.csv 2>/dev/null || echo "(no CSV files found)"
+
+# ── Copy results back to /home ──
+HOME_OUTDIR="$HOME/routetools/output/swopp3_cpu"
+mkdir -p "$HOME_OUTDIR"
+cp -rv "$OUTDIR"/* "$HOME_OUTDIR/"
+
 echo ""
 echo "Done."

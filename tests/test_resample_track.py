@@ -43,10 +43,18 @@ def slerp(
 
     # To Cartesian unit vectors
     p1 = np.array(
-        [math.cos(phi1) * math.cos(lam1), math.cos(phi1) * math.sin(lam1), math.sin(phi1)]
+        [
+            math.cos(phi1) * math.cos(lam1),
+            math.cos(phi1) * math.sin(lam1),
+            math.sin(phi1),
+        ]
     )
     p2 = np.array(
-        [math.cos(phi2) * math.cos(lam2), math.cos(phi2) * math.sin(lam2), math.sin(phi2)]
+        [
+            math.cos(phi2) * math.cos(lam2),
+            math.cos(phi2) * math.sin(lam2),
+            math.sin(phi2),
+        ]
     )
 
     dot = float(np.clip(np.dot(p1, p2), -1.0, 1.0))
@@ -256,7 +264,7 @@ class TestResampleTrack:
             (t0 + timedelta(hours=583), 34.4, -121.0),
         ]
         result = resample_track(wps, dt_minutes=60)
-        for _, lat, lon in result:
+        for _, lat, _lon in result:
             assert -90 <= lat <= 90
 
 
@@ -482,16 +490,12 @@ def _evaluate_energy(
     bearing_deg = _np_forward_bearing_deg(lats[:-1], lons[:-1], lats[1:], lons[1:])
 
     # RISE power at segment start and end points
-    wind_from_s = np.mod(
-        180.0 + np.degrees(np.arctan2(u10[:-1], v10[:-1])), 360.0
-    )
+    wind_from_s = np.mod(180.0 + np.degrees(np.arctan2(u10[:-1], v10[:-1])), 360.0)
     twa_s = np.mod(wind_from_s - bearing_deg, 360.0)
     mwa_s = np.mod(mwd[:-1] - bearing_deg, 360.0)
     power_s = _rise_power_np(tws_all[:-1], twa_s, swh[:-1], mwa_s, v_mps, wps)
 
-    wind_from_e = np.mod(
-        180.0 + np.degrees(np.arctan2(u10[1:], v10[1:])), 360.0
-    )
+    wind_from_e = np.mod(180.0 + np.degrees(np.arctan2(u10[1:], v10[1:])), 360.0)
     twa_e = np.mod(wind_from_e - bearing_deg, 360.0)
     mwa_e = np.mod(mwd[1:] - bearing_deg, 360.0)
     power_e = _rise_power_np(tws_all[1:], twa_e, swh[1:], mwa_e, v_mps, wps)
@@ -534,8 +538,11 @@ class TestConvergence:
         for dt_min in dt_values:
             resampled = resample_track(reference_track, dt_minutes=dt_min)
             e = _evaluate_energy(
-                resampled, _PASSAGE_HOURS, wps=True,
-                wind_grid=wind_grid, wave_grid=wave_grid,
+                resampled,
+                _PASSAGE_HOURS,
+                wps=True,
+                wind_grid=wind_grid,
+                wave_grid=wave_grid,
             )
             energies[dt_min] = e
 
@@ -552,9 +559,9 @@ class TestConvergence:
         # Energy values should stabilize: total spread < 0.5%
         all_e = list(energies.values())
         pct_range = (max(all_e) - min(all_e)) / np.mean(all_e) * 100
-        assert pct_range < 0.5, (
-            f"Energy spread {pct_range:.2f}% exceeds 0.5% across resolutions"
-        )
+        assert (
+            pct_range < 0.5
+        ), f"Energy spread {pct_range:.2f}% exceeds 0.5% across resolutions"
 
         # At dt=15min and dt=5min, energy should agree within 2%
         ref = energies[5]
@@ -570,8 +577,11 @@ class TestConvergence:
         for dt_min in dt_values:
             resampled = resample_track(reference_track, dt_minutes=dt_min)
             e = _evaluate_energy(
-                resampled, _PASSAGE_HOURS, wps=False,
-                wind_grid=wind_grid, wave_grid=wave_grid,
+                resampled,
+                _PASSAGE_HOURS,
+                wps=False,
+                wind_grid=wind_grid,
+                wave_grid=wave_grid,
             )
             energies[dt_min] = e
 
@@ -605,8 +615,11 @@ class TestInvariance:
 
         ref_resampled = resample_track(reference_track, dt_minutes=15)
         ref_energy = _evaluate_energy(
-            ref_resampled, _PASSAGE_HOURS, wps=False,
-            wind_grid=wind_grid, wave_grid=wave_grid,
+            ref_resampled,
+            _PASSAGE_HOURS,
+            wps=False,
+            wind_grid=wind_grid,
+            wave_grid=wave_grid,
         )
 
         factors = [12, 6, 3]  # → ~49, ~97, ~195 waypoints
@@ -616,8 +629,11 @@ class TestInvariance:
             sparse = _downsample_waypoints(reference_track, factor)
             resampled = resample_track(sparse, dt_minutes=15)
             e = _evaluate_energy(
-                resampled, _PASSAGE_HOURS, wps=False,
-                wind_grid=wind_grid, wave_grid=wave_grid,
+                resampled,
+                _PASSAGE_HOURS,
+                wps=False,
+                wind_grid=wind_grid,
+                wave_grid=wave_grid,
             )
             energies[f"L≈{len(sparse)}"] = e
 
@@ -638,8 +654,11 @@ class TestInvariance:
 
         ref_resampled = resample_track(reference_track, dt_minutes=15)
         ref_energy = _evaluate_energy(
-            ref_resampled, _PASSAGE_HOURS, wps=True,
-            wind_grid=wind_grid, wave_grid=wave_grid,
+            ref_resampled,
+            _PASSAGE_HOURS,
+            wps=True,
+            wind_grid=wind_grid,
+            wave_grid=wave_grid,
         )
 
         factors = [12, 6, 3]
@@ -649,8 +668,11 @@ class TestInvariance:
             sparse = _downsample_waypoints(reference_track, factor)
             resampled = resample_track(sparse, dt_minutes=15)
             e = _evaluate_energy(
-                resampled, _PASSAGE_HOURS, wps=True,
-                wind_grid=wind_grid, wave_grid=wave_grid,
+                resampled,
+                _PASSAGE_HOURS,
+                wps=True,
+                wind_grid=wind_grid,
+                wave_grid=wave_grid,
             )
             energies[f"L≈{len(sparse)}"] = e
 
