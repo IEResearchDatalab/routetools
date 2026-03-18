@@ -17,13 +17,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 import typer
 
-from routetools.cost import cost_function
+from routetools.cost import cost_function_rise
 from routetools.fms import optimize_fms
 from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT, evaluate_weather
 
 SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 0.9
 SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 0.9
 DEFAULT_INITIAL_NOISE_SCALE = 0.2
+
+
+def _rise_cost(
+    curve: jnp.ndarray,
+    *,
+    windfield,
+    wavefield,
+    travel_time: float,
+    time_offset: float = 0.0,
+) -> jnp.ndarray:
+    return cost_function_rise(
+        windfield=windfield,
+        curve=curve,
+        travel_time=travel_time,
+        wavefield=wavefield,
+        wps=False,
+        time_offset=time_offset,
+    )
 
 
 @dataclass(frozen=True)
@@ -213,19 +231,17 @@ def sample_field_limits(
 def _route_metrics(
     curve: jnp.ndarray,
     *,
-    vectorfield,
     windfield,
     wavefield,
     travel_time: float,
 ) -> tuple[float, float, float]:
     curve_batch = curve[None, ...]
     cost = float(
-        cost_function(
-            vectorfield=vectorfield,
-            curve=curve_batch,
+        _rise_cost(
+            curve_batch,
+            windfield=windfield,
             wavefield=wavefield,
             travel_time=travel_time,
-            spherical_correction=False,
         )[0]
     )
     weather = evaluate_weather(
@@ -270,7 +286,6 @@ def simulate_fms_history(
 
     cost0, max_tws0, max_hs0 = _route_metrics(
         route,
-        vectorfield=vectorfield,
         windfield=windfield,
         wavefield=wavefield,
         travel_time=travel_time,
@@ -291,6 +306,16 @@ def simulate_fms_history(
             curve=route,
             windfield=windfield,
             wavefield=wavefield,
+            costfun=lambda curve,
+            travel_time=None,
+            time_offset=0.0,
+            **kwargs: _rise_cost(
+                curve,
+                windfield=windfield,
+                wavefield=wavefield,
+                travel_time=travel_time,
+                time_offset=time_offset,
+            ),
             travel_time=travel_time,
             damping=damping,
             patience=patience,
@@ -305,7 +330,6 @@ def simulate_fms_history(
         total_niter += int(info["niter"])
         cost_now, max_tws_now, max_hs_now = _route_metrics(
             route,
-            vectorfield=vectorfield,
             windfield=windfield,
             wavefield=wavefield,
             travel_time=travel_time,
