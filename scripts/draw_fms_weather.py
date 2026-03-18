@@ -325,6 +325,7 @@ def simulate_fms_history(
         )
 
     n_patience = 0
+    best_cost = cost0
     for frame in range(frames):
         route_batch, info = optimize_fms(
             vectorfield=windfield,
@@ -338,7 +339,7 @@ def simulate_fms_history(
             patience=patience,
             maxfevals=step_fevals,
             spherical_correction=False,
-            enforce_weather_limits=True,
+            enforce_weather_limits=False,
             tws_limit=DEFAULT_TWS_LIMIT,
             hs_limit=DEFAULT_HS_LIMIT,
             verbose=False,
@@ -352,7 +353,7 @@ def simulate_fms_history(
             travel_time=travel_time,
             wps=wps,
         )
-        previous_cost = frames_out[-1].cost
+        best_cost = min(frames_out[-1].cost, best_cost)
         frames_out.append(
             FmsFrame(
                 curve=np.asarray(route),
@@ -362,7 +363,7 @@ def simulate_fms_history(
                 niter=total_niter,
             )
         )
-        if cost_now >= previous_cost:
+        if cost_now >= best_cost:
             n_patience += 1
             if n_patience >= patience:
                 print(
@@ -547,7 +548,7 @@ def render_animation(
 def main(
     output_path: Path = Path("output/fms_weather.gif"),
     frames: int = 200,
-    step_fevals: int = 10,
+    step_fevals: int = 5,
     num_points: int = 100,
     damping: float = 0.9,
     patience: int = 20,
