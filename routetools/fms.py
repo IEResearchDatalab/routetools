@@ -534,6 +534,9 @@ def optimize_fms(
 
     jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=(0))
 
+    # Compute the average distance between points to set the step size limit for updates
+    q_max = jnp.mean(jnp.linalg.norm(curve[:, 1:] - curve[:, :-1], axis=-1))
+
     @jit  # type: ignore[misc]
     def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
         curve_new = jnp.copy(curve)
@@ -544,7 +547,11 @@ def optimize_fms(
             segment_time_offsets[:-1],
             segment_time_offsets[1:],
         )
-        return curve_new.at[1:-1].set((1 - damping) * q + curve[1:-1])
+        dq = (1 - damping) * q
+        # Clip the updates to prevent divergence, especially in the early iterations
+        # when the route may be far from optimal and the cost landscape can be steep.
+        dq = jnp.clip(dq, -q_max, q_max)
+        return curve_new.at[1:-1].set(dq + curve[1:-1])
 
     solve_vectorized: Callable[[jnp.ndarray], jnp.ndarray] = vmap(
         solve_equation, in_axes=(0), out_axes=(0)
