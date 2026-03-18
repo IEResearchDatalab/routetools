@@ -26,9 +26,9 @@ from routetools.weather import (
     weather_penalty_smooth,
 )
 
-SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 2.0
-SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 1.2
-DEFAULT_INITIAL_NOISE_SCALE = 0.2
+SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 1.3
+SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 1.1
+DEFAULT_INITIAL_NOISE_SCALE = 0.0
 
 
 @dataclass(frozen=True)
@@ -75,7 +75,7 @@ def make_noisy_gc_curve(
     *,
     num_points: int,
     seed: int,
-    noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
+    noise_scale: float | None = None,
     mode_count: int = 3,
 ) -> jnp.ndarray:
     """Return a baseline with smooth noise plus loop-like perturbations.
@@ -86,6 +86,9 @@ def make_noisy_gc_curve(
     """
     if num_points < 2:
         raise ValueError(f"num_points must be at least 2, got {num_points}")
+
+    if noise_scale is None:
+        noise_scale = DEFAULT_INITIAL_NOISE_SCALE
 
     tau = jnp.linspace(0.0, 1.0, num_points, dtype=jnp.float32)
     baseline = src[None, :] + tau[:, None] * (dst - src)[None, :]
@@ -280,10 +283,13 @@ def simulate_fms_history(
     patience: int = 20,
     travel_time: float = 120,
     seed: int = 7,
-    initial_noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
+    initial_noise_scale: float | None = None,
     wps: bool = False,
 ) -> tuple[list[FmsFrame], dict[str, float]]:
     """Run FMS in small steps and collect route snapshots for animation."""
+    if initial_noise_scale is None:
+        initial_noise_scale = DEFAULT_INITIAL_NOISE_SCALE
+
     windfield = make_safe_synthetic_windfield(xlim, ylim, period=travel_time)
     wavefield = make_safe_synthetic_wavefield(xlim, ylim, period=travel_time)
 
@@ -547,15 +553,15 @@ def render_animation(
 
 def main(
     output_path: Path = Path("output/fms_weather.gif"),
-    frames: int = 200,
-    step_fevals: int = 5,
+    frames: int = 80,
+    step_fevals: int = 50,
     num_points: int = 100,
     damping: float = 0.9,
     patience: int = 20,
-    travel_time: float = 120,
+    travel_time: float = 40,
     wps: bool = True,
     seed: int = 7,
-    initial_noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
+    initial_noise_scale: float | None = None,
     fps: int = 10,
     grid_size: int = 21,
 ) -> None:
