@@ -497,7 +497,7 @@ def main(
     frames: int = 80,
     step_fevals: int = 5,
     num_points: int = 200,
-    damping: float = 0.1,
+    damping: float = 0.9,
     patience: int = 20,
     travel_time: float = 12.0,
     seed: int = 7,

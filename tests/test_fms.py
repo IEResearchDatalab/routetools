@@ -95,6 +95,29 @@ class TestOptimizeFmsWeatherLimits:
 
         assert info["niter"] <= 5
 
+    def test_custom_costfun_can_capture_fields_internally(self):
+        """Custom FMS cost closures should work without vectorfield injection."""
+        src = jnp.array([0.0, 0.0])
+        dst = jnp.array([6.0, 2.0])
+
+        def custom_cost(curve):
+            return jnp.sum((curve[:, 1:, :] - curve[:, :-1, :]) ** 2, axis=(1, 2))
+
+        _, info = optimize_fms(
+            vectorfield_fourvortices,
+            src=src,
+            dst=dst,
+            num_curves=1,
+            num_points=10,
+            travel_time=5.0,
+            maxfevals=2,
+            patience=2,
+            verbose=False,
+            costfun=custom_cost,
+        )
+
+        assert info["niter"] <= 2
+
 
 class TestFmsConvergence:
     def test_sinusoid_converges_to_straight_line(self):

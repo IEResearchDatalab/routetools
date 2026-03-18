@@ -1,6 +1,7 @@
+import inspect
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -18,6 +19,24 @@ from routetools.weather import (
 from routetools.weather import (
     weather_penalty as _weather_penalty,
 )
+
+
+class FmsCustomCostPositional(Protocol):
+    """Custom FMS cost that takes the curve as a positional argument."""
+
+    def __call__(self, curve: jnp.ndarray, /, **kwargs: Any) -> jnp.ndarray:
+        """Evaluate a batch of routes."""
+
+
+class FmsCustomCostKeyword(Protocol):
+    """Custom FMS cost that takes the curve as a keyword argument."""
+
+    def __call__(self, *, curve: jnp.ndarray, **kwargs: Any) -> jnp.ndarray:
+        """Evaluate a batch of routes."""
+
+
+type FmsCustomCostFunction = FmsCustomCostPositional | FmsCustomCostKeyword
+type FmsCostFunction = Callable[..., jnp.ndarray] | FmsCustomCostFunction
 
 
 def _weather_violation_mask(
@@ -205,7 +224,7 @@ def optimize_fms(
     weight_l1: float = 1.0,
     weight_l2: float = 0.0,
     spherical_correction: bool = False,
-    costfun: Callable | None = None,
+    costfun: FmsCostFunction | None = None,
     seed: int = 0,
     verbose: bool = True,
     time_offset: float = 0.0,
@@ -255,9 +274,22 @@ def optimize_fms(
         Weight for the L2 norm in the combined cost. Default is 0.0.
     spherical_correction : bool, optional
         Whether to apply spherical correction, by default False
-    costfun : Callable | None, optional
-        Custom cost function used by FMS for both motion and best-route
-        tracking, by default None.
+    costfun : FmsCostFunction | None, optional
+        Cost function used by FMS for both motion and best-route tracking.
+
+        Two modes are supported.
+
+        1. ``None`` or ``routetools.cost.cost_function``:
+           FMS uses the built-in default cost and injects ``vectorfield``,
+           ``wavefield``, travel parameters, weights, and spherical correction.
+
+        2. Custom closure, like CMA-ES ``cost_fn``:
+           the closure must capture any required vector, wind, or wave fields
+           internally. FMS only forwards the route plus generic travel context,
+           namely ``travel_stw``, ``travel_time``, ``weight_l1``,
+           ``weight_l2``, ``spherical_correction``, and ``time_offset``.
+           The route may be accepted either positionally
+           (``costfun(curve, ...)``) or by keyword (``costfun(curve=..., ...)``).
     seed : int, optional
         Random seed for reproducibility, by default 0
     verbose : bool, optional
@@ -307,28 +339,75 @@ def optimize_fms(
                 "Please provide a valid curve for FMS."
             )
 
-    # Define cost function
-    if costfun is None:
-        costfun = cost_function
+    # Normalize costfun to the internal call signature used by _evaluate_cost.
+    user_costfun = cost_function if costfun is None else costfun
+    use_builtin_costfun = user_costfun is cost_function
 
-    def _evaluate_cost(
-        curve_eval: jnp.ndarray,
-        *,
-        travel_stw_eval: float | None = None,
-        travel_time_eval: float | None = None,
-        time_offset_eval: float = 0.0,
-    ) -> jnp.ndarray:
-        return costfun(
-            vectorfield=vectorfield,
-            curve=curve_eval,
-            wavefield=wavefield,
-            travel_stw=travel_stw_eval,
-            travel_time=travel_time_eval,
-            weight_l1=weight_l1,
-            weight_l2=weight_l2,
-            spherical_correction=spherical_correction,
-            time_offset=time_offset_eval,
-        )
+    custom_cost_signature: inspect.Signature | None = None
+    custom_cost_accepts_kwargs = False
+    custom_cost_accepts_curve_keyword = False
+    custom_cost_parameter_names: set[str] = set()
+    if not use_builtin_costfun:
+        try:
+            custom_cost_signature = inspect.signature(user_costfun)
+        except (TypeError, ValueError):
+            custom_cost_signature = None
+        if custom_cost_signature is not None:
+            custom_cost_parameter_names = set(custom_cost_signature.parameters)
+            custom_cost_accepts_kwargs = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in custom_cost_signature.parameters.values()
+            )
+            custom_cost_accepts_curve_keyword = (
+                "curve" in custom_cost_parameter_names or custom_cost_accepts_kwargs
+            )
+
+    if use_builtin_costfun:
+
+        def _evaluate_cost(
+            curve_eval: jnp.ndarray,
+            *,
+            travel_stw_eval: float | None = None,
+            travel_time_eval: float | None = None,
+            time_offset_eval: float = 0.0,
+        ) -> jnp.ndarray:
+            return user_costfun(
+                vectorfield=vectorfield,
+                curve=curve_eval,
+                wavefield=wavefield,
+                travel_stw=travel_stw_eval,
+                travel_time=travel_time_eval,
+                weight_l1=weight_l1,
+                weight_l2=weight_l2,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset_eval,
+            )
+    else:
+
+        def _evaluate_cost(
+            curve_eval: jnp.ndarray,
+            *,
+            travel_stw_eval: float | None = None,
+            travel_time_eval: float | None = None,
+            time_offset_eval: float = 0.0,
+        ) -> jnp.ndarray:
+            cost_kwargs = {
+                "travel_stw": travel_stw_eval,
+                "travel_time": travel_time_eval,
+                "weight_l1": weight_l1,
+                "weight_l2": weight_l2,
+                "spherical_correction": spherical_correction,
+                "time_offset": time_offset_eval,
+            }
+            if not custom_cost_accepts_kwargs:
+                cost_kwargs = {
+                    name: value
+                    for name, value in cost_kwargs.items()
+                    if name in custom_cost_parameter_names
+                }
+            if custom_cost_accepts_curve_keyword:
+                return user_costfun(curve=curve_eval, **cost_kwargs)
+            return user_costfun(curve_eval, **cost_kwargs)
 
     # Initialize lagrangians
     if travel_stw is not None:

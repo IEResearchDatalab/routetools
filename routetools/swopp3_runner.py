@@ -317,14 +317,20 @@ def run_optimised_departure(
                 time_offset=departure_offset_h,
             )
 
-        def _rise_fms_cost(*, curve: jnp.ndarray, travel_time: float, **kwargs):
+        def _rise_fms_cost(
+            *,
+            curve: jnp.ndarray,
+            travel_time: float,
+            time_offset: float = departure_offset_h,
+            **kwargs,
+        ):
             return cost_function_rise(
                 windfield=windfield,
                 curve=curve,
                 travel_time=travel_time,
-                wavefield=kwargs.get("wavefield"),
+                wavefield=wavefield,
                 wps=_wps,
-                time_offset=kwargs.get("time_offset", departure_offset_h),
+                time_offset=time_offset,
             )
 
         defaults_cmaes = dict(

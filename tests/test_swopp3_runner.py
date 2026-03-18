@@ -295,9 +295,7 @@ class TestRunOptimisedDeparture:
             cast_calls.append("fms")
             captured["fms_time_offset"] = time_offset
             _ = costfun(
-                vectorfield=vectorfield,
                 curve=curve[None, ...],
-                wavefield=wavefield,
                 travel_time=travel_time,
                 time_offset=time_offset,
             )
@@ -455,7 +453,6 @@ class TestRunOptimisedDeparture:
             captured["spherical_correction"] = spherical_correction
             _ = costfun(
                 curve=curve[None, ...],
-                wavefield=wavefield,
                 travel_time=travel_time,
                 time_offset=time_offset,
             )
