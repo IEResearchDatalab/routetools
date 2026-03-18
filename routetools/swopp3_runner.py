@@ -405,7 +405,7 @@ def run_optimised_departure(
             enforce_weather_limits=weather_penalty_weight > 0,
             tws_limit=tws_limit,
             hs_limit=hs_limit,
-            eval_costfun=_rise_fms_cost,
+            costfun=_rise_fms_cost,
             **defaults_fms,
         )
         curve_fms = curve_fms[0]

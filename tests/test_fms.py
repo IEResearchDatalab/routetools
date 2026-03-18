@@ -73,35 +73,6 @@ class TestOptimizeFmsWeatherLimits:
             "Early-stop fired before maxfevals — stagnation counter is wrong."
         )
 
-    def test_eval_costfun_used_for_cost_best(self):
-        """When eval_costfun is provided, cost_best reflects eval_costfun output."""
-        src = jnp.array([0.0, 0.0])
-        dst = jnp.array([6.0, 2.0])
-
-        sentinel = 42.0
-
-        def fixed_eval_costfun(**kwargs):
-            """Always returns a fixed sentinel value regardless of the route."""
-            curve = kwargs["curve"]
-            return jnp.full((curve.shape[0],), sentinel)
-
-        _, info = optimize_fms(
-            vectorfield_fourvortices,
-            src=src,
-            dst=dst,
-            num_curves=1,
-            num_points=10,
-            travel_time=5.0,
-            maxfevals=5,
-            patience=3,
-            verbose=False,
-            eval_costfun=fixed_eval_costfun,
-        )
-
-        # cost_best must come from eval_costfun (sentinel=42.0), not the
-        # default physics cost (which would be an entirely different value).
-        assert info["cost"][0] == pytest.approx(sentinel)
-
     @pytest.mark.parametrize("enforce", [False, True])
     def test_fms_runs_without_weather_fields(self, enforce):
         """optimize_fms must not raise when enforce_weather_limits=True but no

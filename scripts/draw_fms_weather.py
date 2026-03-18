@@ -299,7 +299,6 @@ def simulate_fms_history(
             enforce_weather_limits=True,
             tws_limit=DEFAULT_TWS_LIMIT,
             hs_limit=DEFAULT_HS_LIMIT,
-            eval_costfun=cost_function,
             verbose=True,
         )
         route = route_batch[0]
