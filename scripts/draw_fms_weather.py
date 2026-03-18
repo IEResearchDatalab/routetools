@@ -246,7 +246,7 @@ def simulate_fms_history(
     step_fevals: int = 1,
     damping: float = 0.1,
     patience: int = 20,
-    travel_time: float = 12.0,
+    travel_time: float = 120,
     seed: int = 7,
     initial_noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
     wps: bool = False,
@@ -282,7 +282,7 @@ def simulate_fms_history(
         )
     )
 
-    def costfun(curve, **kwargs):
+    def costfun(curve: jnp.ndarray, travel_time: float, **kwargs):
         return cost_function_rise(
             windfield=windfield,
             curve=curve,
@@ -511,7 +511,7 @@ def main(
     num_points: int = 100,
     damping: float = 0.9,
     patience: int = 20,
-    travel_time: float = 12.0,
+    travel_time: float = 120,
     wps: bool = True,
     seed: int = 7,
     initial_noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
