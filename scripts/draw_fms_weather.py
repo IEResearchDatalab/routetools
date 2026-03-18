@@ -26,25 +26,6 @@ SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 1.1
 DEFAULT_INITIAL_NOISE_SCALE = 0.4
 
 
-def _rise_cost(
-    curve: jnp.ndarray,
-    *,
-    windfield,
-    wavefield,
-    travel_time: float,
-    time_offset: float = 0.0,
-    wps: bool = False,
-) -> jnp.ndarray:
-    return cost_function_rise(
-        windfield=windfield,
-        curve=curve,
-        travel_time=travel_time,
-        wavefield=wavefield,
-        wps=wps,
-        time_offset=time_offset,
-    )
-
-
 @dataclass(frozen=True)
 class FmsFrame:
     """Single animation frame for the synthetic FMS run."""
@@ -236,8 +217,8 @@ def _route_metrics(
 ) -> tuple[float, float, float]:
     curve_batch = curve[None, ...]
     cost = float(
-        _rise_cost(
-            curve_batch,
+        cost_function_rise(
+            curve=curve_batch,
             windfield=windfield,
             wavefield=wavefield,
             travel_time=travel_time,
@@ -271,8 +252,7 @@ def simulate_fms_history(
     wps: bool = False,
 ) -> tuple[list[FmsFrame], dict[str, float]]:
     """Run FMS in small steps and collect route snapshots for animation."""
-    vectorfield = make_safe_synthetic_windfield(xlim, ylim, period=travel_time)
-    windfield = vectorfield
+    windfield = make_safe_synthetic_windfield(xlim, ylim, period=travel_time)
     wavefield = make_safe_synthetic_wavefield(xlim, ylim, period=travel_time)
 
     route = make_noisy_gc_curve(
@@ -302,24 +282,24 @@ def simulate_fms_history(
         )
     )
 
+    def costfun(curve, **kwargs):
+        return cost_function_rise(
+            windfield=windfield,
+            curve=curve,
+            travel_time=travel_time,
+            wavefield=wavefield,
+            wps=wps,
+        )
+
     for frame in range(frames):
         route_batch, info = optimize_fms(
-            vectorfield=vectorfield,
+            vectorfield=windfield,
             curve=route,
             windfield=windfield,
             wavefield=wavefield,
-            costfun=lambda curve,
-            travel_time=None,
-            time_offset=0.0,
-            **kwargs: _rise_cost(
-                curve,
-                windfield=windfield,
-                wavefield=wavefield,
-                travel_time=travel_time,
-                time_offset=time_offset,
-                wps=wps,
-            ),
+            costfun=costfun,
             travel_time=travel_time,
+            travel_stw=None,
             damping=damping,
             patience=patience,
             maxfevals=step_fevals,
@@ -526,7 +506,7 @@ def render_animation(
 
 def main(
     output_path: Path = Path("output/fms_weather.gif"),
-    frames: int = 80,
+    frames: int = 60,
     step_fevals: int = 50,
     num_points: int = 100,
     damping: float = 0.9,
