@@ -21,7 +21,7 @@ from routetools.cost import cost_function_rise
 from routetools.fms import optimize_fms
 from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT, evaluate_weather
 
-SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 1.5
+SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 1.1
 SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 1.1
 DEFAULT_INITIAL_NOISE_SCALE = 0.4
 
@@ -507,11 +507,11 @@ def render_animation(
 def main(
     output_path: Path = Path("output/fms_weather.gif"),
     frames: int = 60,
-    step_fevals: int = 50,
-    num_points: int = 100,
+    step_fevals: int = 10,
+    num_points: int = 200,
     damping: float = 0.9,
     patience: int = 20,
-    travel_time: float = 120,
+    travel_time: float = 60,
     wps: bool = True,
     seed: int = 7,
     initial_noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
