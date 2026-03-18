@@ -21,8 +21,8 @@ from routetools.cost import cost_function_rise
 from routetools.fms import optimize_fms
 from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT, evaluate_weather
 
-SAFE_WIND_MAX = DEFAULT_TWS_LIMIT
-SAFE_WAVE_MAX = DEFAULT_HS_LIMIT
+SAFE_WIND_MAX = DEFAULT_TWS_LIMIT * 1.5
+SAFE_WAVE_MAX = DEFAULT_HS_LIMIT * 1.1
 DEFAULT_INITIAL_NOISE_SCALE = 0.4
 
 
@@ -33,13 +33,14 @@ def _rise_cost(
     wavefield,
     travel_time: float,
     time_offset: float = 0.0,
+    wps: bool = False,
 ) -> jnp.ndarray:
     return cost_function_rise(
         windfield=windfield,
         curve=curve,
         travel_time=travel_time,
         wavefield=wavefield,
-        wps=False,
+        wps=wps,
         time_offset=time_offset,
     )
 
@@ -231,6 +232,7 @@ def _route_metrics(
     windfield,
     wavefield,
     travel_time: float,
+    wps: bool = False,
 ) -> tuple[float, float, float]:
     curve_batch = curve[None, ...]
     cost = float(
@@ -239,6 +241,7 @@ def _route_metrics(
             windfield=windfield,
             wavefield=wavefield,
             travel_time=travel_time,
+            wps=wps,
         )[0]
     )
     weather = evaluate_weather(
@@ -265,6 +268,7 @@ def simulate_fms_history(
     travel_time: float = 12.0,
     seed: int = 7,
     initial_noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
+    wps: bool = False,
 ) -> tuple[list[FmsFrame], dict[str, float]]:
     """Run FMS in small steps and collect route snapshots for animation."""
     vectorfield = make_safe_synthetic_windfield(xlim, ylim, period=travel_time)
@@ -286,6 +290,7 @@ def simulate_fms_history(
         windfield=windfield,
         wavefield=wavefield,
         travel_time=travel_time,
+        wps=wps,
     )
     frames_out.append(
         FmsFrame(
@@ -312,6 +317,7 @@ def simulate_fms_history(
                 wavefield=wavefield,
                 travel_time=travel_time,
                 time_offset=time_offset,
+                wps=wps,
             ),
             travel_time=travel_time,
             damping=damping,
@@ -330,6 +336,7 @@ def simulate_fms_history(
             windfield=windfield,
             wavefield=wavefield,
             travel_time=travel_time,
+            wps=wps,
         )
         previous_cost = frames_out[-1].cost
         frames_out.append(
@@ -519,13 +526,14 @@ def render_animation(
 
 def main(
     output_path: Path = Path("output/fms_weather.gif"),
-    frames: int = 100,
+    frames: int = 80,
     step_fevals: int = 50,
     num_points: int = 100,
     damping: float = 0.9,
     patience: int = 20,
     travel_time: float = 12.0,
-    seed: int = 14,
+    wps: bool = True,
+    seed: int = 7,
     initial_noise_scale: float = DEFAULT_INITIAL_NOISE_SCALE,
     fps: int = 10,
     grid_size: int = 21,
@@ -549,6 +557,7 @@ def main(
         travel_time=travel_time,
         seed=seed,
         initial_noise_scale=initial_noise_scale,
+        wps=wps,
     )
     render_animation(
         history=history,
