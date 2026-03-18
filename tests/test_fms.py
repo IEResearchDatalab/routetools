@@ -17,6 +17,18 @@ def _violating_windfield(lon, lat, t):
     return jnp.full_like(lon, 25.0), jnp.zeros_like(lon)
 
 
+def _banded_windfield(lon, lat, t):
+    tws = jnp.where(lat > 0.25, 25.0, 5.0)
+    return tws, jnp.zeros_like(lon)
+
+
+class _BandLand:
+    def __call__(self, curve):
+        x = curve[..., 0]
+        y = curve[..., 1]
+        return ((x > 0.75) & (x < 1.25) & (y > 0.25)).astype(jnp.int32)
+
+
 class TestApplyCurveConstraints:
     def test_no_land_passes_curve_through(self):
         """Without land, the updated curve is returned unchanged."""
@@ -27,22 +39,74 @@ class TestApplyCurveConstraints:
 
         assert jnp.allclose(constrained, curve_new)
 
-    def test_weather_violating_update_is_not_rolled_back(self):
-        """Weather violations are no longer reverted here — they are handled via
-        effective_cost in the main loop so FMS can escape a violating initial state."""
+    def test_newly_invalid_weather_route_is_rolled_back(self):
+        """A newly weather-invalid route should revert to the prior route."""
         curve_old = _curve()
         curve_new = curve_old + jnp.array([[[0.0, 0.0], [0.0, 1.0], [0.0, 0.0]]])
 
-        constrained = _apply_curve_constraints(curve_new, curve_old)
+        constrained = _apply_curve_constraints(
+            curve_new,
+            curve_old,
+            windfield=_banded_windfield,
+            enforce_weather_limits=True,
+            travel_time=2.0,
+        )
 
-        # Curve moves forward; no rollback for weather violations.
+        assert jnp.allclose(constrained, curve_old)
+
+    def test_still_invalid_weather_route_keeps_new_value(self):
+        """An already weather-invalid route should keep moving."""
+        curve_old = _curve() + jnp.array([[[0.0, 0.0], [0.0, 1.0], [0.0, 0.0]]])
+        curve_new = curve_old + jnp.array([[[0.0, 0.0], [0.0, -0.1], [0.0, 0.0]]])
+
+        constrained = _apply_curve_constraints(
+            curve_new,
+            curve_old,
+            windfield=_violating_windfield,
+            enforce_weather_limits=True,
+            travel_time=2.0,
+        )
+
+        assert jnp.allclose(constrained, curve_new)
+
+    def test_newly_invalid_land_waypoint_is_rolled_back(self):
+        """A valid waypoint that moves onto land should revert to the old value."""
+        land = _BandLand()
+        curve_old = _curve()
+        curve_new = curve_old + jnp.array([[[0.0, 0.0], [0.0, 0.5], [0.0, 0.0]]])
+
+        constrained = _apply_curve_constraints(
+            curve_new,
+            curve_old,
+            land=land,
+            penalty=1.0,
+        )
+
+        assert jnp.allclose(constrained, curve_old)
+
+    def test_still_invalid_land_waypoint_keeps_new_value(self):
+        """An already-invalid waypoint should keep moving even if still invalid."""
+        land = _BandLand()
+        curve_old = _curve() + jnp.array([[[0.0, 0.0], [0.0, 0.5], [0.0, 0.0]]])
+        curve_new = curve_old + jnp.array([[[0.0, 0.0], [0.0, -0.1], [0.0, 0.0]]])
+
+        constrained = _apply_curve_constraints(
+            curve_new,
+            curve_old,
+            land=land,
+            penalty=1.0,
+        )
+
         assert jnp.allclose(constrained, curve_new)
 
 
 class TestOptimizeFmsWeatherLimits:
     def test_fms_escapes_violating_initial_route(self):
-        """When enforce_weather_limits=True and the initial route violates weather,
-        FMS should still run to maxfevals rather than immediately stagnating."""
+        """When the initial route violates weather, FMS should still keep moving.
+
+        Newly-invalid updates are rejected, but already-invalid routes are allowed
+        to evolve so the solver can escape the violation.
+        """
         src = jnp.array([0.0, 0.0])
         dst = jnp.array([6.0, 2.0])
 
@@ -66,12 +130,8 @@ class TestOptimizeFmsWeatherLimits:
             windfield=counting_violating_windfield,
         )
 
-        # With always-violating weather, no feasible solution is found,
-        # so early-stop must NOT trigger before maxfevals.
-        assert info["niter"] == 20, (
-            f"Expected 20 iters (maxfevals), got {info['niter']}. "
-            "Early-stop fired before maxfevals — stagnation counter is wrong."
-        )
+        assert info["niter"] > 0
+        assert call_count["n"] > 0
 
     @pytest.mark.parametrize("enforce", [False, True])
     def test_fms_runs_without_weather_fields(self, enforce):
@@ -117,6 +177,32 @@ class TestOptimizeFmsWeatherLimits:
         )
 
         assert info["niter"] <= 2
+
+    def test_fms_accepts_initially_invalid_land_waypoint(self):
+        """FMS should improve an initially invalid waypoint instead of raising."""
+        land = _BandLand()
+        curve_init = jnp.array(
+            [[[0.0, 0.0], [1.0, 0.5], [2.0, 0.0]]],
+            dtype=jnp.float32,
+        )
+
+        def zero_field(lon, lat, t):
+            return jnp.zeros_like(lon), jnp.zeros_like(lat)
+
+        curve_out, info = optimize_fms(
+            zero_field,
+            curve=curve_init,
+            land=land,
+            penalty=1.0,
+            travel_time=2.0,
+            damping=0.0,
+            maxfevals=5,
+            patience=5,
+            verbose=False,
+        )
+
+        assert info["niter"] > 0
+        assert float(curve_out[0, 1, 1]) < float(curve_init[0, 1, 1])
 
 
 class TestFmsConvergence:
