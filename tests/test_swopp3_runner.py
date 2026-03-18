@@ -230,6 +230,18 @@ class TestRunOptimisedDeparture:
             captured["windfield"] = windfield
             return jnp.zeros(curve.shape[0], dtype=jnp.float32)
 
+        def fake_weather_penalty_smooth(
+            curve,
+            *,
+            windfield,
+            wavefield,
+            travel_time,
+            spherical_correction,
+            time_offset,
+        ):
+            captured["penalty_windfield"] = windfield
+            return jnp.zeros(curve.shape[0], dtype=jnp.float32)
+
         def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
             # Force one evaluation of the injected cost closure.
             _ = kwargs["cost_fn"](jnp.zeros((1, kwargs["L"], 2), dtype=jnp.float32))
@@ -238,6 +250,10 @@ class TestRunOptimisedDeparture:
         monkeypatch.setattr(
             "routetools.cost.cost_function_rise",
             fake_cost_function_rise,
+        )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.weather_penalty_smooth",
+            fake_weather_penalty_smooth,
         )
         monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
 
@@ -256,6 +272,7 @@ class TestRunOptimisedDeparture:
 
         assert isinstance(result, DepartureResult)
         assert captured["windfield"] is _zero_windfield
+        assert captured["penalty_windfield"] is _zero_windfield
 
     def test_fms_refines_curve_before_energy_evaluation(self, monkeypatch):
         """FMS output should be the route that gets evaluated and returned."""
@@ -272,6 +289,18 @@ class TestRunOptimisedDeparture:
         ):
             captured["fms_cost_travel_time"] = travel_time
             captured.setdefault("time_offsets", []).append(time_offset)
+            return jnp.zeros(curve.shape[0], dtype=jnp.float32)
+
+        def fake_weather_penalty_smooth(
+            curve,
+            *,
+            windfield,
+            wavefield,
+            travel_time,
+            spherical_correction,
+            time_offset,
+        ):
+            captured.setdefault("penalty_time_offsets", []).append(time_offset)
             return jnp.zeros(curve.shape[0], dtype=jnp.float32)
 
         def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
@@ -324,6 +353,10 @@ class TestRunOptimisedDeparture:
             "routetools.cost.cost_function_rise",
             fake_cost_function_rise,
         )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.weather_penalty_smooth",
+            fake_weather_penalty_smooth,
+        )
         monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
         monkeypatch.setattr("routetools.fms.optimize_fms", fake_optimize_fms)
         monkeypatch.setattr(
@@ -347,6 +380,7 @@ class TestRunOptimisedDeparture:
         assert captured["fms_cost_travel_time"] == pytest.approx(354.0)
         assert captured["fms_time_offset"] == pytest.approx(12.0)
         assert captured["time_offsets"][-1] == pytest.approx(12.0)
+        assert captured["penalty_time_offsets"][-1] == pytest.approx(12.0)
 
     def test_fms_route_is_rejected_when_weather_limit_is_exceeded(self, monkeypatch):
         """FMS should be discarded when the refined route violates weather limits."""
@@ -408,13 +442,16 @@ class TestRunOptimisedDeparture:
         assert not jnp.allclose(result.curve, captured["refined_curve"])
         assert result.energy_mwh == pytest.approx(12.0)
 
-    def test_fms_receives_weather_limit_enforcement(self, monkeypatch):
-        """SWOPP3 should enforce weather limits inside FMS, not via the cost."""
+    def test_swopp3_uses_same_penalized_cost_for_cmaes_and_fms(self, monkeypatch):
+        """SWOPP3 CMA-ES and FMS should share the demo's penalized RISE cost."""
         captured: dict[str, object] = {}
 
         def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
             curve = great_circle_route(src, dst, n_points=kwargs["L"])
             captured["cmaes_curve"] = curve
+            captured["cmaes_cost"] = kwargs["cost_fn"](
+                jnp.zeros((1, kwargs["L"], 2), dtype=jnp.float32)
+            )
             return curve, {"cost": 0.0}
 
         def fake_cost_function_rise(
@@ -426,7 +463,33 @@ class TestRunOptimisedDeparture:
             wps,
             time_offset,
         ):
+            captured.setdefault("rise_calls", []).append(
+                {
+                    "travel_time": travel_time,
+                    "time_offset": time_offset,
+                    "curve_shape": tuple(curve.shape),
+                }
+            )
             return jnp.full(curve.shape[0], 10.0)
+
+        def fake_weather_penalty_smooth(
+            curve,
+            *,
+            windfield,
+            wavefield,
+            travel_time,
+            spherical_correction,
+            time_offset,
+        ):
+            captured.setdefault("penalty_calls", []).append(
+                {
+                    "travel_time": travel_time,
+                    "time_offset": time_offset,
+                    "curve_shape": tuple(curve.shape),
+                    "spherical_correction": spherical_correction,
+                }
+            )
+            return jnp.full(curve.shape[0], 3.0)
 
         def fake_optimize_fms(
             *,
@@ -451,7 +514,8 @@ class TestRunOptimisedDeparture:
             captured["travel_time"] = travel_time
             captured["time_offset"] = time_offset
             captured["spherical_correction"] = spherical_correction
-            _ = costfun(
+            captured["enforce_weather_limits"] = enforce_weather_limits
+            captured["fms_cost"] = costfun(
                 curve=curve[None, ...],
                 travel_time=travel_time,
                 time_offset=time_offset,
@@ -472,6 +536,10 @@ class TestRunOptimisedDeparture:
         monkeypatch.setattr(
             "routetools.cost.cost_function_rise",
             fake_cost_function_rise,
+        )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.weather_penalty_smooth",
+            fake_weather_penalty_smooth,
         )
         monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
         monkeypatch.setattr("routetools.fms.optimize_fms", fake_optimize_fms)
@@ -494,12 +562,17 @@ class TestRunOptimisedDeparture:
         assert isinstance(result, DepartureResult)
         assert jnp.allclose(result.curve, captured["cmaes_curve"])
         assert captured["windfield"] is _zero_windfield
-        assert captured["enforce_weather_limits"] is True
+        assert jnp.allclose(captured["cmaes_cost"], jnp.array([13.0]))
+        assert jnp.allclose(captured["fms_cost"], jnp.array([13.0]))
+        assert captured["enforce_weather_limits"] is False
         assert captured["tws_limit"] == pytest.approx(19.0)
         assert captured["hs_limit"] == pytest.approx(6.5)
         assert captured["travel_time"] == pytest.approx(354.0)
         assert captured["time_offset"] == pytest.approx(0.0)
         assert captured["spherical_correction"] is True
+        assert captured["rise_calls"]
+        assert captured["penalty_calls"]
+        assert captured["penalty_calls"][-1]["spherical_correction"] is True
 
     def test_feasible_fms_beats_infeasible_cmaes(self, monkeypatch):
         """A feasible FMS route should beat an infeasible CMA-ES route."""

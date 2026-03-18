@@ -44,6 +44,11 @@ from routetools.swopp3_output import (
     write_file_a,
     write_file_b,
 )
+from routetools.weather import (
+    DEFAULT_HS_LIMIT,
+    DEFAULT_TWS_LIMIT,
+    weather_penalty_smooth,
+)
 
 __all__ = [
     "DepartureResult",
@@ -59,6 +64,36 @@ FieldClosure = Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
 ]
+
+
+def _penalized_rise_cost(
+    curve: jnp.ndarray,
+    *,
+    windfield: FieldClosure,
+    wavefield: FieldClosure | None,
+    travel_time: float,
+    wps: bool,
+    spherical_correction: bool,
+    time_offset: float = 0.0,
+) -> jnp.ndarray:
+    """Return the SWOPP3 optimisation objective used by CMA-ES and FMS."""
+    from routetools.cost import cost_function_rise
+
+    return cost_function_rise(
+        windfield=windfield,
+        curve=curve,
+        travel_time=travel_time,
+        wavefield=wavefield,
+        wps=wps,
+        time_offset=time_offset,
+    ) + weather_penalty_smooth(
+        curve,
+        windfield=windfield,
+        wavefield=wavefield,
+        travel_time=travel_time,
+        spherical_correction=spherical_correction,
+        time_offset=time_offset,
+    )
 
 
 def _resolve_runner_verbosity(
@@ -289,7 +324,6 @@ def run_optimised_departure(
             windfield = vectorfield
         # Lazy import to avoid circular dependency / heavy JAX load
         from routetools.cmaes import optimize as cmaes_optimize
-        from routetools.cost import cost_function_rise
         from routetools.fms import optimize_fms
 
         # Initialise from the great-circle route so CMA-ES starts near
@@ -308,12 +342,13 @@ def run_optimised_departure(
         _wps = case["wps"]
 
         def _rise_cost(curve_batch: jnp.ndarray) -> jnp.ndarray:
-            return cost_function_rise(
-                windfield=windfield,
+            return _penalized_rise_cost(
                 curve=curve_batch,
-                travel_time=travel_time,
+                windfield=windfield,
                 wavefield=wavefield,
+                travel_time=travel_time,
                 wps=_wps,
+                spherical_correction=True,
                 time_offset=departure_offset_h,
             )
 
@@ -324,12 +359,13 @@ def run_optimised_departure(
             time_offset: float = departure_offset_h,
             **kwargs,
         ):
-            return cost_function_rise(
-                windfield=windfield,
+            return _penalized_rise_cost(
                 curve=curve,
-                travel_time=travel_time,
+                windfield=windfield,
                 wavefield=wavefield,
+                travel_time=travel_time,
                 wps=_wps,
+                spherical_correction=True,
                 time_offset=time_offset,
             )
 
@@ -340,11 +376,9 @@ def run_optimised_departure(
             penalty=1e6,
             land_margin=2,
             verbose=resolved_verbosity >= 2,
-            # Operational weather constraints (SWOPP3: TWS < 20 m/s, Hs < 7 m)
             windfield=windfield,
             wavefield=wavefield,
             spherical_correction=True,
-            weather_penalty_weight=100.0,
             travel_time=travel_time,
             time_offset=departure_offset_h,
             # Smooth distance-to-land repulsion via EDT
@@ -358,11 +392,8 @@ def run_optimised_departure(
 
         defaults_cmaes.update(cmaes_kwargs)
         defaults_fms["verbose"] = bool(defaults_cmaes["verbose"])
-        weather_penalty_weight = float(
-            defaults_cmaes.get("weather_penalty_weight", 0.0)
-        )
-        tws_limit = float(defaults_cmaes.get("tws_limit", 20.0))
-        hs_limit = float(defaults_cmaes.get("hs_limit", 7.0))
+        tws_limit = float(defaults_cmaes.get("tws_limit", DEFAULT_TWS_LIMIT))
+        hs_limit = float(defaults_cmaes.get("hs_limit", DEFAULT_HS_LIMIT))
 
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -408,7 +439,7 @@ def run_optimised_departure(
             travel_time=travel_time,
             spherical_correction=True,
             time_offset=departure_offset_h,
-            enforce_weather_limits=weather_penalty_weight > 0,
+            enforce_weather_limits=False,  # Given by the cost function
             tws_limit=tws_limit,
             hs_limit=hs_limit,
             costfun=_rise_fms_cost,
