@@ -609,12 +609,12 @@ def optimize_fms(
         print("FMS - Fuel cost:", cost_best.min())
 
     dict_fms = {
-        "cost": cost_best.tolist(),
+        "cost": cost_now.tolist(),
         "niter": idx,
         "comp_time": int(round(time.time() - start)),
     }
 
-    return curve_best, dict_fms
+    return curve, dict_fms
 
 
 def main(gpu: bool = True, optimize_time: bool = False) -> None:
