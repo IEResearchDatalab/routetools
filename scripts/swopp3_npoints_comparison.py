@@ -72,7 +72,7 @@ def main() -> None:
     """Compare native optimized tracks against resampled waypoint counts."""
     parser = argparse.ArgumentParser(
         description=(
-            "Resample existing tracks and compare energy at different " "resolutions."
+            "Resample existing tracks and compare energy at different resolutions."
         ),
     )
     parser.add_argument(

@@ -25,6 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import jax.numpy as jnp
 
@@ -350,9 +351,11 @@ def run_optimised_departure(
                 time_offset=departure_offset_h,
             )
 
-        defaults_cmaes = dict(
+        defaults_cmaes: dict[str, Any] = dict(
+            K=10,
             L=n_points,
             curve0=gc_init,
+            sigma0=0.1,
             cost_fn=_rise_cost,
             penalty=1e6,
             land_margin=2,

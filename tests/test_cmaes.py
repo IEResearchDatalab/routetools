@@ -273,6 +273,35 @@ def test_optimize_with_bounds():
     assert curve[:, 1].max() <= 4.0, "Latitude above upper bound"
 
 
+@pytest.mark.parametrize("penalty_type", ["hard", "smooth"])
+def test_optimize_weather_penalty_type(penalty_type):
+    """``optimize`` accepts both ``weather_penalty_type`` values."""
+    src = jnp.array([0.0, 0.0])
+    dst = jnp.array([6.0, 2.0])
+
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        curve, info = optimize(
+            vectorfield_fourvortices,
+            src=src,
+            dst=dst,
+            travel_stw=1,
+            K=6,
+            L=32,
+            popsize=10,
+            sigma0=1,
+            seed=1,
+            maxfevals=200,
+            verbose=False,
+            weather_penalty_type=penalty_type,
+        )
+
+    assert curve.shape == (32, 2)
+    assert info["cost"] > 0
+
+
 def test_cmaes_snapshot_callback_receives_iteration_population():
     """CMA-ES snapshot callback should receive per-iteration route batches."""
     src = jnp.array([0.0, 0.0])

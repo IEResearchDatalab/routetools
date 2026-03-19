@@ -237,6 +237,17 @@ def main(
         "-v",
         help="Print level: 0 = none, 1 = runner only, 2 = runner + CMA-ES.",
     ),
+    control_points: int | None = typer.Option(  # noqa: B008
+        None,
+        "--control-points",
+        "-K",
+        help="Number of Bézier control points (K). Overrides runner default (10).",
+    ),
+    weather_penalty_type: str | None = typer.Option(  # noqa: B008
+        None,
+        "--weather-penalty-type",
+        help="Weather penalty: 'smooth' (squared-ReLU, default) or 'hard' (step).",
+    ),
 ) -> None:
     """Run SWOPP3 competition cases.
 
@@ -451,6 +462,13 @@ def main(
         # share the same 2024-01-01 epoch from the ERA5 download).
         dataset_epoch = wind_epoch
 
+        # Build extra CMA-ES keyword arguments from CLI flags.
+        cmaes_extra: dict[str, object] = {}
+        if control_points is not None:
+            cmaes_extra["K"] = control_points
+        if weather_penalty_type is not None:
+            cmaes_extra["weather_penalty_type"] = weather_penalty_type
+
         results = run_case(
             cid,
             departures,
@@ -463,6 +481,7 @@ def main(
             n_points=n_points,
             verbosity=verbosity,
             dataset_epoch=dataset_epoch,
+            **cmaes_extra,
         )
 
         if show_progress:
