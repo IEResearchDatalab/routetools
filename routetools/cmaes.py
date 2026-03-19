@@ -293,6 +293,7 @@ def _cma_evolution_strategy(
     land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
     weather_penalty_type: str = "hard",
+    weather_penalty_sharpness: float = 5.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -402,8 +403,7 @@ def _cma_evolution_strategy(
                 if weather_penalty_type == "smooth"
                 else _weather_penalty
             )
-            cost += _wp_fn(
-                curve,
+            _wp_kwargs: dict[str, Any] = dict(
                 windfield=windfield,
                 wavefield=wavefield,
                 tws_limit=tws_limit,
@@ -412,6 +412,9 @@ def _cma_evolution_strategy(
                 travel_time=travel_time,
                 time_offset=time_offset,
             )
+            if weather_penalty_type == "smooth":
+                _wp_kwargs["sharpness"] = weather_penalty_sharpness
+            cost += _wp_fn(curve, **_wp_kwargs)
 
         # Replace the worst solutions with the best found so far
         if keep_top > 0 and es.countiter > 1:
@@ -460,6 +463,7 @@ def optimize(
     land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
     weather_penalty_type: str = "hard",
+    weather_penalty_sharpness: float = 5.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -635,6 +639,7 @@ def optimize(
         land_distance_epsilon=land_distance_epsilon,
         weather_penalty_weight=weather_penalty_weight,
         weather_penalty_type=weather_penalty_type,
+        weather_penalty_sharpness=weather_penalty_sharpness,
         tws_limit=tws_limit,
         hs_limit=hs_limit,
         travel_stw=travel_stw,
@@ -706,8 +711,7 @@ def optimize(
                 if weather_penalty_type == "smooth"
                 else _weather_penalty
             )
-            cost_initial += _wp_fn_c0(
-                curve0[jnp.newaxis, :, :],
+            _wp_kwargs_c0: dict[str, Any] = dict(
                 windfield=windfield,
                 wavefield=wavefield,
                 tws_limit=tws_limit,
@@ -715,7 +719,10 @@ def optimize(
                 penalty=weather_penalty_weight,
                 travel_time=travel_time,
                 time_offset=time_offset,
-            ).item()
+            )
+            if weather_penalty_type == "smooth":
+                _wp_kwargs_c0["sharpness"] = weather_penalty_sharpness
+            cost_initial += _wp_fn_c0(curve0[jnp.newaxis, :, :], **_wp_kwargs_c0).item()
         if cost_initial < cost_best:
             warnings.warn(
                 "[WARNING] The optimized curve has a higher cost "
@@ -758,6 +765,7 @@ def optimize_with_increasing_penalization(
     land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
     weather_penalty_type: str = "hard",
+    weather_penalty_sharpness: float = 5.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -880,6 +888,7 @@ def optimize_with_increasing_penalization(
             land_distance_epsilon=land_distance_epsilon,
             weather_penalty_weight=weather_penalty_weight,
             weather_penalty_type=weather_penalty_type,
+            weather_penalty_sharpness=weather_penalty_sharpness,
             tws_limit=tws_limit,
             hs_limit=hs_limit,
             travel_stw=travel_stw,

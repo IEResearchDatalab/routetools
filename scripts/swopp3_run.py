@@ -323,7 +323,7 @@ def main(
             f"{', '.join(str(path) for path in load_paths)} …"
         )
         epoch = load_dataset_epoch(load_target)
-        wf = load_era5_windfield(load_target)
+        wf = load_era5_windfield(load_target, order=3)
         _loaded_wind[corridor] = (wf, epoch)
         return wf, epoch
 
@@ -353,7 +353,7 @@ def main(
             f"{', '.join(str(path) for path in load_paths)} …"
         )
         epoch = load_dataset_epoch(load_target)
-        wvf = load_era5_wavefield(load_target)
+        wvf = load_era5_wavefield(load_target, order=3)
         _loaded_wave[corridor] = (wvf, epoch)
         return wvf, epoch
 
