@@ -297,9 +297,18 @@ def run_optimised_departure(
             curve0=gc_init,
             sigma0=0.1,
             cost_fn=_rise_cost,
-            penalty=1000,
+            penalty=1e6,
             land_margin=2,
             verbose=False,
+            # Operational weather constraints (SWOPP3: TWS < 20 m/s, Hs < 7 m)
+            windfield=windfield,
+            wavefield=wavefield,
+            weather_penalty_weight=100.0,
+            weather_penalty_type="smooth",
+            travel_time=travel_time,
+            time_offset=departure_offset_h,
+            # Smooth distance-to-land repulsion via EDT
+            land_distance_weight=50.0,
         )
         defaults.update(cmaes_kwargs)
 

@@ -319,16 +319,33 @@ def validate_case_pair_wps(
 def validate_case_pair_strategy(
     opt_path: str | Path,
     gc_path: str | Path,
+    *,
+    count_threshold_pct: float = 10.0,
+    excess_threshold_pct: float = 20.0,
 ) -> list[ValidationError]:
     """Check that optimised energy ≤ GC energy for most departures.
 
-    We allow up to 10% of departures where optimised is worse (stochastic
-    optimisation may not always beat the baseline).
+    Two checks are performed:
+
+    1. **Count check** — at most *count_threshold_pct* % of departures may
+       have optimised energy above the GC baseline.
+    2. **Magnitude check** — no single departure may exceed the GC energy
+       by more than *excess_threshold_pct* %.
+
+    Parameters
+    ----------
+    opt_path, gc_path : str or Path
+        Paths to optimised and great-circle File A CSVs.
+    count_threshold_pct : float
+        Maximum allowed percentage of departures where opt > GC.
+    excess_threshold_pct : float
+        Maximum allowed relative excess ``(opt - gc) / gc * 100`` for any
+        single departure.
 
     Returns
     -------
     list[ValidationError]
-        Error if too many departures show optimised > GC.
+        Errors found (empty if valid).
     """
     errors: list[ValidationError] = []
     try:
@@ -339,17 +356,41 @@ def validate_case_pair_strategy(
             ValidationError(str(opt_path), None, f"Cannot load energies: {exc}")
         )
         return errors
+
+    label = f"{Path(opt_path).name} vs {Path(gc_path).name}"
     n = min(len(opt_e), len(gc_e))
+
+    # 1. Count check — too many departures worse than GC
     worse = sum(1 for i in range(n) if opt_e[i] > gc_e[i] + 1e-6)
     pct = worse / n * 100 if n else 0
-    if pct > 10:
+    if pct > count_threshold_pct:
         errors.append(
             ValidationError(
-                f"{Path(opt_path).name} vs {Path(gc_path).name}",
+                label,
                 None,
                 f"Optimised worse than GC in {worse}/{n} ({pct:.1f}%) departures",
             )
         )
+
+    # 2. Magnitude check — any single departure with large excess
+    worst_excess_pct = 0.0
+    worst_idx = -1
+    for i in range(n):
+        if gc_e[i] > 1e-6:
+            excess = (opt_e[i] - gc_e[i]) / gc_e[i] * 100
+            if excess > worst_excess_pct:
+                worst_excess_pct = excess
+                worst_idx = i
+    if worst_excess_pct > excess_threshold_pct:
+        errors.append(
+            ValidationError(
+                label,
+                worst_idx + 1,
+                f"Departure {worst_idx + 1} excess {worst_excess_pct:.1f}% "
+                f"(opt={opt_e[worst_idx]:.1f}, gc={gc_e[worst_idx]:.1f} MWh)",
+            )
+        )
+
     return errors
 
 

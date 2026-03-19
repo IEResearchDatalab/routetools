@@ -219,6 +219,34 @@ def main(
         "-q",
         help="Suppress progress output.",
     ),
+    control_points: int | None = typer.Option(  # noqa: B008
+        None,
+        "--control-points",
+        "-K",
+        help="Number of Bézier control points (K). Overrides runner default (10).",
+    ),
+    weather_penalty_type: str | None = typer.Option(  # noqa: B008
+        None,
+        "--weather-penalty-type",
+        help="Weather penalty: 'smooth' (squared-ReLU, default) or 'hard' (step).",
+    ),
+    weather_penalty_weight: float | None = typer.Option(  # noqa: B008
+        None,
+        "--weather-penalty-weight",
+        help=(
+            "Weather constraint penalty weight.  "
+            "Default (100) penalises TWS > 20 m/s and Hs > 7 m.  "
+            "Set to 0 to disable operational constraints entirely."
+        ),
+    ),
+    temporal_stride: int = typer.Option(  # noqa: B008
+        1,
+        "--temporal-stride",
+        help=(
+            "Keep every N-th ERA5 timestep (1 = all, 3 = every 3rd).  "
+            "Reduces GPU memory for hourly data."
+        ),
+    ),
 ) -> None:
     """Run SWOPP3 competition cases.
 
@@ -231,7 +259,6 @@ def main(
 
     from routetools.era5.loader import (
         load_dataset_epoch,
-        load_era5_vectorfield,
         load_era5_wavefield,
         load_era5_windfield,
         load_natural_earth_land_mask,
@@ -313,27 +340,21 @@ def main(
             f"{', '.join(str(path) for path in load_paths)} …"
         )
         epoch = load_dataset_epoch(load_target)
-        wf = load_era5_windfield(load_target)
+        wf = load_era5_windfield(load_target, temporal_stride=temporal_stride)
         _loaded_wind[corridor] = (wf, epoch)
         return wf, epoch
 
     def _get_vectorfield(corridor: str) -> FieldClosure:
-        """Return vectorfield closure for corridor."""
+        """Return vectorfield closure for corridor.
+
+        Reuses the windfield closure since both load identical ERA5 10-m
+        wind data — avoids duplicating ~4 GB of GPU memory per corridor.
+        """
         if corridor in _loaded_vf:
             return _loaded_vf[corridor]
-        wp = corridor_wind.get(corridor)
-        if wp is None:
-            raise ValueError(f"No wind path available for corridor '{corridor}'")
-        load_paths = _loadable_era5_paths(wp)
-        load_target = load_paths if len(load_paths) > 1 else load_paths[0]
-        # Reuse the wind-load epoch but build a vectorfield
-        typer.echo(
-            f"Loading vectorfield for {corridor} from "
-            f"{', '.join(str(path) for path in load_paths)} …"
-        )
-        vf = load_era5_vectorfield(load_target)
-        _loaded_vf[corridor] = vf
-        return vf
+        wf, _ = _get_wind(corridor)
+        _loaded_vf[corridor] = wf
+        return wf
 
     def _get_wave(corridor: str) -> tuple[FieldClosure, datetime]:
         """Return (wavefield_closure, dataset_epoch) for corridor."""
@@ -349,7 +370,7 @@ def main(
             f"{', '.join(str(path) for path in load_paths)} …"
         )
         epoch = load_dataset_epoch(load_target)
-        wvf = load_era5_wavefield(load_target)
+        wvf = load_era5_wavefield(load_target, temporal_stride=temporal_stride)
         _loaded_wave[corridor] = (wvf, epoch)
         return wvf, epoch
 
@@ -387,9 +408,29 @@ def main(
         return land
 
     # ---- Run ----
+    prev_corridor: str | None = None
     for cid in case_ids:
         case = SWOPP3_CASES[cid]
         corridor = case["route"]  # "atlantic" or "pacific"
+
+        # Free previous corridor data when switching to a new one so that
+        # both corridors' arrays don't coexist on the GPU.
+        if prev_corridor is not None and corridor != prev_corridor:
+            _loaded_wind.pop(prev_corridor, None)
+            _loaded_wave.pop(prev_corridor, None)
+            _loaded_vf.pop(prev_corridor, None)
+            _loaded_land.pop(prev_corridor, None)
+            import gc
+
+            gc.collect()
+            import jax
+
+            jax.clear_caches()
+            typer.echo(
+                f"[info] Freed {prev_corridor} corridor data before loading {corridor}"
+            )
+        prev_corridor = corridor
+
         typer.echo(f"\n{'=' * 60}")
         typer.echo(f"Case {cid}: {case['label']}")
         typer.echo(
@@ -406,6 +447,15 @@ def main(
         # share the same 2024-01-01 epoch from the ERA5 download).
         dataset_epoch = wind_epoch
 
+        # Build extra CMA-ES keyword arguments from CLI flags.
+        cmaes_extra: dict[str, object] = {}
+        if control_points is not None:
+            cmaes_extra["K"] = control_points
+        if weather_penalty_type is not None:
+            cmaes_extra["weather_penalty_type"] = weather_penalty_type
+        if weather_penalty_weight is not None:
+            cmaes_extra["weather_penalty_weight"] = weather_penalty_weight
+
         results = run_case(
             cid,
             departures,
@@ -418,6 +468,7 @@ def main(
             n_points=n_points,
             verbose=not quiet,
             dataset_epoch=dataset_epoch,
+            **cmaes_extra,
         )
 
         # Summary
