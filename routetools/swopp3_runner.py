@@ -366,9 +366,9 @@ def run_optimised_departure(
             land_distance_weight=50.0,
         )
         defaults_fms = dict(
-            patience=cmaes_kwargs.pop("fms_patience", 5),
-            damping=cmaes_kwargs.pop("fms_damping", 0.9),
-            maxfevals=cmaes_kwargs.pop("fms_maxfevals", 5000),
+            patience=cmaes_kwargs.pop("fms_patience", 200),
+            damping=cmaes_kwargs.pop("fms_damping", 0.95),
+            maxfevals=cmaes_kwargs.pop("fms_maxfevals", 10000),
         )
 
         defaults_cmaes.update(cmaes_kwargs)
