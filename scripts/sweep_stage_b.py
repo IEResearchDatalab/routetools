@@ -102,10 +102,10 @@ def main() -> None:
 
     # ---- Load fields once ----
     print("Loading ERA5 wind …")
-    windfield = load_era5_windfield(args.wind_path, order=3)
+    windfield = load_era5_windfield(args.wind_path)
     wind_epoch = load_dataset_epoch(args.wind_path)
     print("Loading ERA5 waves …")
-    wavefield = load_era5_wavefield(args.wave_path, order=3)
+    wavefield = load_era5_wavefield(args.wave_path)
     vectorfield = windfield  # same closure
 
     # Land mask
