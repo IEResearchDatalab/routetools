@@ -230,6 +230,15 @@ def main(
         "--weather-penalty-type",
         help="Weather penalty: 'smooth' (squared-ReLU, default) or 'hard' (step).",
     ),
+    weather_penalty_weight: float | None = typer.Option(  # noqa: B008
+        None,
+        "--weather-penalty-weight",
+        help=(
+            "Weather constraint penalty weight.  "
+            "Default (100) penalises TWS > 20 m/s and Hs > 7 m.  "
+            "Set to 0 to disable operational constraints entirely."
+        ),
+    ),
 ) -> None:
     """Run SWOPP3 competition cases.
 
@@ -436,6 +445,8 @@ def main(
             cmaes_extra["K"] = control_points
         if weather_penalty_type is not None:
             cmaes_extra["weather_penalty_type"] = weather_penalty_type
+        if weather_penalty_weight is not None:
+            cmaes_extra["weather_penalty_weight"] = weather_penalty_weight
 
         results = run_case(
             cid,

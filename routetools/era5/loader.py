@@ -31,6 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 import xarray as xr
 
+from routetools.interpolate import map_coordinates_cubic, prefilter_cubic
 from routetools.vectorfield import time_variant
 
 if TYPE_CHECKING:
@@ -228,7 +229,7 @@ def _build_field_closure(
         Offset in hours to add to the ``t`` argument so that ``t=0`` maps to
         the departure time within the dataset.
     order : int
-        Interpolation order (1 = linear).
+        Interpolation order (1 = linear, 3 = cubic via B-spline prefilter).
     mode : str
         Boundary mode for ``map_coordinates``.
     add_time_variant_attr : bool
@@ -240,6 +241,17 @@ def _build_field_closure(
         ``(lon, lat, t) -> (a, b)`` closure.
     """
     dep_offset = jnp.float32(departure_offset_h)
+    use_cubic = order >= 3
+
+    # For cubic interpolation, prefilter once at load time so that
+    # the inner closure only needs JIT-compatible arithmetic.
+    if use_cubic:
+        coeffs_a, npad = prefilter_cubic(np.asarray(data_a))
+        coeffs_b, _ = prefilter_cubic(np.asarray(data_b))
+    else:
+        coeffs_a = data_a
+        coeffs_b = data_b
+        npad = 0
 
     def _field(
         lon: jnp.ndarray,
@@ -281,8 +293,16 @@ def _build_field_closure(
         coords = (x - begin) / spacing  # shape (N, 3)
 
         # Interpolate
-        a = jax.scipy.ndimage.map_coordinates(data_a, coords.T, order=order, mode=mode)
-        b = jax.scipy.ndimage.map_coordinates(data_b, coords.T, order=order, mode=mode)
+        if use_cubic:
+            a = map_coordinates_cubic(coeffs_a, coords.T, npad=npad)
+            b = map_coordinates_cubic(coeffs_b, coords.T, npad=npad)
+        else:
+            a = jax.scipy.ndimage.map_coordinates(
+                coeffs_a, coords.T, order=order, mode=mode
+            )
+            b = jax.scipy.ndimage.map_coordinates(
+                coeffs_b, coords.T, order=order, mode=mode
+            )
 
         # Reshape if needed
         if shape is not None:

@@ -43,8 +43,26 @@ from pathlib import Path
 # Representative sample of 20 zero-delta Pacific noWPS departures.
 # ---------------------------------------------------------------------------
 STAGE_B_DEPARTURES = [
-    44, 45, 46, 111, 113, 116, 118, 125, 143, 159,
-    160, 169, 174, 177, 185, 186, 232, 233, 239, 274,
+    44,
+    45,
+    46,
+    111,
+    113,
+    116,
+    118,
+    125,
+    143,
+    159,
+    160,
+    169,
+    174,
+    177,
+    185,
+    186,
+    232,
+    233,
+    239,
+    274,
 ]
 
 # Parameter grid — exploration / convergence knobs
@@ -58,6 +76,7 @@ GC_CASE_ID = "PGC_noWPS"
 
 
 def main() -> None:
+    """Run stage-B parameter sweep."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--wind-path",
@@ -75,9 +94,7 @@ def main() -> None:
         default=Path("output/sweep_stage_b.csv"),
         help="Output CSV path (default: output/sweep_stage_b.csv)",
     )
-    parser.add_argument(
-        "--n-points", type=int, default=100, help="Route waypoints (L)"
-    )
+    parser.add_argument("--n-points", type=int, default=100, help="Route waypoints (L)")
     args = parser.parse_args()
 
     for p in [args.wind_path, args.wave_path]:
@@ -87,6 +104,8 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     # ---- Lazy imports (heavy) ----
+    import xarray as xr
+
     from routetools.era5.loader import (
         load_dataset_epoch,
         load_era5_wavefield,
@@ -98,7 +117,6 @@ def main() -> None:
         run_gc_departure,
         run_optimised_departure,
     )
-    import xarray as xr
 
     # ---- Load fields once ----
     print("Loading ERA5 wind …")
@@ -180,9 +198,7 @@ def main() -> None:
         t_total_start = time.time()
 
         for sig, pop, mfe, k in grid:
-            print(
-                f"--- sigma0={sig}, popsize={pop}, maxfevals={mfe}, K={k} ---"
-            )
+            print(f"--- sigma0={sig}, popsize={pop}, maxfevals={mfe}, K={k} ---")
             for idx, dep in target_deps:
                 run_count += 1
                 dep_naive = dep.replace(tzinfo=None) if dep.tzinfo else dep

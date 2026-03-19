@@ -10,7 +10,8 @@ representative departures spanning the full delta range, for 20 total.
 
 Target departures (0-indexed day-of-year):
     Detour (delta > 10%):  5, 10, 11, 313, 314, 361
-    Representative sample: 1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 350, 365
+    Representative sample: 1, 30, 60, 90, 120, 150, 180,
+        210, 240, 270, 300, 330, 350, 365
 
 Grid:
     weather_penalty_weight : 5, 10, 20, 40, 100
@@ -48,7 +49,22 @@ from pathlib import Path
 # All 6 departures with delta > 10%
 DETOUR_DEPARTURES = [5, 10, 11, 313, 314, 361]
 # 14 evenly-spaced representative departures across the year
-REPRESENTATIVE_DEPARTURES = [1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 350, 365]
+REPRESENTATIVE_DEPARTURES = [
+    1,
+    30,
+    60,
+    90,
+    120,
+    150,
+    180,
+    210,
+    240,
+    270,
+    300,
+    330,
+    350,
+    365,
+]
 ALL_DEPARTURES = sorted(set(DETOUR_DEPARTURES + REPRESENTATIVE_DEPARTURES))
 
 # Parameter grid — penalty params + K (the Pacific-generalizable candidates)
@@ -62,6 +78,7 @@ GC_CASE_ID = "AGC_noWPS"
 
 
 def main() -> None:
+    """Run the Atlantic parameter sweep."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--wind-path",
@@ -79,9 +96,7 @@ def main() -> None:
         default=Path("output/sweep_atlantic.csv"),
         help="Output CSV path (default: output/sweep_atlantic.csv)",
     )
-    parser.add_argument(
-        "--n-points", type=int, default=100, help="Route waypoints (L)"
-    )
+    parser.add_argument("--n-points", type=int, default=100, help="Route waypoints (L)")
     args = parser.parse_args()
 
     for p in [args.wind_path, args.wave_path]:
@@ -190,9 +205,7 @@ def main() -> None:
         t_total_start = time.time()
 
         for wpw, sharp, sig, k in grid:
-            print(
-                f"--- wpw={wpw}, sharpness={sharp}, sigma0={sig}, K={k} ---"
-            )
+            print(f"--- wpw={wpw}, sharpness={sharp}, sigma0={sig}, K={k} ---")
             for idx, dep in target_deps:
                 run_count += 1
                 dep_naive = dep.replace(tzinfo=None) if dep.tzinfo else dep
