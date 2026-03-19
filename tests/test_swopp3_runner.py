@@ -317,6 +317,7 @@ class TestRunOptimisedDeparture:
             wavefield=None,
             travel_time=None,
             costfun,
+            costfun_kwargs=None,
             time_offset=None,
             **kwargs,
         ):
@@ -327,6 +328,7 @@ class TestRunOptimisedDeparture:
                 curve=curve[None, ...],
                 travel_time=travel_time,
                 time_offset=time_offset,
+                **(costfun_kwargs or {}),
             )
             refined_curve = curve + jnp.array([0.1, 0.0])
             captured["refined_curve"] = refined_curve
@@ -499,6 +501,7 @@ class TestRunOptimisedDeparture:
             wavefield=None,
             travel_time=None,
             costfun,
+            costfun_kwargs=None,
             time_offset=None,
             enforce_weather_limits=False,
             tws_limit=20.0,
@@ -514,10 +517,12 @@ class TestRunOptimisedDeparture:
             captured["time_offset"] = time_offset
             captured["spherical_correction"] = spherical_correction
             captured["enforce_weather_limits"] = enforce_weather_limits
+            captured["costfun_kwargs"] = costfun_kwargs
             captured["fms_cost"] = costfun(
                 curve=curve[None, ...],
                 travel_time=travel_time,
                 time_offset=time_offset,
+                **(costfun_kwargs or {}),
             )
             return curve[None, ...], {"cost": [10.0]}
 
@@ -566,6 +571,11 @@ class TestRunOptimisedDeparture:
         # matches cost_function_rise alone (10.0), not the penalized value (13.0).
         assert jnp.allclose(captured["fms_cost"], jnp.array([10.0]))
         assert captured["enforce_weather_limits"] is True
+        assert captured["costfun_kwargs"] == {
+            "windfield": _zero_windfield,
+            "wavefield": None,
+            "wps": True,
+        }
         assert captured["tws_limit"] == pytest.approx(19.0)
         assert captured["hs_limit"] == pytest.approx(6.5)
         assert captured["travel_time"] == pytest.approx(354.0)

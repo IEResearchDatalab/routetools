@@ -24,7 +24,6 @@ import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -426,9 +425,12 @@ def run_optimised_departure(
             hs_limit=hs_limit,
             # FMS uses pure RISE energy (no weather penalty) so its gradient
             # aligns with the evaluate_energy metric used for comparison.
-            costfun=partial(
-                cost_function_rise, windfield=windfield, wavefield=wavefield, wps=_wps
-            ),
+            costfun=cost_function_rise,
+            costfun_kwargs={
+                "windfield": windfield,
+                "wavefield": wavefield,
+                "wps": _wps,
+            },
             **defaults_fms,
         )
         curve_fms = curve_fms[0]

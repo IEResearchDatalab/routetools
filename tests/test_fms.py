@@ -178,6 +178,36 @@ class TestOptimizeFmsWeatherLimits:
 
         assert info["niter"] <= 2
 
+    def test_custom_costfun_accepts_explicit_kwargs(self):
+        """Custom FMS costs should receive forwarded explicit kwargs."""
+        src = jnp.array([0.0, 0.0])
+        dst = jnp.array([6.0, 2.0])
+        seen: dict[str, float] = {}
+
+        def custom_cost(*, curve, travel_time=None, scale=1.0, **kwargs):
+            seen["scale"] = scale
+            return scale * jnp.sum(
+                (curve[:, 1:, :] - curve[:, :-1, :]) ** 2,
+                axis=(1, 2),
+            )
+
+        _, info = optimize_fms(
+            vectorfield_fourvortices,
+            src=src,
+            dst=dst,
+            num_curves=1,
+            num_points=10,
+            travel_time=5.0,
+            maxfevals=2,
+            patience=2,
+            verbose=False,
+            costfun=custom_cost,
+            costfun_kwargs={"scale": 2.5},
+        )
+
+        assert info["niter"] <= 2
+        assert seen["scale"] == pytest.approx(2.5)
+
     def test_fms_accepts_initially_invalid_land_waypoint(self):
         """FMS should improve an initially invalid waypoint instead of raising."""
         land = _BandLand()
