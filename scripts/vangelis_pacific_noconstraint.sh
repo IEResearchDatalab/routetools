@@ -20,10 +20,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source .venv/bin/activate
 
-# ── GPU config ──
-export JAX_PLATFORMS=cuda
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-export XLA_PYTHON_CLIENT_MEM_FRACTION=0.95
+# ── CPU config (avoids GPU OOM with 11+ GB JIT constants) ──
+export JAX_PLATFORMS=cpu
 
 DATA="data/era5"
 OUTDIR="output/pacific_noconstraint"
@@ -32,10 +30,10 @@ mkdir -p "$OUTDIR"
 echo "======================================"
 echo "Pacific NO-CONSTRAINT run on $(hostname)"
 echo "Date:     $(date)"
-echo "GPU:      $(nvidia-smi -L 2>/dev/null | head -1 || echo 'unknown')"
+echo "RAM:      $(free -h | awk '/Mem/{print $2}')"
+echo "Platform: CPU (full hourly ERA5, no stride)"
 echo "n-points: 584 (dt ≈ 1.0h)"
 echo "wpw:      0 (no operational constraints)"
-echo "stride:   3 (3-hourly from hourly ERA5, reduces GPU memory)"
 echo "Output:   ${OUTDIR}"
 echo "======================================"
 
@@ -74,8 +72,7 @@ python scripts/swopp3_run.py \
     --wave-path-pacific "${DATA}/era5_waves_pacific_2024.nc" \
     --output-dir "$OUTDIR" \
     --n-points 584 \
-    --weather-penalty-weight 0 \
-    --temporal-stride 3
+    --weather-penalty-weight 0
 
 echo ""
 echo "======================================"
