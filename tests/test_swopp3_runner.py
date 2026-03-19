@@ -235,6 +235,10 @@ class TestRunOptimisedDeparture:
             *,
             windfield,
             wavefield,
+            tws_limit=20.0,
+            hs_limit=7.0,
+            penalty=10.0,
+            sharpness=5.0,
             travel_time,
             spherical_correction,
             time_offset,
@@ -296,6 +300,10 @@ class TestRunOptimisedDeparture:
             *,
             windfield,
             wavefield,
+            tws_limit=20.0,
+            hs_limit=7.0,
+            penalty=10.0,
+            sharpness=5.0,
             travel_time,
             spherical_correction,
             time_offset,
@@ -443,9 +451,20 @@ class TestRunOptimisedDeparture:
         assert not jnp.allclose(result.curve, captured["refined_curve"])
         assert result.energy_mwh == pytest.approx(12.0)
 
-    def test_cmaes_uses_penalized_cost_fms_uses_pure_energy_cost(self, monkeypatch):
-        """CMA-ES uses penalized RISE cost; FMS uses pure energy only."""
+    def test_cmaes_and_fms_share_penalized_cost(self, monkeypatch):
+        """CMA-ES and FMS should optimize the exact same penalized objective."""
         captured: dict[str, object] = {}
+
+        class _FakeLand:
+            def distance_penalty(self, curve, weight=1.0, epsilon=1.0):
+                captured.setdefault("land_penalty_calls", []).append(
+                    {
+                        "curve_shape": tuple(curve.shape),
+                        "weight": weight,
+                        "epsilon": epsilon,
+                    }
+                )
+                return jnp.full(curve.shape[0], 2.0)
 
         def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
             curve = great_circle_route(src, dst, n_points=kwargs["L"])
@@ -478,6 +497,10 @@ class TestRunOptimisedDeparture:
             *,
             windfield,
             wavefield,
+            tws_limit,
+            hs_limit,
+            penalty,
+            sharpness,
             travel_time,
             spherical_correction,
             time_offset,
@@ -488,9 +511,13 @@ class TestRunOptimisedDeparture:
                     "time_offset": time_offset,
                     "curve_shape": tuple(curve.shape),
                     "spherical_correction": spherical_correction,
+                    "tws_limit": tws_limit,
+                    "hs_limit": hs_limit,
+                    "penalty": penalty,
+                    "sharpness": sharpness,
                 }
             )
-            return jnp.full(curve.shape[0], 3.0)
+            return jnp.full(curve.shape[0], penalty + sharpness)
 
         def fake_optimize_fms(
             *,
@@ -522,6 +549,7 @@ class TestRunOptimisedDeparture:
                 curve=curve[None, ...],
                 travel_time=travel_time,
                 time_offset=time_offset,
+                spherical_correction=spherical_correction,
                 **(costfun_kwargs or {}),
             )
             return curve[None, ...], {"cost": [10.0]}
@@ -557,7 +585,10 @@ class TestRunOptimisedDeparture:
             _DEP,
             vectorfield=_zero_windfield,
             windfield=_zero_windfield,
+            land=_FakeLand(),
             n_points=20,
+            weather_penalty_weight=12.0,
+            weather_penalty_sharpness=7.0,
             tws_limit=19.0,
             hs_limit=6.5,
             verbosity=0,
@@ -566,16 +597,10 @@ class TestRunOptimisedDeparture:
         assert isinstance(result, DepartureResult)
         assert jnp.allclose(result.curve, captured["cmaes_curve"])
         assert captured["windfield"] is _zero_windfield
-        assert jnp.allclose(captured["cmaes_cost"], jnp.array([13.0]))
-        # FMS uses pure energy only (no weather_penalty_smooth), so its cost
-        # matches cost_function_rise alone (10.0), not the penalized value (13.0).
-        assert jnp.allclose(captured["fms_cost"], jnp.array([10.0]))
+        assert jnp.allclose(captured["cmaes_cost"], jnp.array([31.0]))
+        assert jnp.allclose(captured["fms_cost"], jnp.array([31.0]))
         assert captured["enforce_weather_limits"] is True
-        assert captured["costfun_kwargs"] == {
-            "windfield": _zero_windfield,
-            "wavefield": None,
-            "wps": True,
-        }
+        assert captured["costfun_kwargs"] is None
         assert captured["tws_limit"] == pytest.approx(19.0)
         assert captured["hs_limit"] == pytest.approx(6.5)
         assert captured["travel_time"] == pytest.approx(354.0)
@@ -584,6 +609,14 @@ class TestRunOptimisedDeparture:
         assert captured["rise_calls"]
         assert captured["penalty_calls"]
         assert captured["penalty_calls"][-1]["spherical_correction"] is True
+        assert captured["penalty_calls"][-1]["tws_limit"] == pytest.approx(19.0)
+        assert captured["penalty_calls"][-1]["hs_limit"] == pytest.approx(6.5)
+        assert captured["penalty_calls"][-1]["penalty"] == pytest.approx(12.0)
+        assert captured["penalty_calls"][-1]["sharpness"] == pytest.approx(7.0)
+        assert captured["land_penalty_calls"] == [
+            {"curve_shape": (1, 20, 2), "weight": 50.0, "epsilon": 1.0},
+            {"curve_shape": (1, 20, 2), "weight": 50.0, "epsilon": 1.0},
+        ]
 
     def test_feasible_fms_beats_infeasible_cmaes(self, monkeypatch):
         """A feasible FMS route should beat an infeasible CMA-ES route."""

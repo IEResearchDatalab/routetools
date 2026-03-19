@@ -11,6 +11,7 @@ Example
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +28,6 @@ from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 
 from routetools.cmaes import optimize as cmaes_optimize
-from routetools.cost import cost_function_rise
 from routetools.era5.loader import (
     load_dataset_epoch,
     load_era5_wavefield,
@@ -35,6 +35,7 @@ from routetools.era5.loader import (
     load_natural_earth_land_mask,
 )
 from routetools.fms import optimize_fms
+from routetools.land import Land
 from routetools.swopp3 import (
     SWOPP3_CASES,
     case_endpoints,
@@ -42,14 +43,15 @@ from routetools.swopp3 import (
     great_circle_route,
 )
 from routetools.swopp3_output import sailed_distance_nm
-from routetools.swopp3_runner import evaluate_energy
-from routetools.weather import (
-    DEFAULT_HS_LIMIT,
-    DEFAULT_TWS_LIMIT,
-    weather_penalty_smooth,
-)
+from routetools.swopp3_runner import _penalized_rise_cost, evaluate_energy
+from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT
 
 app = typer.Typer(help="Animate a single optimised SWOPP3 departure.")
+
+FieldClosure = Callable[
+    [jnp.ndarray, jnp.ndarray, jnp.ndarray],
+    tuple[jnp.ndarray, jnp.ndarray],
+]
 
 _ERA5_FILE_RE = re.compile(
     r"^(?P<prefix>era5_[^_]+_[^_]+_)(?P<year>\d{4})(?:_(?P<suffix>\d{2}(?:-\d{2})?))?\.nc$"
@@ -69,10 +71,10 @@ class CaseContext:
     src: jnp.ndarray
     dst: jnp.ndarray
     gc_curve: jnp.ndarray
-    vectorfield: object
-    windfield: object
-    wavefield: object
-    land: object
+    vectorfield: FieldClosure
+    windfield: FieldClosure
+    wavefield: FieldClosure
+    land: Land
 
 
 @dataclass(frozen=True)
@@ -583,21 +585,34 @@ def main(
     src_opt = jnp.array([gc_init[0, 0], gc_init[0, 1]])
     dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
 
-    def cma_cost(curve_batch: jnp.ndarray) -> jnp.ndarray:
-        return cost_function_rise(
+    def shared_cost(
+        curve_batch: jnp.ndarray,
+        *,
+        travel_time: float | None = None,
+        time_offset: float | None = None,
+        spherical_correction: bool | None = None,
+        **_: object,
+    ) -> jnp.ndarray:
+        return _penalized_rise_cost(
             curve=curve_batch,
             windfield=context.windfield,
             wavefield=context.wavefield,
-            travel_time=travel_time,
+            travel_time=(context.passage_hours if travel_time is None else travel_time),
             wps=context.wps,
-            time_offset=context.departure_offset_h,
-        ) + weather_penalty_smooth(
-            curve_batch,
-            windfield=context.windfield,
-            wavefield=context.wavefield,
-            travel_time=travel_time,
-            spherical_correction=True,
-            time_offset=context.departure_offset_h,
+            spherical_correction=(
+                True if spherical_correction is None else spherical_correction
+            ),
+            time_offset=(
+                context.departure_offset_h if time_offset is None else time_offset
+            ),
+            tws_limit=tws_limit,
+            hs_limit=hs_limit,
+            weather_penalty_weight=10.0,
+            weather_penalty_type="smooth",
+            weather_penalty_sharpness=5.0,
+            land=context.land,
+            land_distance_weight=50.0,
+            land_distance_epsilon=1.0,
         )
 
     cma_frames: list[CmaesFrame] = []
@@ -630,7 +645,7 @@ def main(
         dst=dst_opt,
         curve0=gc_init,
         land=context.land,
-        cost_fn=cma_cost,
+        cost_fn=shared_cost,
         penalty=1e6,
         land_margin=2,
         windfield=context.windfield,
@@ -638,7 +653,6 @@ def main(
         spherical_correction=True,
         travel_time=travel_time,
         time_offset=context.departure_offset_h,
-        land_distance_weight=50.0,
         L=n_points,
         popsize=cma_popsize,
         sigma0=cma_sigma0,
@@ -684,12 +698,7 @@ def main(
         enforce_weather_limits=True,
         tws_limit=tws_limit,
         hs_limit=hs_limit,
-        costfun=cost_function_rise,
-        costfun_kwargs={
-            "windfield": context.windfield,
-            "wavefield": context.wavefield,
-            "wps": context.wps,
-        },
+        costfun=shared_cost,
         patience=fms_patience,
         damping=fms_damping,
         maxfevals=fms_maxfevals,

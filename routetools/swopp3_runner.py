@@ -48,6 +48,7 @@ from routetools.swopp3_output import (
 from routetools.weather import (
     DEFAULT_HS_LIMIT,
     DEFAULT_TWS_LIMIT,
+    weather_penalty,
     weather_penalty_smooth,
 )
 
@@ -76,23 +77,56 @@ def _penalized_rise_cost(
     wps: bool,
     spherical_correction: bool,
     time_offset: float = 0.0,
+    tws_limit: float = DEFAULT_TWS_LIMIT,
+    hs_limit: float = DEFAULT_HS_LIMIT,
+    weather_penalty_weight: float = 10.0,
+    weather_penalty_type: str = "smooth",
+    weather_penalty_sharpness: float = 5.0,
+    land: Any | None = None,
+    land_distance_weight: float = 0.0,
+    land_distance_epsilon: float = 1.0,
 ) -> jnp.ndarray:
     """Return the SWOPP3 optimisation objective used by CMA-ES and FMS."""
-    return cost_function_rise(
+    total_cost = cost_function_rise(
         windfield=windfield,
         curve=curve,
         travel_time=travel_time,
         wavefield=wavefield,
         wps=wps,
         time_offset=time_offset,
-    ) + weather_penalty_smooth(
-        curve,
-        windfield=windfield,
-        wavefield=wavefield,
-        travel_time=travel_time,
-        spherical_correction=spherical_correction,
-        time_offset=time_offset,
     )
+
+    if weather_penalty_weight > 0:
+        penalty_fn = (
+            weather_penalty_smooth
+            if weather_penalty_type == "smooth"
+            else weather_penalty
+        )
+        penalty_kwargs: dict[str, Any] = {
+            "curve": curve,
+            "windfield": windfield,
+            "wavefield": wavefield,
+            "tws_limit": tws_limit,
+            "hs_limit": hs_limit,
+            "penalty": weather_penalty_weight,
+            "travel_time": travel_time,
+            "spherical_correction": spherical_correction,
+            "time_offset": time_offset,
+        }
+        if weather_penalty_type == "smooth":
+            penalty_kwargs["sharpness"] = weather_penalty_sharpness
+        elif weather_penalty_type != "hard":
+            raise ValueError("weather_penalty_type must be 'hard' or 'smooth'")
+        total_cost = total_cost + penalty_fn(**penalty_kwargs)
+
+    if land is not None and land_distance_weight > 0:
+        total_cost = total_cost + land.distance_penalty(
+            curve,
+            weight=land_distance_weight,
+            epsilon=land_distance_epsilon,
+        )
+
+    return total_cost
 
 
 def _resolve_runner_verbosity(
@@ -261,9 +295,9 @@ def run_optimised_departure(
 ) -> DepartureResult:
     """Optimise and evaluate a single departure using CMA-ES and FMS.
 
-    The CMA-ES optimizer minimises SWOPP3 energy through the RISE cost.
-    The resulting route is then refined with FMS before post-hoc energy
-    evaluation with the SWOPP3 performance model.
+    Both CMA-ES and FMS optimize the same SWOPP3 objective: RISE energy plus
+    the configured weather and smooth land-distance penalties. The resulting
+    route is then evaluated with the SWOPP3 performance model.
     Missing optimisation inputs are treated as an error; this function does
     not fall back to a great-circle route.
 
@@ -335,28 +369,13 @@ def run_optimised_departure(
         src_opt = jnp.array([gc_init[0, 0], gc_init[0, 1]])
         dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
 
-        # Build a RISE-based cost closure for CMA-ES.
-        # This directly minimises SWOPP3 energy (MWh) instead of the
-        # ocean-current proxy ‖SOG − wind‖².
         _wps = case["wps"]
-
-        def _rise_cost(curve_batch: jnp.ndarray) -> jnp.ndarray:
-            return _penalized_rise_cost(
-                curve=curve_batch,
-                windfield=windfield,
-                wavefield=wavefield,
-                travel_time=travel_time,
-                wps=_wps,
-                spherical_correction=True,
-                time_offset=departure_offset_h,
-            )
 
         defaults_cmaes: dict[str, Any] = dict(
             K=10,
             L=n_points,
             curve0=gc_init,
             sigma0=0.1,
-            cost_fn=_rise_cost,
             penalty=1e6,
             land_margin=2,
             verbose=resolved_verbosity >= 2,
@@ -365,8 +384,14 @@ def run_optimised_departure(
             spherical_correction=True,
             travel_time=travel_time,
             time_offset=departure_offset_h,
+            weather_penalty_weight=10.0,
+            weather_penalty_type="smooth",
+            weather_penalty_sharpness=5.0,
+            tws_limit=DEFAULT_TWS_LIMIT,
+            hs_limit=DEFAULT_HS_LIMIT,
             # Smooth distance-to-land repulsion via EDT
             land_distance_weight=50.0,
+            land_distance_epsilon=1.0,
         )
         defaults_fms = dict(
             patience=cmaes_kwargs.pop("fms_patience", 200),
@@ -376,8 +401,60 @@ def run_optimised_departure(
 
         defaults_cmaes.update(cmaes_kwargs)
         defaults_fms["verbose"] = bool(defaults_cmaes["verbose"])
-        tws_limit = float(defaults_cmaes.get("tws_limit", DEFAULT_TWS_LIMIT))
-        hs_limit = float(defaults_cmaes.get("hs_limit", DEFAULT_HS_LIMIT))
+        objective_travel_time = float(defaults_cmaes.get("travel_time", travel_time))
+        objective_time_offset = float(
+            defaults_cmaes.get("time_offset", departure_offset_h)
+        )
+        objective_spherical_correction = bool(
+            defaults_cmaes.get("spherical_correction", True)
+        )
+        tws_limit = float(defaults_cmaes.pop("tws_limit", DEFAULT_TWS_LIMIT))
+        hs_limit = float(defaults_cmaes.pop("hs_limit", DEFAULT_HS_LIMIT))
+        weather_penalty_weight = float(
+            defaults_cmaes.pop("weather_penalty_weight", 10.0)
+        )
+        weather_penalty_type = str(defaults_cmaes.pop("weather_penalty_type", "smooth"))
+        weather_penalty_sharpness = float(
+            defaults_cmaes.pop("weather_penalty_sharpness", 5.0)
+        )
+        land_distance_weight = float(defaults_cmaes.pop("land_distance_weight", 50.0))
+        land_distance_epsilon = float(defaults_cmaes.pop("land_distance_epsilon", 1.0))
+
+        def _shared_cost(
+            curve: jnp.ndarray,
+            *,
+            travel_time: float | None = None,
+            time_offset: float | None = None,
+            spherical_correction: bool | None = None,
+            **_: Any,
+        ) -> jnp.ndarray:
+            return _penalized_rise_cost(
+                curve=curve,
+                windfield=windfield,
+                wavefield=wavefield,
+                travel_time=(
+                    objective_travel_time if travel_time is None else travel_time
+                ),
+                wps=_wps,
+                spherical_correction=(
+                    objective_spherical_correction
+                    if spherical_correction is None
+                    else spherical_correction
+                ),
+                time_offset=(
+                    objective_time_offset if time_offset is None else time_offset
+                ),
+                tws_limit=tws_limit,
+                hs_limit=hs_limit,
+                weather_penalty_weight=weather_penalty_weight,
+                weather_penalty_type=weather_penalty_type,
+                weather_penalty_sharpness=weather_penalty_sharpness,
+                land=land,
+                land_distance_weight=land_distance_weight,
+                land_distance_epsilon=land_distance_epsilon,
+            )
+
+        defaults_cmaes["cost_fn"] = _shared_cost
 
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -420,20 +497,13 @@ def run_optimised_departure(
             land=land,
             windfield=windfield,
             wavefield=wavefield,
-            travel_time=travel_time,
-            spherical_correction=True,
-            time_offset=departure_offset_h,
+            travel_time=objective_travel_time,
+            spherical_correction=objective_spherical_correction,
+            time_offset=objective_time_offset,
             enforce_weather_limits=True,  # revert steps that newly violate limits
             tws_limit=tws_limit,
             hs_limit=hs_limit,
-            # FMS uses pure RISE energy (no weather penalty) so its gradient
-            # aligns with the evaluate_energy metric used for comparison.
-            costfun=cost_function_rise,
-            costfun_kwargs={
-                "windfield": windfield,
-                "wavefield": wavefield,
-                "wps": _wps,
-            },
+            costfun=_shared_cost,
             **defaults_fms,
         )
         curve_fms = curve_fms[0]
