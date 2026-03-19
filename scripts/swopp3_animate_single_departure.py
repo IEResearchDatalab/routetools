@@ -645,7 +645,7 @@ def main(
         tolfun=cma_tolfun,
         damping=cma_damping,
         maxfevals=cma_maxfevals,
-        verbose=False,
+        verbose=True,
         snapshot_callback=on_cma,
     )
     cma_best_curve = _to_numpy(curve_cmaes)
@@ -693,7 +693,7 @@ def main(
         patience=fms_patience,
         damping=fms_damping,
         maxfevals=fms_maxfevals,
-        verbose=False,
+        verbose=True,
         snapshot_callback=on_fms,
     )
     curve_fms = _to_numpy(curve_fms_batch)[0]
