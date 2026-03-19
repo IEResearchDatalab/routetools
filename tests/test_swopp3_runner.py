@@ -248,7 +248,7 @@ class TestRunOptimisedDeparture:
             return great_circle_route(src, dst, n_points=kwargs["L"]), {"cost": 0.0}
 
         monkeypatch.setattr(
-            "routetools.cost.cost_function_rise",
+            "routetools.swopp3_runner.cost_function_rise",
             fake_cost_function_rise,
         )
         monkeypatch.setattr(
@@ -350,7 +350,7 @@ class TestRunOptimisedDeparture:
             return 12.0, 3.0, 4.0
 
         monkeypatch.setattr(
-            "routetools.cost.cost_function_rise",
+            "routetools.swopp3_runner.cost_function_rise",
             fake_cost_function_rise,
         )
         monkeypatch.setattr(
@@ -380,7 +380,6 @@ class TestRunOptimisedDeparture:
         assert captured["fms_cost_travel_time"] == pytest.approx(354.0)
         assert captured["fms_time_offset"] == pytest.approx(12.0)
         assert captured["time_offsets"][-1] == pytest.approx(12.0)
-        assert captured["penalty_time_offsets"][-1] == pytest.approx(12.0)
 
     def test_fms_route_is_rejected_when_weather_limit_is_exceeded(self, monkeypatch):
         """FMS should be discarded when the refined route violates weather limits."""
@@ -442,8 +441,8 @@ class TestRunOptimisedDeparture:
         assert not jnp.allclose(result.curve, captured["refined_curve"])
         assert result.energy_mwh == pytest.approx(12.0)
 
-    def test_swopp3_uses_same_penalized_cost_for_cmaes_and_fms(self, monkeypatch):
-        """SWOPP3 CMA-ES and FMS should share the demo's penalized RISE cost."""
+    def test_cmaes_uses_penalized_cost_fms_uses_pure_energy_cost(self, monkeypatch):
+        """CMA-ES uses penalized RISE cost; FMS uses pure energy only."""
         captured: dict[str, object] = {}
 
         def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
@@ -534,7 +533,7 @@ class TestRunOptimisedDeparture:
             return 10.0, 18.0, 6.0
 
         monkeypatch.setattr(
-            "routetools.cost.cost_function_rise",
+            "routetools.swopp3_runner.cost_function_rise",
             fake_cost_function_rise,
         )
         monkeypatch.setattr(
@@ -563,8 +562,10 @@ class TestRunOptimisedDeparture:
         assert jnp.allclose(result.curve, captured["cmaes_curve"])
         assert captured["windfield"] is _zero_windfield
         assert jnp.allclose(captured["cmaes_cost"], jnp.array([13.0]))
-        assert jnp.allclose(captured["fms_cost"], jnp.array([13.0]))
-        assert captured["enforce_weather_limits"] is False
+        # FMS uses pure energy only (no weather_penalty_smooth), so its cost
+        # matches cost_function_rise alone (10.0), not the penalized value (13.0).
+        assert jnp.allclose(captured["fms_cost"], jnp.array([10.0]))
+        assert captured["enforce_weather_limits"] is True
         assert captured["tws_limit"] == pytest.approx(19.0)
         assert captured["hs_limit"] == pytest.approx(6.5)
         assert captured["travel_time"] == pytest.approx(354.0)

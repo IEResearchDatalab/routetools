@@ -24,11 +24,12 @@ import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 import jax.numpy as jnp
 
-from routetools.cost import evaluate_route_energy
+from routetools.cost import cost_function_rise, evaluate_route_energy
 from routetools.cost import segment_bearings_deg as _segment_bearings_deg
 from routetools.swopp3 import (
     SWOPP3_CASES,
@@ -77,8 +78,6 @@ def _penalized_rise_cost(
     time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Return the SWOPP3 optimisation objective used by CMA-ES and FMS."""
-    from routetools.cost import cost_function_rise
-
     return cost_function_rise(
         windfield=windfield,
         curve=curve,
@@ -352,23 +351,6 @@ def run_optimised_departure(
                 time_offset=departure_offset_h,
             )
 
-        def _rise_fms_cost(
-            *,
-            curve: jnp.ndarray,
-            travel_time: float,
-            time_offset: float = departure_offset_h,
-            **kwargs,
-        ):
-            return _penalized_rise_cost(
-                curve=curve,
-                windfield=windfield,
-                wavefield=wavefield,
-                travel_time=travel_time,
-                wps=_wps,
-                spherical_correction=True,
-                time_offset=time_offset,
-            )
-
         defaults_cmaes = dict(
             L=n_points,
             curve0=gc_init,
@@ -439,10 +421,14 @@ def run_optimised_departure(
             travel_time=travel_time,
             spherical_correction=True,
             time_offset=departure_offset_h,
-            enforce_weather_limits=False,  # Given by the cost function
+            enforce_weather_limits=True,  # revert steps that newly violate limits
             tws_limit=tws_limit,
             hs_limit=hs_limit,
-            costfun=_rise_fms_cost,
+            # FMS uses pure RISE energy (no weather penalty) so its gradient
+            # aligns with the evaluate_energy metric used for comparison.
+            costfun=partial(
+                cost_function_rise, windfield=windfield, wavefield=wavefield, wps=_wps
+            ),
             **defaults_fms,
         )
         curve_fms = curve_fms[0]
