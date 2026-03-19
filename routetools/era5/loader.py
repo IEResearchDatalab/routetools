@@ -80,26 +80,48 @@ def _normalize_time_coord(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
-def _load_datasets(paths: str | Path | Sequence[str | Path]) -> xr.Dataset:
+def _load_datasets(
+    paths: str | Path | Sequence[str | Path],
+    temporal_stride: int = 1,
+) -> xr.Dataset:
     """Open one or more NetCDF files and concatenate along the time axis.
 
     When multiple files are provided they are concatenated in order.  The
     time dimension is normalised to ``valid_time`` before concatenation so
     that files downloaded from CDS (``valid_time``) and GCS (``time``) can
     be freely mixed.
+
+    Parameters
+    ----------
+    paths : str, Path, or list thereof
+        Path(s) to ERA5 NetCDF file(s).
+    temporal_stride : int
+        Keep every *temporal_stride*-th timestep.  ``1`` loads all
+        timesteps (default); ``3`` loads every 3rd timestep, etc.
+        Useful for reducing JIT constant-capture size on GPU.
     """
     if isinstance(paths, str | Path):
-        return _normalize_time_coord(_load_dataset(paths))
+        ds = _normalize_time_coord(_load_dataset(paths))
+    else:
+        datasets = [_normalize_time_coord(_load_dataset(p)) for p in paths]
+        if len(datasets) == 1:
+            ds = datasets[0]
+        else:
+            time_name = _get_coord_name(datasets[0], ["valid_time", "time"])
+            ds = xr.concat(datasets, dim=time_name)
+            # Ensure monotonic time after concatenation
+            ds = ds.sortby(time_name)
 
-    datasets = [_normalize_time_coord(_load_dataset(p)) for p in paths]
-    if len(datasets) == 1:
-        return datasets[0]
+    if temporal_stride > 1:
+        time_name = _get_coord_name(ds, ["valid_time", "time"])
+        ds = ds.isel({time_name: slice(None, None, temporal_stride)})
+        logger.info(
+            "Applied temporal stride=%d: %d timesteps retained",
+            temporal_stride,
+            ds.sizes[time_name],
+        )
 
-    time_name = _get_coord_name(datasets[0], ["valid_time", "time"])
-    combined = xr.concat(datasets, dim=time_name)
-    # Ensure monotonic time after concatenation
-    combined = combined.sortby(time_name)
-    return combined
+    return ds
 
 
 def _get_coord_name(ds: xr.Dataset, candidates: list[str]) -> str:
@@ -327,6 +349,7 @@ def load_era5_windfield(
     order: int = 1,
     u_var: str | None = None,
     v_var: str | None = None,
+    temporal_stride: int = 1,
 ) -> Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
@@ -361,7 +384,7 @@ def load_era5_windfield(
     Callable
         ``(lon, lat, t) -> (u10, v10)`` with ``.is_time_variant = True``.
     """
-    ds = _load_datasets(path)
+    ds = _load_datasets(path, temporal_stride=temporal_stride)
 
     # Auto-detect variable names
     if u_var is None:
@@ -446,6 +469,7 @@ def load_era5_vectorfield(
     order: int = 1,
     u_var: str | None = None,
     v_var: str | None = None,
+    temporal_stride: int = 1,
 ) -> Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
@@ -468,6 +492,7 @@ def load_era5_vectorfield(
         order=order,
         u_var=u_var,
         v_var=v_var,
+        temporal_stride=temporal_stride,
     )
 
 
@@ -478,6 +503,7 @@ def load_era5_wavefield(
     order: int = 1,
     hs_var: str | None = None,
     dir_var: str | None = None,
+    temporal_stride: int = 1,
 ) -> Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
@@ -512,7 +538,7 @@ def load_era5_wavefield(
     Callable
         ``(lon, lat, t) -> (hs, mwd)``.
     """
-    ds = _load_datasets(path)
+    ds = _load_datasets(path, temporal_stride=temporal_stride)
 
     # Auto-detect variable names
     if hs_var is None:

@@ -35,6 +35,7 @@ echo "Date:     $(date)"
 echo "GPU:      $(nvidia-smi -L 2>/dev/null | head -1 || echo 'unknown')"
 echo "n-points: 584 (dt ≈ 1.0h)"
 echo "wpw:      0 (no operational constraints)"
+echo "stride:   3 (3-hourly from hourly ERA5, reduces GPU memory)"
 echo "Output:   ${OUTDIR}"
 echo "======================================"
 
@@ -73,7 +74,8 @@ python scripts/swopp3_run.py \
     --wave-path-pacific "${DATA}/era5_waves_pacific_2024.nc" \
     --output-dir "$OUTDIR" \
     --n-points 584 \
-    --weather-penalty-weight 0
+    --weather-penalty-weight 0 \
+    --temporal-stride 3
 
 echo ""
 echo "======================================"
