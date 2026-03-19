@@ -271,3 +271,46 @@ def test_optimize_with_bounds():
     assert curve[:, 0].max() <= 7.0, "Longitude above upper bound"
     assert curve[:, 1].min() >= -2.0, "Latitude below lower bound"
     assert curve[:, 1].max() <= 4.0, "Latitude above upper bound"
+
+
+def test_cmaes_snapshot_callback_receives_iteration_population():
+    """CMA-ES snapshot callback should receive per-iteration route batches."""
+    src = jnp.array([0.0, 0.0])
+    dst = jnp.array([6.0, 2.0])
+    snapshots: list[dict[str, object]] = []
+
+    def callback(snapshot):
+        snapshots.append(
+            {
+                "iteration": snapshot["iteration"],
+                "population_shape": tuple(snapshot["population_curves"].shape),
+                "cost_shape": tuple(snapshot["population_costs"].shape),
+                "generation_best_index": snapshot["generation_best_index"],
+                "generation_best_shape": tuple(snapshot["generation_best_curve"].shape),
+                "best_shape": tuple(snapshot["best_curve"].shape),
+                "best_cost": float(snapshot["best_cost"]),
+            }
+        )
+
+    optimize(
+        vectorfield_fourvortices,
+        src=src,
+        dst=dst,
+        travel_stw=1,
+        L=20,
+        popsize=4,
+        sigma0=1,
+        maxfevals=12,
+        seed=1,
+        verbose=False,
+        snapshot_callback=callback,
+    )
+
+    assert snapshots
+    assert snapshots[0]["iteration"] == 1
+    assert all(item["population_shape"] == (4, 20, 2) for item in snapshots)
+    assert all(item["cost_shape"] == (4,) for item in snapshots)
+    assert all(item["generation_best_shape"] == (20, 2) for item in snapshots)
+    assert all(item["best_shape"] == (20, 2) for item in snapshots)
+    assert all(isinstance(item["generation_best_index"], int) for item in snapshots)
+    assert all(item["best_cost"] >= 0 for item in snapshots)

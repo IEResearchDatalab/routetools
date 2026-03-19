@@ -208,6 +208,44 @@ class TestOptimizeFmsWeatherLimits:
         assert info["niter"] <= 2
         assert seen["scale"] == pytest.approx(2.5)
 
+    def test_fms_snapshot_callback_receives_current_and_best_routes(self):
+        """FMS snapshot callback should expose current and best-so-far routes."""
+        snapshots: list[dict[str, object]] = []
+
+        def zero_field(lon, lat, t):
+            return jnp.zeros_like(lon), jnp.zeros_like(lat)
+
+        curve_init = jnp.array(
+            [[[0.0, 0.0], [1.0, 0.5], [2.0, 0.0]]],
+            dtype=jnp.float32,
+        )
+
+        _, info = optimize_fms(
+            zero_field,
+            curve=curve_init,
+            travel_time=2.0,
+            damping=0.0,
+            maxfevals=3,
+            patience=3,
+            verbose=False,
+            snapshot_callback=lambda snapshot: snapshots.append(
+                {
+                    "iteration": snapshot["iteration"],
+                    "curve_shape": tuple(snapshot["curve"].shape),
+                    "cost_shape": tuple(snapshot["cost"].shape),
+                    "best_curve_shape": tuple(snapshot["best_curve"].shape),
+                    "best_cost_shape": tuple(snapshot["best_cost"].shape),
+                }
+            ),
+        )
+
+        assert len(snapshots) == info["niter"]
+        assert snapshots[0]["iteration"] == 1
+        assert all(item["curve_shape"] == (1, 3, 2) for item in snapshots)
+        assert all(item["cost_shape"] == (1,) for item in snapshots)
+        assert all(item["best_curve_shape"] == (1, 3, 2) for item in snapshots)
+        assert all(item["best_cost_shape"] == (1,) for item in snapshots)
+
     def test_fms_accepts_initially_invalid_land_waypoint(self):
         """FMS should improve an initially invalid waypoint instead of raising."""
         land = _BandLand()
