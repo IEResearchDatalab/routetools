@@ -345,6 +345,7 @@ def run_optimised_departure(
             penalty=1000,
             land_margin=2,
             verbose=False,
+            time_offset=departure_offset_h,
         )
         defaults.update(cmaes_kwargs)
 

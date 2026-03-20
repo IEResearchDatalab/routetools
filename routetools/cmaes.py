@@ -413,6 +413,10 @@ def _cma_evolution_strategy(
                 tws_limit=tws_limit,
                 hs_limit=hs_limit,
                 penalty=weather_penalty_weight,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
             )
 
         # Split smooth wind penalty
@@ -422,6 +426,10 @@ def _cma_evolution_strategy(
                 windfield=windfield,
                 tws_limit=tws_limit,
                 weight=wind_penalty_weight,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
             )
 
         # Split smooth wave penalty
@@ -431,6 +439,10 @@ def _cma_evolution_strategy(
                 wavefield=wavefield,
                 hs_limit=hs_limit,
                 weight=wave_penalty_weight,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
             )
 
         # EDT distance-to-land penalty
@@ -756,6 +768,10 @@ def optimize(
                 tws_limit=tws_limit,
                 hs_limit=hs_limit,
                 penalty=weather_penalty_weight,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
             ).item()
         if wind_penalty_weight > 0 and windfield is not None:
             cost_initial += _wind_penalty_smooth(
@@ -763,6 +779,10 @@ def optimize(
                 windfield=windfield,
                 tws_limit=tws_limit,
                 weight=wind_penalty_weight,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
             ).item()
         if wave_penalty_weight > 0 and wavefield is not None:
             cost_initial += _wave_penalty_smooth(
@@ -770,6 +790,10 @@ def optimize(
                 wavefield=wavefield,
                 hs_limit=hs_limit,
                 weight=wave_penalty_weight,
+                travel_stw=travel_stw,
+                travel_time=travel_time,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset,
             ).item()
         if distance_penalty_weight > 0 and land is not None:
             cost_initial += land.distance_penalty(

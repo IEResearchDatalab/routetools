@@ -87,8 +87,9 @@ def _segment_midpoints(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Compute segment midpoint coordinates and elapsed timestamps.
+    """Compute segment midpoint coordinates and timestamps.
 
     Parameters
     ----------
@@ -98,23 +99,26 @@ def _segment_midpoints(
         Constant speed through water (m/s).  Used to estimate elapsed time
         per segment as ``distance / travel_stw``.
     travel_time : float, optional
-        Total travel time (seconds).  Time is distributed proportionally
-        by segment distance.
+        Total travel time.  Time is distributed proportionally
+        by segment distance.  Units must match *time_offset*.
     spherical_correction : bool
         If ``True`` (default), use haversine distances (metres).
+    time_offset : float
+        Constant added to all midpoint timestamps (e.g. departure time
+        offset in the same unit as *travel_time*).  Default ``0.0``.
 
     Returns
     -------
     mid_lon, mid_lat, t_mid : jnp.ndarray
-        Each of shape ``(B, L-1)``.  ``t_mid`` is the estimated elapsed
-        time (in seconds) at the midpoint of each segment.
+        Each of shape ``(B, L-1)``.  ``t_mid`` is ``time_offset`` plus
+        the estimated elapsed time at the midpoint of each segment.
     """
     mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
     mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
 
     if travel_stw is None and travel_time is None:
-        # Fallback: no time information → zeros (original behaviour)
-        return mid_lon, mid_lat, jnp.zeros_like(mid_lon)
+        # Fallback: no time information → time_offset only
+        return mid_lon, mid_lat, jnp.full_like(mid_lon, time_offset)
 
     # Compute segment distances
     if spherical_correction:
@@ -141,7 +145,7 @@ def _segment_midpoints(
 
     # Cumulative time at segment midpoints
     cumulative_t = jnp.cumsum(segment_dt, axis=1)
-    t_mid = cumulative_t - segment_dt / 2
+    t_mid = cumulative_t - segment_dt / 2 + time_offset
 
     return mid_lon, mid_lat, t_mid
 
@@ -166,6 +170,7 @@ def evaluate_weather(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> RouteWeatherStats:
     """Evaluate weather conditions along routes and report statistics.
 
@@ -217,6 +222,7 @@ def evaluate_weather(
         travel_stw=travel_stw,
         travel_time=travel_time,
         spherical_correction=spherical_correction,
+        time_offset=time_offset,
     )
 
     # Wind
@@ -263,6 +269,7 @@ def weather_penalty(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Compute a hard penalty for weather constraint violations.
 
@@ -301,6 +308,7 @@ def weather_penalty(
         travel_stw=travel_stw,
         travel_time=travel_time,
         spherical_correction=spherical_correction,
+        time_offset=time_offset,
     )
 
     violations = jnp.zeros(curve.shape[0])
@@ -339,6 +347,7 @@ def weather_penalty_smooth(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Compute a smooth (differentiable) penalty for weather violations.
 
@@ -382,6 +391,7 @@ def weather_penalty_smooth(
         travel_stw=travel_stw,
         travel_time=travel_time,
         spherical_correction=spherical_correction,
+        time_offset=time_offset,
     )
 
     total = jnp.zeros(curve.shape[0])
@@ -414,6 +424,7 @@ def wind_penalty_smooth(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Smooth penalty for wind-speed constraint violations only.
 
@@ -451,6 +462,7 @@ def wind_penalty_smooth(
         travel_stw=travel_stw,
         travel_time=travel_time,
         spherical_correction=spherical_correction,
+        time_offset=time_offset,
     )
     u10, v10 = windfield(mid_lon, mid_lat, t_mid)
     tws = jnp.sqrt(u10**2 + v10**2)
@@ -469,6 +481,7 @@ def wave_penalty_smooth(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Smooth penalty for wave-height constraint violations only.
 
@@ -506,6 +519,7 @@ def wave_penalty_smooth(
         travel_stw=travel_stw,
         travel_time=travel_time,
         spherical_correction=spherical_correction,
+        time_offset=time_offset,
     )
     hs, _ = wavefield(mid_lon, mid_lat, t_mid)
     excess = jnp.maximum(hs - hs_limit, 0.0)

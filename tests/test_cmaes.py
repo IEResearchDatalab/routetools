@@ -295,3 +295,170 @@ def test_dt_eval_minutes_finer_grid_does_not_degrade():
         f"Fine grid cost {info_fine['cost']} much worse than "
         f"coarse cost {info_coarse['cost']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Weather penalty time-awareness regression tests
+# ---------------------------------------------------------------------------
+
+
+def _windfield_time_dependent(lon, lat, t):
+    """Wind field: calm at t=0, stormy (30 m/s) for t >= 5."""
+    tws = jnp.where(t >= 5.0, 30.0, 5.0)
+    u10 = tws * jnp.ones_like(lon)
+    v10 = jnp.zeros_like(lon)
+    return u10, v10
+
+
+def _wavefield_time_dependent(lon, lat, t):
+    """Wave field: calm at t=0, rough (12 m) for t >= 5."""
+    hs = jnp.where(t >= 5.0, 12.0, 1.0)
+    mwd = jnp.zeros_like(lon)
+    return hs, mwd
+
+
+def test_wind_penalty_smooth_uses_travel_time():
+    """wind_penalty_smooth must evaluate weather at actual voyage timestamps.
+
+    Regression: when travel_time was not forwarded the penalty evaluated
+    everything at t=0 (calm) and returned ≈0 even though the real voyage
+    would encounter 30 m/s winds.
+    """
+    from routetools.weather import wind_penalty_smooth
+
+    # Straight route, 10 points
+    L = 10
+    lons = jnp.linspace(0.0, 6.0, L)
+    lats = jnp.linspace(0.0, 5.0, L)
+    curve = jnp.stack([lons, lats], axis=-1)[jnp.newaxis, :, :]  # (1, L, 2)
+
+    # With travel_time=10 h, segments span t ∈ [0, 10]: most are at t>=5 → stormy
+    penalty_with_time = wind_penalty_smooth(
+        curve,
+        windfield=_windfield_time_dependent,
+        tws_limit=20.0,
+        weight=100.0,
+        travel_time=10.0 * 3600,  # seconds
+        spherical_correction=False,
+    )
+
+    # Without travel_time → t=0 everywhere → calm (5 m/s < 20 limit) → penalty ≈ 0
+    penalty_no_time = wind_penalty_smooth(
+        curve,
+        windfield=_windfield_time_dependent,
+        tws_limit=20.0,
+        weight=100.0,
+        spherical_correction=False,
+    )
+
+    assert float(penalty_no_time[0]) == 0.0, "At t=0 wind is calm, penalty must be 0"
+    assert (
+        float(penalty_with_time[0]) > 0.0
+    ), "With travel_time the route hits stormy conditions, penalty must be > 0"
+
+
+def test_wave_penalty_smooth_uses_travel_time():
+    """wave_penalty_smooth must evaluate weather at actual voyage timestamps."""
+    from routetools.weather import wave_penalty_smooth
+
+    L = 10
+    lons = jnp.linspace(0.0, 6.0, L)
+    lats = jnp.linspace(0.0, 5.0, L)
+    curve = jnp.stack([lons, lats], axis=-1)[jnp.newaxis, :, :]
+
+    penalty_with_time = wave_penalty_smooth(
+        curve,
+        wavefield=_wavefield_time_dependent,
+        hs_limit=7.0,
+        weight=100.0,
+        travel_time=10.0 * 3600,
+        spherical_correction=False,
+    )
+
+    penalty_no_time = wave_penalty_smooth(
+        curve,
+        wavefield=_wavefield_time_dependent,
+        hs_limit=7.0,
+        weight=100.0,
+        spherical_correction=False,
+    )
+
+    assert float(penalty_no_time[0]) == 0.0, "At t=0 seas are calm, penalty must be 0"
+    assert (
+        float(penalty_with_time[0]) > 0.0
+    ), "With travel_time the route hits rough seas, penalty must be > 0"
+
+
+def test_weather_penalty_smooth_uses_travel_time():
+    """weather_penalty_smooth (combined) must forward travel_time."""
+    from routetools.weather import weather_penalty_smooth
+
+    L = 10
+    lons = jnp.linspace(0.0, 6.0, L)
+    lats = jnp.linspace(0.0, 5.0, L)
+    curve = jnp.stack([lons, lats], axis=-1)[jnp.newaxis, :, :]
+
+    penalty_with_time = weather_penalty_smooth(
+        curve,
+        windfield=_windfield_time_dependent,
+        wavefield=_wavefield_time_dependent,
+        tws_limit=20.0,
+        hs_limit=7.0,
+        penalty=100.0,
+        travel_time=10.0 * 3600,
+        spherical_correction=False,
+    )
+
+    penalty_no_time = weather_penalty_smooth(
+        curve,
+        windfield=_windfield_time_dependent,
+        wavefield=_wavefield_time_dependent,
+        tws_limit=20.0,
+        hs_limit=7.0,
+        penalty=100.0,
+        spherical_correction=False,
+    )
+
+    assert float(penalty_no_time[0]) == 0.0
+    assert float(penalty_with_time[0]) > 0.0
+
+
+def test_cmaes_penalty_forwards_time_params():
+    """CMA-ES loop must forward travel_time and time_offset to penalties.
+
+    Uses a time-dependent wind field where storms only occur at t >= 5 h.
+    With travel_time=10 h, the penalty should be non-zero and influence
+    the optimizer to find a different route than without the penalty.
+    """
+    src = jnp.array([0.0, 0.0])
+    dst = jnp.array([6.0, 5.0])
+
+    common = dict(
+        vectorfield=vectorfield_swirlys,
+        src=src,
+        dst=dst,
+        travel_time=30.0,
+        L=16,
+        popsize=10,
+        sigma0=1,
+        seed=42,
+        verbose=False,
+    )
+
+    _, info_no_penalty = optimize(
+        **common,
+        windfield=_windfield_time_dependent,
+        wind_penalty_weight=0.0,
+    )
+
+    _, info_with_penalty = optimize(
+        **common,
+        windfield=_windfield_time_dependent,
+        wind_penalty_weight=100.0,
+    )
+
+    # The penalized run must have a higher total cost (energy + penalty)
+    assert info_with_penalty["cost"] > info_no_penalty["cost"], (
+        f"Penalized cost ({info_with_penalty['cost']:.4f}) should exceed "
+        f"unpenalized cost ({info_no_penalty['cost']:.4f}) when storms are present"
+    )

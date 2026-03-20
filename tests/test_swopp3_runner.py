@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import jax.numpy as jnp
 import numpy as np
@@ -341,3 +342,52 @@ class TestRunCase:
             )
             assert len(results) == 1
             assert results[0].energy_mwh > 0
+
+
+# ---------------------------------------------------------------------------
+# time_offset forwarding
+# ---------------------------------------------------------------------------
+class TestTimeOffsetForwarding:
+    """Verify that run_optimised_departure passes departure_offset_h to CMA-ES."""
+
+    def test_time_offset_forwarded_to_cmaes(self):
+        """CMA-ES optimize() must receive time_offset=departure_offset_h."""
+        captured_kwargs: dict = {}
+
+        def _spy_optimize(**kwargs):
+            captured_kwargs.update(kwargs)
+            # Return a dummy curve + info so the runner can proceed.
+            from routetools.swopp3 import great_circle_route
+
+            n = kwargs.get("L", 20)
+            src = jnp.array([-4.0, 43.6])
+            dst = jnp.array([-73.80, 40.53])
+            curve = great_circle_route(src, dst, n_points=n)
+            return curve, {"cost": 100.0, "niter": 1, "comp_time": 0}
+
+        dep = datetime(2024, 7, 15, 0, 0, 0, tzinfo=UTC)
+        epoch = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        expected_offset_h = (dep - epoch).total_seconds() / 3600.0
+
+        with patch(
+            "routetools.cmaes.optimize", side_effect=_spy_optimize
+        ):
+            # Use run_case which computes departure_offset_h from dataset_epoch
+            run_case(
+                "AO_WPS",
+                [dep],
+                vectorfield=_zero_windfield,
+                windfield=_zero_windfield,
+                n_points=20,
+                verbose=False,
+                dataset_epoch=epoch,
+                wind_penalty_weight=100.0,
+            )
+
+        assert (
+            "time_offset" in captured_kwargs
+        ), "time_offset was not passed to cmaes.optimize"
+        assert abs(captured_kwargs["time_offset"] - expected_offset_h) < 0.01, (
+            f"time_offset={captured_kwargs['time_offset']:.1f} but expected "
+            f"{expected_offset_h:.1f} hours from epoch"
+        )
