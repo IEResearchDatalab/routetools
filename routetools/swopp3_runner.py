@@ -19,6 +19,7 @@ Main entry points:
 
 from __future__ import annotations
 
+import logging
 import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -44,6 +45,8 @@ from routetools.swopp3_output import (
     write_file_b,
 )
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "DepartureResult",
     "segment_bearings_deg",
@@ -51,6 +54,7 @@ __all__ = [
     "run_gc_departure",
     "run_optimised_departure",
     "run_case",
+    "log_run_parameters",
 ]
 
 # Type alias for field closures: (lon, lat, t) -> (comp1, comp2)
@@ -58,6 +62,46 @@ FieldClosure = Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
 ]
+
+
+# ---------------------------------------------------------------------------
+# Parameter logging
+# ---------------------------------------------------------------------------
+def log_run_parameters(
+    case_id: str,
+    n_departures: int,
+    n_points: int,
+    **kwargs: object,
+) -> None:
+    """Log run configuration parameters at the start of a case.
+
+    Parameters
+    ----------
+    case_id : str
+        SWOPP3 case identifier.
+    n_departures : int
+        Number of departures to run.
+    n_points : int
+        Number of waypoints.
+    **kwargs
+        Additional parameters (penalty weights, CMA-ES settings, etc.).
+    """
+    case = SWOPP3_CASES[case_id]
+    lines = [
+        "=" * 60,
+        f"SWOPP3 Run: {case['name']} ({case_id})",
+        f"  strategy:    {case['strategy']}",
+        f"  wps:         {case['wps']}",
+        f"  passage_h:   {case['passage_hours']}",
+        f"  departures:  {n_departures}",
+        f"  n_points:    {n_points}",
+    ]
+    for key, val in sorted(kwargs.items()):
+        lines.append(f"  {key}: {val}")
+    lines.append("=" * 60)
+    msg = "\n".join(lines)
+    logger.info(msg)
+    print(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +338,7 @@ def run_optimised_departure(
         defaults = dict(
             K=10,
             L=n_points,
+            travel_time=travel_time,
             curve0=gc_init,
             sigma0=0.1,
             cost_fn=_rise_cost,
@@ -403,6 +448,14 @@ def run_case(
     is_gc = case["strategy"] == "gc"
     results: list[DepartureResult] = []
 
+    if verbose:
+        log_run_parameters(
+            case_id,
+            n_departures=len(departures),
+            n_points=n_points,
+            **{k: v for k, v in cmaes_kwargs.items() if v is not None and v != 0},
+        )
+
     for i, dep in enumerate(departures):
         if verbose:
             print(
@@ -450,9 +503,14 @@ def run_case(
 
         results.append(result)
         if verbose:
+            # Flag constraint violations
+            tws_flag = " [TWS!]" if result.max_tws_mps > 20.0 else ""
+            hs_flag = " [Hs!]" if result.max_hs_m > 7.0 else ""
             print(
                 f"E={result.energy_mwh:.2f} MWh  "
                 f"d={result.distance_nm:.0f} nm  "
+                f"TWS={result.max_tws_mps:.1f}{tws_flag}  "
+                f"Hs={result.max_hs_m:.1f}{hs_flag}  "
                 f"t={result.comp_time_s:.1f}s"
             )
 

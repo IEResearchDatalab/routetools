@@ -213,6 +213,36 @@ def main(
         "-n",
         help="Limit number of departures (for quick testing).",
     ),
+    weather_penalty_weight: float = typer.Option(  # noqa: B008
+        0.0,
+        "--weather-penalty-weight",
+        help="Hard weather penalty weight (step function). 0 to disable.",
+    ),
+    wind_penalty_weight: float = typer.Option(  # noqa: B008
+        0.0,
+        "--wind-penalty-weight",
+        help="Smooth wind (TWS) penalty weight. 0 to disable.",
+    ),
+    wave_penalty_weight: float = typer.Option(  # noqa: B008
+        0.0,
+        "--wave-penalty-weight",
+        help="Smooth wave (Hs) penalty weight. 0 to disable.",
+    ),
+    distance_penalty_weight: float = typer.Option(  # noqa: B008
+        0.0,
+        "--distance-penalty-weight",
+        help="EDT distance-to-land penalty weight. 0 to disable.",
+    ),
+    dt_eval_minutes: float = typer.Option(  # noqa: B008
+        0.0,
+        "--dt-eval-minutes",
+        help=(
+            "Evaluation grid spacing in minutes (\u0394t\u2082). "
+            "When positive, the optimizer evaluates B\u00e9zier curves at a "
+            "finer resolution than --n-points for more accurate energy "
+            "quadrature. 0 = use --n-points for both."
+        ),
+    ),
     quiet: bool = typer.Option(  # noqa: B008
         False,
         "--quiet",
@@ -418,6 +448,11 @@ def main(
             n_points=n_points,
             verbose=not quiet,
             dataset_epoch=dataset_epoch,
+            weather_penalty_weight=weather_penalty_weight,
+            wind_penalty_weight=wind_penalty_weight,
+            wave_penalty_weight=wave_penalty_weight,
+            distance_penalty_weight=distance_penalty_weight,
+            dt_eval_minutes=dt_eval_minutes,
         )
 
         # Summary

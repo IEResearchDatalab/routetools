@@ -233,3 +233,65 @@ def test_curve_to_control_piecewise(L: int = 127, K: int = 10, num_pieces: int =
     assert jnp.allclose(
         reconstructed_curve, curve, atol=1e-1
     ), "Reconstructed curve does not match original curve"
+
+
+# ---------------------------------------------------------------------------
+# dt_eval_minutes  (Δt₂ decoupling)
+# ---------------------------------------------------------------------------
+
+
+def test_dt_eval_minutes_output_shape():
+    """Output curve uses L (Δt₁), not L_eval, when dt_eval_minutes is set."""
+    L = 32
+    travel_time = 10.0  # hours
+    dt_eval = 5.0  # minutes → L_eval = 10*60/5 + 1 = 121
+    curve, info = optimize(
+        vectorfield_swirlys,
+        src=jnp.array([0.0, 0.0]),
+        dst=jnp.array([6.0, 5.0]),
+        travel_time=travel_time,
+        L=L,
+        dt_eval_minutes=dt_eval,
+        popsize=10,
+        sigma0=1,
+        seed=42,
+    )
+    assert curve.shape == (L, 2), f"Expected output shape ({L}, 2), got {curve.shape}"
+
+
+def test_dt_eval_minutes_zero_is_backward_compatible():
+    """dt_eval_minutes=0 behaves identically to omitting it."""
+    kwargs = dict(
+        vectorfield=vectorfield_swirlys,
+        src=jnp.array([0.0, 0.0]),
+        dst=jnp.array([6.0, 5.0]),
+        travel_time=30,
+        L=64,
+        popsize=10,
+        sigma0=1,
+        seed=1,
+    )
+    _, info_default = optimize(**kwargs)
+    _, info_zero = optimize(**kwargs, dt_eval_minutes=0.0)
+    assert info_default["cost"] == info_zero["cost"]
+
+
+def test_dt_eval_minutes_finer_grid_does_not_degrade():
+    """Using a finer eval grid should not produce worse results."""
+    kwargs = dict(
+        vectorfield=vectorfield_swirlys,
+        src=jnp.array([0.0, 0.0]),
+        dst=jnp.array([6.0, 5.0]),
+        travel_time=30,
+        L=64,
+        popsize=200,
+        sigma0=2,
+        seed=1,
+    )
+    _, info_coarse = optimize(**kwargs, dt_eval_minutes=0.0)
+    _, info_fine = optimize(**kwargs, dt_eval_minutes=5.0)
+    # Fine grid may produce a different cost but shouldn't be wildly worse
+    assert info_fine["cost"] < info_coarse["cost"] * 2, (
+        f"Fine grid cost {info_fine['cost']} much worse than "
+        f"coarse cost {info_coarse['cost']}"
+    )

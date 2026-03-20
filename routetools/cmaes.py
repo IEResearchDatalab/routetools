@@ -16,7 +16,9 @@ from jax import jit
 from routetools.cost import cost_function
 from routetools.land import Land
 from routetools.vectorfield import vectorfield_fourvortices
+from routetools.weather import wave_penalty_smooth as _wave_penalty_smooth
 from routetools.weather import weather_penalty as _weather_penalty
+from routetools.weather import wind_penalty_smooth as _wind_penalty_smooth
 
 
 @jit  # type: ignore[misc]
@@ -289,6 +291,9 @@ def _cma_evolution_strategy(
     | None = None,
     penalty: float = 1e10,
     weather_penalty_weight: float = 0.0,
+    wind_penalty_weight: float = 0.0,
+    wave_penalty_weight: float = 0.0,
+    distance_penalty_weight: float = 0.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -309,10 +314,27 @@ def _cma_evolution_strategy(
     time_offset: float = 0.0,
     cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     land_margin: int = 0,
+    dt_eval_minutes: float = 0.0,
     verbose: bool = True,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
     curve: jnp.ndarray
+
+    # Compute L_eval: the number of Bézier evaluation points for accurate
+    # quadrature (Δt₂).  When dt_eval_minutes > 0 and travel_time is known,
+    # L_eval is derived so that each evaluation segment spans ~dt_eval_minutes.
+    # Otherwise fall back to the output resolution L (Δt₁ == Δt₂).
+    if dt_eval_minutes > 0 and travel_time is not None:
+        L_eval = int(travel_time * 60 / dt_eval_minutes) + 1
+        # Ensure L_eval - 1 is divisible by num_pieces
+        if num_pieces > 1:
+            remainder = (L_eval - 1) % num_pieces
+            if remainder != 0:
+                L_eval += num_pieces - remainder
+        L_eval = max(L_eval, 3)  # need at least 3 points
+    else:
+        L_eval = L
+
     # Initialize the optimizer
     es = cma.CMAEvolutionStrategy(
         x0,
@@ -332,20 +354,21 @@ def _cma_evolution_strategy(
 
     # Turn the percentage into a number
     num_top = int(keep_top * popsize)
-    # Initialize storage for the top solutions
-    top_curves: jnp.ndarray = jnp.zeros((num_top, L, 2))
+    # Initialize storage for the top solutions (at L_eval resolution)
+    top_curves: jnp.ndarray = jnp.zeros((num_top, L_eval, 2))
     top_costs: jnp.ndarray = jnp.full((num_top,), jnp.inf)
 
     # Optimization loop
     while not es.stop():
         X = es.ask()  # sample len(X) candidate solutions
 
-        # Transform controls into curves and compute costs
+        # Transform controls into curves at L_eval resolution for
+        # accurate energy quadrature (Δt₂).
         curve = control_to_curve(
             jnp.array(X),
             src,
             dst,
-            L=L,
+            L=L_eval,
             num_pieces=num_pieces,
             force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         )
@@ -392,6 +415,28 @@ def _cma_evolution_strategy(
                 penalty=weather_penalty_weight,
             )
 
+        # Split smooth wind penalty
+        if wind_penalty_weight > 0 and windfield is not None:
+            cost += _wind_penalty_smooth(
+                curve,
+                windfield=windfield,
+                tws_limit=tws_limit,
+                weight=wind_penalty_weight,
+            )
+
+        # Split smooth wave penalty
+        if wave_penalty_weight > 0 and wavefield is not None:
+            cost += _wave_penalty_smooth(
+                curve,
+                wavefield=wavefield,
+                hs_limit=hs_limit,
+                weight=wave_penalty_weight,
+            )
+
+        # EDT distance-to-land penalty
+        if distance_penalty_weight > 0 and land is not None:
+            cost += land.distance_penalty(curve, weight=distance_penalty_weight)
+
         # Replace the worst solutions with the best found so far
         if keep_top > 0 and es.countiter > 1:
             num_replace = min(num_top, len(X))
@@ -436,6 +481,9 @@ def optimize(
     | None = None,
     penalty: float = 1e10,
     weather_penalty_weight: float = 0.0,
+    wind_penalty_weight: float = 0.0,
+    wave_penalty_weight: float = 0.0,
+    distance_penalty_weight: float = 0.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -457,6 +505,7 @@ def optimize(
     time_offset: float = 0.0,
     cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     land_margin: int = 0,
+    dt_eval_minutes: float = 0.0,
     verbose: bool = True,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
@@ -491,6 +540,15 @@ def optimize(
     weather_penalty_weight : float, optional
         Penalty weight for weather constraint violations (TWS, Hs).
         Set to 0 (default) to disable weather penalties.
+    wind_penalty_weight : float, optional
+        Smooth wind penalty weight (TWS squared ramp). Set to 0 (default)
+        to disable.
+    wave_penalty_weight : float, optional
+        Smooth wave penalty weight (Hs squared ramp). Set to 0 (default)
+        to disable.
+    distance_penalty_weight : float, optional
+        EDT-based distance-to-land penalty weight. Set to 0 (default)
+        to disable.
     tws_limit : float, optional
         Maximum allowed true wind speed in m/s, by default 20.0
     hs_limit : float, optional
@@ -504,7 +562,13 @@ def optimize(
     K : int, optional
         Number of free Bézier control points. By default 6
     L : int, optional
-        Number of points evaluated in each Bézier curve. By default 64
+        Number of output waypoints in the final curve (Δt₁). By default 64
+    dt_eval_minutes : float, optional
+        Evaluation grid spacing in minutes (Δt₂). When positive and
+        ``travel_time`` is set, the optimizer evaluates Bézier curves at
+        a finer resolution than the output ``L`` for more accurate energy
+        quadrature. Set to 0 (default) to use ``L`` for both evaluation
+        and output (Δt₁ == Δt₂).
     force_L_multiple_of_num_pieces : bool, optional
         If True, ensures that L-1 is divisible by num_pieces. Raises ValueError if not.
         By default False
@@ -595,6 +659,9 @@ def optimize(
         windfield=windfield,
         penalty=penalty,
         weather_penalty_weight=weather_penalty_weight,
+        wind_penalty_weight=wind_penalty_weight,
+        wave_penalty_weight=wave_penalty_weight,
+        distance_penalty_weight=distance_penalty_weight,
         tws_limit=tws_limit,
         hs_limit=hs_limit,
         travel_stw=travel_stw,
@@ -615,6 +682,7 @@ def optimize(
         time_offset=time_offset,
         cost_fn=cost_fn,
         land_margin=land_margin,
+        dt_eval_minutes=dt_eval_minutes,
         verbose=verbose,
     )
     time_end = time.time()
@@ -626,20 +694,41 @@ def optimize(
         jnp.asarray(es.best.x),
         src,
         dst,
-        L=L,
+        L=L,  # output resolution (Δt₁)
         num_pieces=num_pieces,
         force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
     )
     cost_best: float = es.best.f
 
+    # Compute L_eval for fair comparison with curve0
+    if dt_eval_minutes > 0 and travel_time is not None:
+        L_eval = int(travel_time * 60 / dt_eval_minutes) + 1
+        if num_pieces > 1:
+            remainder = (L_eval - 1) % num_pieces
+            if remainder != 0:
+                L_eval += num_pieces - remainder
+        L_eval = max(L_eval, 3)
+    else:
+        L_eval = L
+
     # Compare the best curve with the initial one if provided
     if curve0 is not None:
+        # Evaluate initial curve at L_eval resolution so the comparison
+        # uses the same quadrature accuracy as the optimizer.
+        curve0_eval = control_to_curve(
+            x0,
+            src,
+            dst,
+            L=L_eval,
+            num_pieces=num_pieces,
+            force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
+        )
         if cost_fn is not None:
-            cost_initial: float = cost_fn(curve0[jnp.newaxis, :, :]).item()
+            cost_initial: float = cost_fn(curve0_eval[jnp.newaxis, :, :]).item()
         else:
             cost_initial: float = cost_function(
                 vectorfield=vectorfield,
-                curve=curve0[jnp.newaxis, :, :],
+                curve=curve0_eval[jnp.newaxis, :, :],
                 wavefield=wavefield,
                 travel_stw=travel_stw,
                 travel_time=travel_time,
@@ -649,7 +738,7 @@ def optimize(
                 time_offset=time_offset,
             ).item()
         if land is not None and penalty > 0:
-            c0_batch = curve0[jnp.newaxis, :, :]
+            c0_batch = curve0_eval[jnp.newaxis, :, :]
             if land_margin > 0 and c0_batch.shape[1] > 2 * land_margin:
                 c0_check = c0_batch[:, land_margin:-land_margin, :]
             else:
@@ -661,12 +750,31 @@ def optimize(
             windfield is not None or wavefield is not None
         ):
             cost_initial += _weather_penalty(
-                curve0[jnp.newaxis, :, :],
+                curve0_eval[jnp.newaxis, :, :],
                 windfield=windfield,
                 wavefield=wavefield,
                 tws_limit=tws_limit,
                 hs_limit=hs_limit,
                 penalty=weather_penalty_weight,
+            ).item()
+        if wind_penalty_weight > 0 and windfield is not None:
+            cost_initial += _wind_penalty_smooth(
+                curve0_eval[jnp.newaxis, :, :],
+                windfield=windfield,
+                tws_limit=tws_limit,
+                weight=wind_penalty_weight,
+            ).item()
+        if wave_penalty_weight > 0 and wavefield is not None:
+            cost_initial += _wave_penalty_smooth(
+                curve0_eval[jnp.newaxis, :, :],
+                wavefield=wavefield,
+                hs_limit=hs_limit,
+                weight=wave_penalty_weight,
+            ).item()
+        if distance_penalty_weight > 0 and land is not None:
+            cost_initial += land.distance_penalty(
+                curve0_eval[jnp.newaxis, :, :],
+                weight=distance_penalty_weight,
             ).item()
         if cost_initial < cost_best:
             warnings.warn(
@@ -677,7 +785,15 @@ def optimize(
                 stacklevel=2,
             )
             # Then, take the initial curve as the best
-            curve_best = curve0
+            # Output at L resolution (Δt₁), not L_eval
+            curve_best = control_to_curve(
+                x0,
+                src,
+                dst,
+                L=L,
+                num_pieces=num_pieces,
+                force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
+            )
             cost_best = cost_initial
 
     dict_cmaes = {
@@ -707,6 +823,9 @@ def optimize_with_increasing_penalization(
     penalty_increment: float = 10,
     maxiter: int = 10,
     weather_penalty_weight: float = 0.0,
+    wind_penalty_weight: float = 0.0,
+    wave_penalty_weight: float = 0.0,
+    distance_penalty_weight: float = 0.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -727,6 +846,7 @@ def optimize_with_increasing_penalization(
     time_offset: float = 0.0,
     cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     land_margin: int = 0,
+    dt_eval_minutes: float = 0.0,
     verbose: bool = True,
 ) -> tuple[list[jnp.ndarray], list[float]]:
     """
@@ -761,6 +881,12 @@ def optimize_with_increasing_penalization(
     weather_penalty_weight : float, optional
         Penalty weight for weather constraint violations (TWS, Hs).
         Set to 0 (default) to disable weather penalties.
+    wind_penalty_weight : float, optional
+        Smooth wind penalty weight (default 0).
+    wave_penalty_weight : float, optional
+        Smooth wave penalty weight (default 0).
+    distance_penalty_weight : float, optional
+        EDT-based distance-to-land penalty weight (default 0).
     tws_limit : float, optional
         Maximum allowed true wind speed in m/s, by default 20.0
     hs_limit : float, optional
@@ -774,7 +900,12 @@ def optimize_with_increasing_penalization(
     K : int, optional
         Number of free Bézier control points. By default 6
     L : int, optional
-        Number of points evaluated in each Bézier curve. By default 64
+        Number of output waypoints in the final curve (\u0394t\u2081). By default 64
+    dt_eval_minutes : float, optional
+        Evaluation grid spacing in minutes (\u0394t\u2082). When positive and
+        ``travel_time`` is set, the optimizer evaluates B\u00e9zier curves at
+        a finer resolution for more accurate energy quadrature.
+        Set to 0 (default) to use ``L`` for both evaluation and output.
     popsize : int, optional
         Population size for the CMA-ES optimizer. By default 200
     sigma0 : float, optional
@@ -824,6 +955,9 @@ def optimize_with_increasing_penalization(
             windfield=windfield,
             penalty=penalty,
             weather_penalty_weight=weather_penalty_weight,
+            wind_penalty_weight=wind_penalty_weight,
+            wave_penalty_weight=wave_penalty_weight,
+            distance_penalty_weight=distance_penalty_weight,
             tws_limit=tws_limit,
             hs_limit=hs_limit,
             travel_stw=travel_stw,
@@ -842,6 +976,7 @@ def optimize_with_increasing_penalization(
             time_offset=time_offset,
             cost_fn=cost_fn,
             land_margin=land_margin,
+            dt_eval_minutes=dt_eval_minutes,
             verbose=verbose,
         )
         if verbose:
