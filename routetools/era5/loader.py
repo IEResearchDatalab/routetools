@@ -689,6 +689,12 @@ def load_era5_land_mask(
         land._lats = jnp.array([])
         land._lons = jnp.array([])
 
+    # Precompute EDT for distance_penalty
+    from scipy.ndimage import distance_transform_edt
+
+    binary_land = np.asarray(land._array > land.water_level)
+    land._edt = jnp.asarray(distance_transform_edt(~binary_land), dtype=jnp.float32)
+
     n_land = int(np.sum(is_land_lonlat))
     n_total = int(np.prod(is_land_lonlat.shape))
     logger.info(
@@ -874,6 +880,12 @@ def load_natural_earth_land_mask(
     else:
         land._lats = jnp.array([])
         land._lons = jnp.array([])
+
+    # Precompute EDT for distance_penalty
+    from scipy.ndimage import distance_transform_edt
+
+    binary_land = np.asarray(land._array > land.water_level)
+    land._edt = jnp.asarray(distance_transform_edt(~binary_land), dtype=jnp.float32)
 
     n_land = int(np.sum(land_array > 0.5))
     n_total = n_lon * n_lat
