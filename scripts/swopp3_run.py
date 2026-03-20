@@ -243,6 +243,16 @@ def main(
             "quadrature. 0 = use --n-points for both."
         ),
     ),
+    cmaes_k: int = typer.Option(  # noqa: B008
+        10,
+        "--cmaes-k",
+        help="Number of B\u00e9zier control points for CMA-ES.",
+    ),
+    sigma0: float = typer.Option(  # noqa: B008
+        0.1,
+        "--sigma0",
+        help="Initial CMA-ES step size (sigma0).",
+    ),
     quiet: bool = typer.Option(  # noqa: B008
         False,
         "--quiet",
@@ -453,6 +463,8 @@ def main(
             wave_penalty_weight=wave_penalty_weight,
             distance_penalty_weight=distance_penalty_weight,
             dt_eval_minutes=dt_eval_minutes,
+            K=cmaes_k,
+            sigma0=sigma0,
         )
 
         # Summary
