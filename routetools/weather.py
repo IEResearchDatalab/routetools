@@ -47,6 +47,8 @@ __all__ = [
     "evaluate_weather",
     "weather_penalty",
     "weather_penalty_smooth",
+    "wind_penalty_smooth",
+    "wave_penalty_smooth",
 ]
 
 
@@ -396,3 +398,115 @@ def weather_penalty_smooth(
         total = total + jnp.sum(excess**2, axis=1) * sharpness
 
     return total * penalty
+
+
+# ---------------------------------------------------------------------------
+# Split penalties — independent wind and wave smooth penalties
+# ---------------------------------------------------------------------------
+def wind_penalty_smooth(
+    curve: jnp.ndarray,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray],
+        tuple[jnp.ndarray, jnp.ndarray],
+    ],
+    tws_limit: float = DEFAULT_TWS_LIMIT,
+    weight: float = 50.0,
+    travel_stw: float | None = None,
+    travel_time: float | None = None,
+    spherical_correction: bool = True,
+) -> jnp.ndarray:
+    """Smooth penalty for wind-speed constraint violations only.
+
+    For each segment where TWS exceeds ``tws_limit``:
+
+        ``penalty_i = max(0, TWS_i - tws_limit)²``
+
+    The per-segment penalties are summed and scaled by ``weight``.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        Batch of trajectories, shape ``(B, L, 2)``.
+    windfield : Callable
+        ``(lon, lat, t) -> (u10, v10)``.
+    tws_limit : float
+        TWS threshold in m/s (default 20).
+    weight : float
+        Scaling factor applied to the total squared-excess penalty
+        (default 50).
+    travel_stw : float, optional
+        Constant speed through water (m/s).
+    travel_time : float, optional
+        Total travel time (seconds).
+    spherical_correction : bool
+        Use haversine distances (default ``True``).
+
+    Returns
+    -------
+    jnp.ndarray
+        Smooth wind penalty per route, shape ``(B,)``.
+    """
+    mid_lon, mid_lat, t_mid = _segment_midpoints(
+        curve,
+        travel_stw=travel_stw,
+        travel_time=travel_time,
+        spherical_correction=spherical_correction,
+    )
+    u10, v10 = windfield(mid_lon, mid_lat, t_mid)
+    tws = jnp.sqrt(u10**2 + v10**2)
+    excess = jnp.maximum(tws - tws_limit, 0.0)
+    return weight * jnp.sum(excess**2, axis=1)
+
+
+def wave_penalty_smooth(
+    curve: jnp.ndarray,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray],
+        tuple[jnp.ndarray, jnp.ndarray],
+    ],
+    hs_limit: float = DEFAULT_HS_LIMIT,
+    weight: float = 50.0,
+    travel_stw: float | None = None,
+    travel_time: float | None = None,
+    spherical_correction: bool = True,
+) -> jnp.ndarray:
+    """Smooth penalty for wave-height constraint violations only.
+
+    For each segment where Hs exceeds ``hs_limit``:
+
+        ``penalty_i = max(0, Hs_i - hs_limit)²``
+
+    The per-segment penalties are summed and scaled by ``weight``.
+
+    Parameters
+    ----------
+    curve : jnp.ndarray
+        Batch of trajectories, shape ``(B, L, 2)``.
+    wavefield : Callable
+        ``(lon, lat, t) -> (hs, mwd)``.
+    hs_limit : float
+        Hs threshold in m (default 7).
+    weight : float
+        Scaling factor applied to the total squared-excess penalty
+        (default 50).
+    travel_stw : float, optional
+        Constant speed through water (m/s).
+    travel_time : float, optional
+        Total travel time (seconds).
+    spherical_correction : bool
+        Use haversine distances (default ``True``).
+
+    Returns
+    -------
+    jnp.ndarray
+        Smooth wave penalty per route, shape ``(B,)``.
+    """
+    mid_lon, mid_lat, t_mid = _segment_midpoints(
+        curve,
+        travel_stw=travel_stw,
+        travel_time=travel_time,
+        spherical_correction=spherical_correction,
+    )
+    hs, _ = wavefield(mid_lon, mid_lat, t_mid)
+    excess = jnp.maximum(hs - hs_limit, 0.0)
+    return weight * jnp.sum(excess**2, axis=1)
