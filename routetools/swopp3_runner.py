@@ -346,6 +346,8 @@ def run_optimised_departure(
             land_margin=2,
             verbose=False,
             time_offset=departure_offset_h,
+            windfield=windfield,
+            wavefield=wavefield,
         )
         defaults.update(cmaes_kwargs)
 

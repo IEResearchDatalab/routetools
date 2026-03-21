@@ -369,9 +369,7 @@ class TestTimeOffsetForwarding:
         epoch = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         expected_offset_h = (dep - epoch).total_seconds() / 3600.0
 
-        with patch(
-            "routetools.cmaes.optimize", side_effect=_spy_optimize
-        ):
+        with patch("routetools.cmaes.optimize", side_effect=_spy_optimize):
             # Use run_case which computes departure_offset_h from dataset_epoch
             run_case(
                 "AO_WPS",
@@ -391,3 +389,48 @@ class TestTimeOffsetForwarding:
             f"time_offset={captured_kwargs['time_offset']:.1f} but expected "
             f"{expected_offset_h:.1f} hours from epoch"
         )
+
+    def test_windfield_wavefield_forwarded_to_cmaes(self):
+        """CMA-ES optimize() must receive the actual windfield/wavefield closures."""
+        captured_kwargs: dict = {}
+
+        def _spy_optimize(**kwargs):
+            captured_kwargs.update(kwargs)
+            from routetools.swopp3 import great_circle_route
+
+            n = kwargs.get("L", 20)
+            src = jnp.array([-4.0, 43.6])
+            dst = jnp.array([-73.80, 40.53])
+            curve = great_circle_route(src, dst, n_points=n)
+            return curve, {"cost": 100.0, "niter": 1, "comp_time": 0}
+
+        wf = _constant_windfield(tws=15.0)
+        wavef = _constant_wavefield(hs=3.0)
+
+        with patch("routetools.cmaes.optimize", side_effect=_spy_optimize):
+            run_case(
+                "AO_WPS",
+                [_DEP],
+                vectorfield=_zero_windfield,
+                windfield=wf,
+                wavefield=wavef,
+                n_points=20,
+                verbose=False,
+                wind_penalty_weight=100.0,
+                wave_penalty_weight=100.0,
+            )
+
+        assert captured_kwargs.get("windfield") is not None, (
+            "windfield was not passed to cmaes.optimize — "
+            "penalty guards (windfield is not None) will always be False"
+        )
+        assert captured_kwargs.get("wavefield") is not None, (
+            "wavefield was not passed to cmaes.optimize — "
+            "penalty guards (wavefield is not None) will always be False"
+        )
+        assert (
+            captured_kwargs["windfield"] is wf
+        ), "windfield passed to cmaes.optimize is not the same object"
+        assert (
+            captured_kwargs["wavefield"] is wavef
+        ), "wavefield passed to cmaes.optimize is not the same object"
