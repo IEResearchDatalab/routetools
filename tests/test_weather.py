@@ -283,6 +283,73 @@ class TestWeatherPenaltySmooth:
         assert jnp.allclose(pen, 0.0)
 
 
+# ---------------------------------------------------------------------------
+# Tests for resolution-independent normalization (mean, not sum)
+# ---------------------------------------------------------------------------
+class TestPenaltyNormalization:
+    """Smooth penalties use mean over segments, so they're resolution-independent."""
+
+    def test_wind_penalty_resolution_independent(self):
+        """wind_penalty_smooth should give the same value at different L."""
+        wf = _constant_windfield(25.0, 0.0)  # TWS = 25, excess = 5
+        pen_10 = wind_penalty_smooth(_make_curve(n_points=10), windfield=wf, weight=1.0)
+        pen_50 = wind_penalty_smooth(_make_curve(n_points=50), windfield=wf, weight=1.0)
+        pen_100 = wind_penalty_smooth(
+            _make_curve(n_points=100), windfield=wf, weight=1.0
+        )
+        assert jnp.allclose(pen_10, pen_50, rtol=1e-3)
+        assert jnp.allclose(pen_10, pen_100, rtol=1e-3)
+
+    def test_wave_penalty_resolution_independent(self):
+        """wave_penalty_smooth should give the same value at different L."""
+        wvf = _constant_wavefield(10.0)  # Hs = 10, excess = 3
+        pen_10 = wave_penalty_smooth(
+            _make_curve(n_points=10), wavefield=wvf, weight=1.0
+        )
+        pen_50 = wave_penalty_smooth(
+            _make_curve(n_points=50), wavefield=wvf, weight=1.0
+        )
+        pen_100 = wave_penalty_smooth(
+            _make_curve(n_points=100), wavefield=wvf, weight=1.0
+        )
+        assert jnp.allclose(pen_10, pen_50, rtol=1e-3)
+        assert jnp.allclose(pen_10, pen_100, rtol=1e-3)
+
+    def test_weather_penalty_smooth_resolution_independent(self):
+        """Combined smooth penalty should be resolution-independent."""
+        wf = _constant_windfield(25.0, 0.0)
+        wvf = _constant_wavefield(10.0)
+        pen_10 = weather_penalty_smooth(
+            _make_curve(n_points=10),
+            windfield=wf,
+            wavefield=wvf,
+            penalty=1.0,
+            sharpness=1.0,
+        )
+        pen_100 = weather_penalty_smooth(
+            _make_curve(n_points=100),
+            windfield=wf,
+            wavefield=wvf,
+            penalty=1.0,
+            sharpness=1.0,
+        )
+        assert jnp.allclose(pen_10, pen_100, rtol=1e-3)
+
+    def test_wind_penalty_exact_value(self):
+        """With constant wind, mean(excess²) = excess² regardless of L."""
+        wf = _constant_windfield(25.0, 0.0)  # excess = 5
+        pen = wind_penalty_smooth(_make_curve(n_points=10), windfield=wf, weight=1.0)
+        # mean of 9 identical values of 25.0 = 25.0
+        assert jnp.allclose(pen, 25.0, atol=1e-4)
+
+    def test_wave_penalty_exact_value(self):
+        """With constant waves, mean(excess²) = excess² regardless of L."""
+        wvf = _constant_wavefield(10.0)  # excess = 3
+        pen = wave_penalty_smooth(_make_curve(n_points=10), wavefield=wvf, weight=1.0)
+        # mean of 9 identical values of 9.0 = 9.0
+        assert jnp.allclose(pen, 9.0, atol=1e-4)
+
+
 class TestTimeVariation:
     """Verify that weather is evaluated at the correct elapsed time."""
 
@@ -380,8 +447,9 @@ class TestTimeVariation:
         )
         assert jnp.allclose(pen_no_time, 0.0)
         assert pen_with_time > 0
-        # Expected: excess = 30 - 20 = 10, one segment → 10² × 1 × 1 = 100
-        assert jnp.allclose(pen_with_time, 100.0, atol=1e-4)
+        # Expected: excess = 30 - 20 = 10, one of 3 segments violates
+        # mean(excess²) = 10² / 3 ≈ 33.333, × penalty=1 × sharpness=1
+        assert jnp.allclose(pen_with_time, 100.0 / 3.0, atol=1e-3)
 
     def test_evaluate_weather_time_variation(self):
         """evaluate_weather reports correct max TWS with time info."""
