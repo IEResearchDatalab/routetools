@@ -88,6 +88,16 @@ def _safe_mean(x: jnp.ndarray, axis: int) -> jnp.ndarray:
     return jnp.where(n > 0, jnp.sum(x, axis=axis) / jnp.maximum(n, 1), 0.0)
 
 
+def _safe_max(x: jnp.ndarray, axis: int) -> jnp.ndarray:
+    """Max over *axis*, returning 0 when that axis is empty."""
+    n = x.shape[axis]
+    return jnp.where(
+        n > 0,
+        jnp.max(x, axis=axis, initial=0.0, where=jnp.ones(x.shape, dtype=bool)),
+        0.0,
+    )
+
+
 def _segment_midpoints(
     curve: jnp.ndarray,
     travel_stw: float | None = None,
@@ -407,12 +417,12 @@ def weather_penalty_smooth(
         u10, v10 = windfield(mid_lon, mid_lat, t_mid)
         tws = jnp.sqrt(u10**2 + v10**2)
         excess = jnp.maximum(tws - tws_limit, 0.0)
-        total = total + _safe_mean(excess**2, axis=1) * sharpness
+        total = total + _safe_max(excess**2, axis=1) * sharpness
 
     if wavefield is not None:
         hs, _ = wavefield(mid_lon, mid_lat, t_mid)
         excess = jnp.maximum(hs - hs_limit, 0.0)
-        total = total + _safe_mean(excess**2, axis=1) * sharpness
+        total = total + _safe_max(excess**2, axis=1) * sharpness
 
     return total * penalty
 
@@ -475,7 +485,7 @@ def wind_penalty_smooth(
     u10, v10 = windfield(mid_lon, mid_lat, t_mid)
     tws = jnp.sqrt(u10**2 + v10**2)
     excess = jnp.maximum(tws - tws_limit, 0.0)
-    return weight * _safe_mean(excess**2, axis=1)
+    return weight * _safe_max(excess**2, axis=1)
 
 
 def wave_penalty_smooth(
@@ -532,4 +542,4 @@ def wave_penalty_smooth(
     )
     hs, _ = wavefield(mid_lon, mid_lat, t_mid)
     excess = jnp.maximum(hs - hs_limit, 0.0)
-    return weight * _safe_mean(excess**2, axis=1)
+    return weight * _safe_max(excess**2, axis=1)
