@@ -349,6 +349,8 @@ def run_optimised_departure(
             windfield=windfield,
             wavefield=wavefield,
         )
+        if cmaes_kwargs.pop("cmaes_verbose", False):
+            cmaes_kwargs["verbose"] = True
         defaults.update(cmaes_kwargs)
 
         curve, info = cmaes_optimize(

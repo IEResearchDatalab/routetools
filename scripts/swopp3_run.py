@@ -253,6 +253,21 @@ def main(
         "--sigma0",
         help="Initial CMA-ES step size (sigma0).",
     ),
+    popsize: int = typer.Option(  # noqa: B008
+        200,
+        "--popsize",
+        help="CMA-ES population size.",
+    ),
+    maxfevals: int = typer.Option(  # noqa: B008
+        25000,
+        "--maxfevals",
+        help="Maximum number of CMA-ES function evaluations.",
+    ),
+    cmaes_verbose: bool = typer.Option(  # noqa: B008
+        False,
+        "--cmaes-verbose",
+        help="Print per-generation CMA-ES diagnostics.",
+    ),
     quiet: bool = typer.Option(  # noqa: B008
         False,
         "--quiet",
@@ -465,6 +480,9 @@ def main(
             dt_eval_minutes=dt_eval_minutes,
             K=cmaes_k,
             sigma0=sigma0,
+            popsize=popsize,
+            maxfevals=maxfevals,
+            cmaes_verbose=cmaes_verbose,
         )
 
         # Summary
