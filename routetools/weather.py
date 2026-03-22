@@ -115,8 +115,9 @@ def _segment_midpoints(
         Constant speed through water (m/s).  Used to estimate elapsed time
         per segment as ``distance / travel_stw``.
     travel_time : float, optional
-        Total travel time.  Time is distributed proportionally
-        by segment distance.  Units must match *time_offset*.
+        Total travel time.  Time is distributed uniformly across
+        segments (each segment gets ``travel_time / n_seg``).
+        Units must match *time_offset*.
     spherical_correction : bool
         If ``True`` (default), use haversine distances (metres).
     time_offset : float
@@ -150,11 +151,13 @@ def _segment_midpoints(
     segment_dist = jnp.sqrt(dx**2 + dy**2)
 
     if travel_time is not None:
-        # Constant time: distribute total time proportionally by distance
-        total_dist = jnp.sum(segment_dist, axis=1, keepdims=True)
-        # Avoid division by zero for degenerate curves
-        total_dist = jnp.maximum(total_dist, 1e-12)
-        segment_dt = (segment_dist / total_dist) * travel_time
+        # Uniform time per segment — matches the post-hoc energy
+        # evaluation in cost.evaluate_route_energy which uses
+        # dt = passage_hours / n_seg for each segment.
+        n_seg = curve.shape[1] - 1
+        segment_dt = jnp.broadcast_to(
+            jnp.array(travel_time / n_seg), segment_dist.shape
+        )
     else:
         # Constant STW: t = distance / speed
         segment_dt = segment_dist / travel_stw
