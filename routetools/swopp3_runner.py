@@ -455,6 +455,20 @@ def run_optimised_departure(
             )
 
         defaults_cmaes["cost_fn"] = _shared_cost
+        fms_costfun_kwargs: dict[str, Any] = {
+            "windfield": windfield,
+            "wavefield": wavefield,
+            "wps": _wps,
+            "spherical_correction": objective_spherical_correction,
+            "tws_limit": tws_limit,
+            "hs_limit": hs_limit,
+            "weather_penalty_weight": weather_penalty_weight,
+            "weather_penalty_type": weather_penalty_type,
+            "weather_penalty_sharpness": weather_penalty_sharpness,
+            "land": land,
+            "land_distance_weight": land_distance_weight,
+            "land_distance_epsilon": land_distance_epsilon,
+        }
 
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -503,7 +517,8 @@ def run_optimised_departure(
             enforce_weather_limits=True,  # revert steps that newly violate limits
             tws_limit=tws_limit,
             hs_limit=hs_limit,
-            costfun=_shared_cost,
+            costfun=_penalized_rise_cost,
+            costfun_kwargs=fms_costfun_kwargs,
             **defaults_fms,
         )
         curve_fms = curve_fms[0]

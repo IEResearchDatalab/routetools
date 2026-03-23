@@ -545,12 +545,15 @@ class TestRunOptimisedDeparture:
             captured["spherical_correction"] = spherical_correction
             captured["enforce_weather_limits"] = enforce_weather_limits
             captured["costfun_kwargs"] = costfun_kwargs
+            cost_kwargs = {
+                **(costfun_kwargs or {}),
+                "travel_time": travel_time,
+                "time_offset": time_offset,
+                "spherical_correction": spherical_correction,
+            }
             captured["fms_cost"] = costfun(
                 curve=curve[None, ...],
-                travel_time=travel_time,
-                time_offset=time_offset,
-                spherical_correction=spherical_correction,
-                **(costfun_kwargs or {}),
+                **cost_kwargs,
             )
             return curve[None, ...], {"cost": [10.0]}
 
@@ -600,7 +603,17 @@ class TestRunOptimisedDeparture:
         assert jnp.allclose(captured["cmaes_cost"], jnp.array([31.0]))
         assert jnp.allclose(captured["fms_cost"], jnp.array([31.0]))
         assert captured["enforce_weather_limits"] is True
-        assert captured["costfun_kwargs"] is None
+        assert captured["costfun_kwargs"] is not None
+        assert captured["costfun_kwargs"]["windfield"] is _zero_windfield
+        assert captured["costfun_kwargs"]["wavefield"] is None
+        assert captured["costfun_kwargs"]["wps"] is True
+        assert captured["costfun_kwargs"]["land"] is not None
+        assert captured["costfun_kwargs"]["weather_penalty_weight"] == pytest.approx(
+            12.0
+        )
+        assert captured["costfun_kwargs"]["weather_penalty_sharpness"] == pytest.approx(
+            7.0
+        )
         assert captured["tws_limit"] == pytest.approx(19.0)
         assert captured["hs_limit"] == pytest.approx(6.5)
         assert captured["travel_time"] == pytest.approx(354.0)
