@@ -237,6 +237,11 @@ def main(
         "-v",
         help="Print level: 0 = none, 1 = runner only, 2 = runner + CMA-ES.",
     ),
+    log_memory: bool = typer.Option(  # noqa: B008
+        False,
+        "--log-memory",
+        help="Print current process RSS after each completed departure.",
+    ),
     control_points: int | None = typer.Option(  # noqa: B008
         None,
         "--control-points",
@@ -481,6 +486,7 @@ def main(
             n_points=n_points,
             verbosity=verbosity,
             dataset_epoch=dataset_epoch,
+            log_memory=log_memory,
             **cmaes_extra,
         )
 

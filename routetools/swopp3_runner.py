@@ -68,6 +68,24 @@ FieldClosure = Callable[
 ]
 
 
+def _current_rss_mib() -> float | None:
+    """Return the current resident set size in MiB when available."""
+    status_path = Path("/proc/self/status")
+    if not status_path.exists():
+        return None
+
+    try:
+        for line in status_path.read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    return float(parts[1]) / 1024.0
+    except OSError:
+        return None
+
+    return None
+
+
 def _penalized_rise_cost(
     curve: jnp.ndarray,
     *,
@@ -631,6 +649,7 @@ def run_case(
     verbose: bool | None = True,
     dataset_epoch: datetime | None = None,
     verbosity: int | None = None,
+    log_memory: bool = False,
     **cmaes_kwargs,
 ) -> list[DepartureResult]:
     """Run all departures for a single SWOPP3 case.
@@ -669,6 +688,8 @@ def run_case(
     verbosity : int, optional
         Output level. ``0`` silences routine prints, ``1`` prints runner
         progress, and ``2`` also enables CMA-ES verbose printing.
+    log_memory : bool, optional
+        Whether to print current process RSS after each completed departure.
     **cmaes_kwargs
         Extra arguments for CMA-ES (optimised cases only). Optimised cases
         require ``vectorfield`` to be provided.
@@ -744,11 +765,16 @@ def run_case(
                 submission=submission,
             )
         if resolved_verbosity >= 1:
-            print(
+            status = (
                 f"E={result.energy_mwh:.2f} MWh  "
                 f"d={result.distance_nm:.0f} nm  "
                 f"t={result.comp_time_s:.1f}s"
             )
+            if log_memory:
+                rss_mib = _current_rss_mib()
+                if rss_mib is not None:
+                    status += f"  rss={rss_mib:.1f} MiB"
+            print(status)
 
     return results
 

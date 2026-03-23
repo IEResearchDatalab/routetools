@@ -815,6 +815,51 @@ class TestRunCase:
             assert len(track_rows) == curves_by_departure[dep].shape[0]
             assert track_rows[0]["time_utc"] == dep.strftime("%Y-%m-%d %H:%M:%S")
 
+    def test_log_memory_prints_rss_after_departure(self, monkeypatch, capsys):
+        """Runner should print current RSS when memory logging is enabled."""
+        deps = [_DEP]
+
+        def fake_run_gc_departure(
+            case_id,
+            departure,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+            n_points=100,
+        ):
+            return DepartureResult(
+                departure=departure,
+                curve=jnp.array(
+                    [[-4.0, 43.6], [-38.9, 42.0], [-73.8, 40.53]],
+                    dtype=jnp.float32,
+                ),
+                energy_mwh=100.0,
+                max_tws_mps=10.0,
+                max_hs_m=2.0,
+                distance_nm=3000.0,
+                comp_time_s=1.0,
+            )
+
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.run_gc_departure",
+            fake_run_gc_departure,
+        )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner._current_rss_mib",
+            lambda: 512.0,
+        )
+
+        run_case(
+            "AGC_noWPS",
+            deps,
+            n_points=3,
+            verbosity=1,
+            log_memory=True,
+        )
+
+        output = capsys.readouterr().out
+        assert "rss=512.0 MiB" in output
+
     def test_optimised_case_with_vectorfield(self, tmp_path: Path):
         """Optimised case writes output when the required vectorfield is provided."""
         import warnings
