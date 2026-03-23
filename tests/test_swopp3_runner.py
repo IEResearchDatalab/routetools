@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from routetools.swopp3 import SWOPP3_CASES, great_circle_route
+from routetools.swopp3_output import file_a_name, file_a_row, file_b_name, write_file_a
 from routetools.swopp3_runner import (
     DepartureResult,
     evaluate_energy,
@@ -859,6 +860,157 @@ class TestRunCase:
 
         output = capsys.readouterr().out
         assert "rss=512.0 MiB" in output
+
+    def test_resume_skips_completed_departures_and_preserves_summary(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Resume mode should skip valid completed departures and append new ones."""
+        deps = [_DEP, _DEP + timedelta(days=1)]
+        summary_path = tmp_path / file_a_name(1, "AGC_noWPS")
+        track_dir = tmp_path / "tracks"
+        track_dir.mkdir(parents=True, exist_ok=True)
+        existing_details = file_b_name(1, "AGC_noWPS", deps[0])
+        (track_dir / existing_details).write_text("time_utc,lat_deg,lon_deg\n")
+        write_file_a(
+            [
+                file_a_row(
+                    departure=deps[0],
+                    passage_hours=354.0,
+                    energy_mwh=100.0,
+                    max_wind_mps=10.0,
+                    max_hs_m=2.0,
+                    distance_nm=3000.0,
+                    details_filename=existing_details,
+                )
+            ],
+            summary_path,
+        )
+
+        calls: list[datetime] = []
+
+        def fake_run_gc_departure(
+            case_id,
+            departure,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+            n_points=100,
+        ):
+            calls.append(departure)
+            return DepartureResult(
+                departure=departure,
+                curve=jnp.array(
+                    [[-4.0, 43.6], [-38.9, 42.0], [-73.8, 40.53]],
+                    dtype=jnp.float32,
+                ),
+                energy_mwh=101.0,
+                max_tws_mps=11.0,
+                max_hs_m=3.0,
+                distance_nm=3001.0,
+                comp_time_s=2.0,
+            )
+
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.run_gc_departure",
+            fake_run_gc_departure,
+        )
+
+        results = run_case(
+            "AGC_noWPS",
+            deps,
+            output_dir=tmp_path,
+            submission=1,
+            n_points=3,
+            verbose=False,
+            resume=True,
+        )
+
+        assert calls == [deps[1]]
+        assert len(results) == 1
+
+        with summary_path.open() as f:
+            rows = list(csv.DictReader(f))
+
+        assert len(rows) == 2
+        assert [row["departure_time_utc"] for row in rows] == [
+            dep.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S") for dep in deps
+        ]
+
+    def test_resume_discards_summary_rows_without_track_file(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """Resume mode should rerun departures whose summary row lacks a track file."""
+        deps = [_DEP]
+        summary_path = tmp_path / file_a_name(1, "AGC_noWPS")
+        missing_details = file_b_name(1, "AGC_noWPS", deps[0])
+        write_file_a(
+            [
+                file_a_row(
+                    departure=deps[0],
+                    passage_hours=354.0,
+                    energy_mwh=100.0,
+                    max_wind_mps=10.0,
+                    max_hs_m=2.0,
+                    distance_nm=3000.0,
+                    details_filename=missing_details,
+                )
+            ],
+            summary_path,
+        )
+
+        calls: list[datetime] = []
+
+        def fake_run_gc_departure(
+            case_id,
+            departure,
+            windfield=None,
+            wavefield=None,
+            departure_offset_h=0.0,
+            n_points=100,
+        ):
+            calls.append(departure)
+            return DepartureResult(
+                departure=departure,
+                curve=jnp.array(
+                    [[-4.0, 43.6], [-38.9, 42.0], [-73.8, 40.53]],
+                    dtype=jnp.float32,
+                ),
+                energy_mwh=101.0,
+                max_tws_mps=11.0,
+                max_hs_m=3.0,
+                distance_nm=3001.0,
+                comp_time_s=2.0,
+            )
+
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.run_gc_departure",
+            fake_run_gc_departure,
+        )
+
+        results = run_case(
+            "AGC_noWPS",
+            deps,
+            output_dir=tmp_path,
+            submission=1,
+            n_points=3,
+            verbose=False,
+            resume=True,
+        )
+
+        assert calls == deps
+        assert len(results) == 1
+
+        with summary_path.open() as f:
+            rows = list(csv.DictReader(f))
+
+        assert len(rows) == 1
+        assert rows[0]["departure_time_utc"] == deps[0].replace(tzinfo=None).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
 
     def test_optimised_case_with_vectorfield(self, tmp_path: Path):
         """Optimised case writes output when the required vectorfield is provided."""

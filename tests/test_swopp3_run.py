@@ -1,8 +1,11 @@
 """Tests for the SWOPP3 CLI input-validation helpers."""
 
 import importlib.util
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 
@@ -110,3 +113,79 @@ def test_validate_required_data_paths_accepts_existing_files(tmp_path: Path):
         {"atlantic": wind_path},
         {"atlantic": wave_path},
     )
+
+
+def test_main_forwards_resume_and_log_memory_flags(tmp_path: Path, monkeypatch):
+    """CLI should forward resume and memory-logging flags to the runner."""
+    wind_path = tmp_path / "era5_wind_atlantic_2024.nc"
+    wave_path = tmp_path / "era5_waves_atlantic_2024.nc"
+    wind_path.touch()
+    wave_path.touch()
+
+    captured: dict[str, object] = {}
+
+    class _DummyDataset:
+        def __init__(self):
+            self.coords = {
+                "longitude": SimpleNamespace(values=np.array([0.0, 1.0])),
+                "latitude": SimpleNamespace(values=np.array([0.0, 1.0])),
+            }
+
+        def __getitem__(self, key):
+            return self.coords[key]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_run_case(*args, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        "routetools.era5.loader.load_dataset_epoch",
+        lambda path: datetime(2024, 1, 1, 0, 0, 0),
+    )
+    monkeypatch.setattr(
+        "routetools.era5.loader.load_era5_windfield",
+        lambda path: (lambda lon, lat, t: (lon * 0, lat * 0)),
+    )
+    monkeypatch.setattr(
+        "routetools.era5.loader.load_era5_wavefield",
+        lambda path: (lambda lon, lat, t: (lon * 0, lat * 0)),
+    )
+    monkeypatch.setattr(
+        "routetools.era5.loader.load_natural_earth_land_mask",
+        lambda lon_range, lat_range: object(),
+    )
+    monkeypatch.setattr(
+        "routetools.swopp3.departures_2024",
+        lambda: [datetime(2024, 1, 1, 12, 0, 0)],
+    )
+    monkeypatch.setattr("routetools.swopp3_runner.run_case", fake_run_case)
+    monkeypatch.setattr("xarray.open_dataset", lambda path: _DummyDataset())
+
+    _swopp3_run.main(
+        cases=["AGC_WPS"],
+        strategy=None,
+        wind_path=None,
+        wave_path=None,
+        wind_path_atlantic=wind_path,
+        wave_path_atlantic=wave_path,
+        wind_path_pacific=None,
+        wave_path_pacific=None,
+        output_dir=tmp_path,
+        submission=1,
+        n_points=100,
+        max_departures=1,
+        verbosity=0,
+        log_memory=True,
+        resume=True,
+        control_points=None,
+        weather_penalty_type=None,
+    )
+
+    assert captured["log_memory"] is True
+    assert captured["resume"] is True

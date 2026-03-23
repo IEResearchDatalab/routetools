@@ -242,6 +242,11 @@ def main(
         "--log-memory",
         help="Print current process RSS after each completed departure.",
     ),
+    resume: bool = typer.Option(  # noqa: B008
+        False,
+        "--resume",
+        help="Resume a case from existing valid File A/File B outputs.",
+    ),
     control_points: int | None = typer.Option(  # noqa: B008
         None,
         "--control-points",
@@ -487,6 +492,7 @@ def main(
             verbosity=verbosity,
             dataset_epoch=dataset_epoch,
             log_memory=log_memory,
+            resume=resume,
             **cmaes_extra,
         )
 

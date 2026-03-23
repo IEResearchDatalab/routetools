@@ -67,6 +67,8 @@ FieldClosure = Callable[
     tuple[jnp.ndarray, jnp.ndarray],
 ]
 
+_FILE_A_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
 
 def _current_rss_mib() -> float | None:
     """Return the current resident set size in MiB when available."""
@@ -161,6 +163,50 @@ def _resolve_runner_verbosity(
     if verbose is None:
         return default
     return 1 if verbose else 0
+
+
+def _departure_key(departure: datetime) -> datetime:
+    """Normalize a departure datetime for summary-file comparisons."""
+    return departure.replace(tzinfo=None) if departure.tzinfo else departure
+
+
+def _load_resumable_rows(
+    case_id: str,
+    output_dir: Path,
+    submission: int = 1,
+) -> tuple[list[dict[str, str]], set[datetime]]:
+    """Return valid existing File A rows and their completed departures."""
+    case = SWOPP3_CASES[case_id]
+    fa_path = output_dir / file_a_name(submission, case["name"])
+    if not fa_path.exists():
+        return [], set()
+
+    valid_rows: list[dict[str, str]] = []
+    completed: set[datetime] = set()
+    track_dir = output_dir / "tracks"
+
+    with fa_path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            departure_raw = row.get("departure_time_utc")
+            details_filename = row.get("details_filename")
+            if not departure_raw or not details_filename:
+                continue
+            try:
+                departure = datetime.strptime(
+                    departure_raw,
+                    _FILE_A_DATETIME_FORMAT,
+                )
+            except ValueError:
+                continue
+            if departure in completed:
+                continue
+            if not (track_dir / details_filename).exists():
+                continue
+            valid_rows.append(row)
+            completed.add(departure)
+
+    return valid_rows, completed
 
 
 # ---------------------------------------------------------------------------
@@ -650,6 +696,7 @@ def run_case(
     dataset_epoch: datetime | None = None,
     verbosity: int | None = None,
     log_memory: bool = False,
+    resume: bool = False,
     **cmaes_kwargs,
 ) -> list[DepartureResult]:
     """Run all departures for a single SWOPP3 case.
@@ -690,6 +737,9 @@ def run_case(
         progress, and ``2`` also enables CMA-ES verbose printing.
     log_memory : bool, optional
         Whether to print current process RSS after each completed departure.
+    resume : bool, optional
+        Whether to preserve valid existing outputs and skip already completed
+        departures when appending to File A and File B.
     **cmaes_kwargs
         Extra arguments for CMA-ES (optimised cases only). Optimised cases
         require ``vectorfield`` to be provided.
@@ -706,11 +756,26 @@ def run_case(
     resolved_verbosity = _resolve_runner_verbosity(verbose, verbosity)
 
     output_path: Path | None = None
+    completed_departures: set[datetime] = set()
     if output_dir is not None:
         output_path = Path(output_dir)
-        _prepare_case_output(case_id, output_path, submission=submission)
+        completed_departures = _prepare_case_output(
+            case_id,
+            output_path,
+            submission=submission,
+            resume=resume,
+        )
 
     for i, dep in enumerate(departures):
+        dep_key = _departure_key(dep)
+        if dep_key in completed_departures:
+            if resolved_verbosity >= 1:
+                print(
+                    f"[{casename}] Departure {i + 1}/{len(departures)}  "
+                    f"{dep.strftime('%Y-%m-%d')}  skipped (already completed)"
+                )
+            continue
+
         if resolved_verbosity >= 1:
             print(
                 f"[{casename}] Departure {i + 1}/{len(departures)}  "
@@ -786,12 +851,26 @@ def _prepare_case_output(
     case_id: str,
     output_dir: Path,
     submission: int = 1,
-) -> None:
+    resume: bool = False,
+) -> set[datetime]:
     """Prepare case output files for incremental writes."""
     case = SWOPP3_CASES[case_id]
     fa_path = output_dir / file_a_name(submission, case["name"])
+    if resume:
+        valid_rows, completed_departures = _load_resumable_rows(
+            case_id,
+            output_dir,
+            submission=submission,
+        )
+        if valid_rows:
+            write_file_a(valid_rows, fa_path)
+        elif fa_path.exists():
+            fa_path.unlink()
+        return completed_departures
+
     if fa_path.exists():
         fa_path.unlink()
+    return set()
 
 
 def _append_case_output(
