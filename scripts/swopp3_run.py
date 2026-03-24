@@ -726,12 +726,24 @@ def main(
                     _run_swopp3_configuration(
                         cases=run.get("cases"),
                         strategy=run.get("strategy"),
-                        wind_path=run.get("wind_path"),
-                        wave_path=run.get("wave_path"),
-                        wind_path_atlantic=run.get("wind_path_atlantic"),
-                        wave_path_atlantic=run.get("wave_path_atlantic"),
-                        wind_path_pacific=run.get("wind_path_pacific"),
-                        wave_path_pacific=run.get("wave_path_pacific"),
+                        wind_path=run.get("wind_path", wind_path),
+                        wave_path=run.get("wave_path", wave_path),
+                        wind_path_atlantic=run.get(
+                            "wind_path_atlantic",
+                            wind_path_atlantic,
+                        ),
+                        wave_path_atlantic=run.get(
+                            "wave_path_atlantic",
+                            wave_path_atlantic,
+                        ),
+                        wind_path_pacific=run.get(
+                            "wind_path_pacific",
+                            wind_path_pacific,
+                        ),
+                        wave_path_pacific=run.get(
+                            "wave_path_pacific",
+                            wave_path_pacific,
+                        ),
                         output_dir=Path(profile["output_dir"]),
                         submission=int(run.get("submission", submission)),
                         n_points=int(run.get("n_points", n_points)),

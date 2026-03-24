@@ -133,15 +133,11 @@ dt_eval_minutes = 30.0
 [[swopp3.experiments.hard_penalty.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.hard_penalty.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.k15_p400_w1000]
@@ -163,29 +159,21 @@ cmaes_verbose = true
 [[swopp3.experiments.k15_p400_w1000.runs]]
 name = "ao_wps"
 cases = ["AO_WPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.k15_p400_w1000.runs]]
 name = "ao_no_wps"
 cases = ["AO_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.k15_p400_w1000.runs]]
 name = "po_wps"
 cases = ["PO_WPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [[swopp3.experiments.k15_p400_w1000.runs]]
 name = "po_no_wps"
 cases = ["PO_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.k15_w200]
@@ -203,15 +191,11 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.k15_w200.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.k15_w200.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.k15_w500]
@@ -229,15 +213,11 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.k15_w500.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.k15_w500.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.max_sweep_w5]
@@ -255,29 +235,21 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.max_sweep_w5.runs]]
 name = "ao_wps"
 cases = ["AO_WPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w5.runs]]
 name = "ao_no_wps"
 cases = ["AO_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w5.runs]]
 name = "po_wps"
 cases = ["PO_WPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [[swopp3.experiments.max_sweep_w5.runs]]
 name = "po_no_wps"
 cases = ["PO_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.max_sweep_w10]
@@ -295,29 +267,21 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.max_sweep_w10.runs]]
 name = "ao_wps"
 cases = ["AO_WPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w10.runs]]
 name = "ao_no_wps"
 cases = ["AO_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w10.runs]]
 name = "po_wps"
 cases = ["PO_WPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [[swopp3.experiments.max_sweep_w10.runs]]
 name = "po_no_wps"
 cases = ["PO_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.max_sweep_w25]
@@ -335,29 +299,21 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.max_sweep_w25.runs]]
 name = "ao_wps"
 cases = ["AO_WPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w25.runs]]
 name = "ao_no_wps"
 cases = ["AO_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w25.runs]]
 name = "po_wps"
 cases = ["PO_WPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [[swopp3.experiments.max_sweep_w25.runs]]
 name = "po_no_wps"
 cases = ["PO_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.max_sweep_w50]
@@ -375,29 +331,21 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.max_sweep_w50.runs]]
 name = "ao_wps"
 cases = ["AO_WPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w50.runs]]
 name = "ao_no_wps"
 cases = ["AO_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w50.runs]]
 name = "po_wps"
 cases = ["PO_WPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [[swopp3.experiments.max_sweep_w50.runs]]
 name = "po_no_wps"
 cases = ["PO_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.max_sweep_w100]
@@ -415,29 +363,21 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.max_sweep_w100.runs]]
 name = "ao_wps"
 cases = ["AO_WPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w100.runs]]
 name = "ao_no_wps"
 cases = ["AO_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.max_sweep_w100.runs]]
 name = "po_wps"
 cases = ["PO_WPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [[swopp3.experiments.max_sweep_w100.runs]]
 name = "po_no_wps"
 cases = ["PO_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.no_penalty]
@@ -452,15 +392,11 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.no_penalty.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.no_penalty.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.optimal_params]
@@ -479,15 +415,11 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.optimal_params.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.optimal_params.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.sweep_w50]
@@ -504,15 +436,11 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.sweep_w50.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.sweep_w50.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.sweep_w100]
@@ -529,15 +457,11 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.sweep_w100.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.sweep_w100.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.sweep_w200]
@@ -554,15 +478,11 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.sweep_w200.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.sweep_w200.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.sweep_w500]
@@ -579,15 +499,11 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.sweep_w500.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.sweep_w500.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
 
 [swopp3.experiments.split_penalty]
@@ -604,13 +520,9 @@ distance_penalty_weight = 10.0
 [[swopp3.experiments.split_penalty.runs]]
 name = "atlantic"
 cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
-wind_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_wind_atlantic_2024.nc"
-wave_path_atlantic = "/scratch/fjsuarez/routetools/data/era5/era5_waves_atlantic_2024.nc"
 n_points = 178
 
 [[swopp3.experiments.split_penalty.runs]]
 name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
-wind_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_wind_pacific_2024.nc"
-wave_path_pacific = "/scratch/fjsuarez/routetools/data/era5/era5_waves_pacific_2024.nc"
 n_points = 293
