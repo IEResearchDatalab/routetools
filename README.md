@@ -174,10 +174,9 @@ If you download a different year or only one corridor, pass matching
 
 ### Reproducible SWOPP3 experiment profiles
 
-`scripts/swopp3_run.py` also supports named experiment profiles stored in
-`config.toml`. This is the recommended way to run the SWOPP3 experiments that
-used to live only in shell wrappers, because the run parameters are now kept in
-versioned config instead of being reconstructed from terminal history.
+`scripts/swopp3_run.py` supports named experiment profiles stored in
+`config.toml`. This keeps SWOPP3 run parameters in versioned configuration and
+lets you launch a fully specified experiment from a single key.
 
 Run a named experiment with a single key:
 
@@ -192,8 +191,8 @@ uv run scripts/swopp3_run.py k15_p400_w1000 --config-path path/to/experiments.to
 ```
 
 Each experiment profile can contain one or more runs. This is how profiles such
-as Atlantic/Pacific split experiments are represented while still being invoked
-through a single command.
+as Atlantic/Pacific split experiments are represented and invoked through a
+single command.
 
 The resolved run specification is written to:
 
@@ -231,7 +230,7 @@ Examples of built-in experiment keys include:
 - `sweep_w500`
 - `split_penalty`
 
-The original flag-based mode still works. For ad hoc runs, you can keep using:
+For ad hoc runs, you can call the script with explicit options:
 
 ```bash
 uv run scripts/swopp3_run.py \
@@ -246,7 +245,7 @@ To add a new reproducible experiment:
 1. Add a new `[swopp3.experiments.<name>]` section to `config.toml`.
 2. Put shared parameters under `[swopp3.experiments.<name>.defaults]`.
 3. Add one or more `[[swopp3.experiments.<name>.runs]]` entries.
-4. Set `source_script` to the shell script or workflow the profile replaces.
+4. Set `source_script` to the script or workflow associated with the profile.
 5. Run `uv run scripts/swopp3_run.py <name>` and keep the generated manifest with the output directory.
 
 ## Reproduce the results (paper)
