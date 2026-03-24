@@ -175,78 +175,38 @@ If you download a different year or only one corridor, pass matching
 ### Reproducible SWOPP3 experiment profiles
 
 `scripts/swopp3_run.py` supports named experiment profiles stored in
-`config.toml`. This keeps SWOPP3 run parameters in versioned configuration and
-lets you launch a fully specified experiment from a single key.
+`config.toml`.
 
-Run a named experiment with a single key:
+Run a named experiment:
 
 ```bash
 uv run scripts/swopp3_run.py k15_p400_w1000
 ```
 
-You can point at another TOML file if needed:
+Use another TOML file if needed:
 
 ```bash
 uv run scripts/swopp3_run.py k15_p400_w1000 --config-path path/to/experiments.toml
 ```
 
-Each experiment profile can contain one or more runs. This is how profiles such
-as Atlantic/Pacific split experiments are represented and invoked through a
-single command.
+Each profile can define shared defaults plus one or more runs.
 
-The resolved run specification is written to:
+The runner writes a resolved manifest to:
 
 ```text
 output/<experiment>/experiment_manifest.json
 ```
 
-The manifest records:
+This records the experiment name, config file, source script, and resolved run
+parameters used for the launch.
 
-- the experiment name
-- the source shell script the profile replaced
-- the config file used
-- the resolved run list and parameter values
-
-This gives each run a stable, inspectable provenance trail.
-
-Examples of built-in experiment keys include:
-
-- `swopp3_0125_rust`
-- `swopp3_0125_gpu`
-- `hard_penalty`
-- `k15_p400_w1000`
-- `k15_w200`
-- `k15_w500`
-- `max_sweep_w5`
-- `max_sweep_w10`
-- `max_sweep_w25`
-- `max_sweep_w50`
-- `max_sweep_w100`
-- `no_penalty`
-- `optimal_params`
-- `sweep_w50`
-- `sweep_w100`
-- `sweep_w200`
-- `sweep_w500`
-- `split_penalty`
-
-For ad hoc runs, you can call the script with explicit options:
-
-```bash
-uv run scripts/swopp3_run.py \
-   --cases AO_WPS AO_noWPS \
-   --wind-path-atlantic data/era5/era5_wind_atlantic_2024.nc \
-   --wave-path-atlantic data/era5/era5_waves_atlantic_2024.nc \
-   --output-dir output/swopp3_custom
-```
-
-To add a new reproducible experiment:
+To add a new experiment:
 
 1. Add a new `[swopp3.experiments.<name>]` section to `config.toml`.
 2. Put shared parameters under `[swopp3.experiments.<name>.defaults]`.
 3. Add one or more `[[swopp3.experiments.<name>.runs]]` entries.
-4. Set `source_script` to the script or workflow associated with the profile.
-5. Run `uv run scripts/swopp3_run.py <name>` and keep the generated manifest with the output directory.
+4. Set `source_script` to the script or workflow the profile replaces.
+5. Run `uv run scripts/swopp3_run.py <name>`.
 
 ## Reproduce the results (paper)
 
