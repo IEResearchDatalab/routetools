@@ -1209,6 +1209,8 @@ def score_submission() -> dict:
         tracks_dir = submission_dir / "tracks"
         re_eval_energy = 0.0
         re_eval_ok = era5_scorer is not None
+        missing_tracks = 0
+        total_tracks = len(fa_rows)
         for row in fa_rows:
             fb_name = row.get("details_filename", "")
             if not fb_name:
@@ -1268,7 +1270,18 @@ def score_submission() -> dict:
                     re_eval_ok = False
             elif re_eval_ok:
                 # Track file missing or departure unknown — cannot re-evaluate
+                if not fb_path.exists():
+                    missing_tracks += 1
                 re_eval_ok = False
+
+        # Report missing track files for this case
+        if missing_tracks > 0:
+            all_errors.append(
+                f"{case}: {missing_tracks} of {total_tracks} track files "
+                f"missing from tracks/ directory. Ensure all File B CSVs "
+                f"referenced in the details_filename column of File A are "
+                f"included in the tracks/ folder of your submission zip."
+            )
 
         # Use re-evaluated energy when successful, else fall back
         if re_eval_ok and era5_scorer is not None:
@@ -1279,6 +1292,20 @@ def score_submission() -> dict:
         else:
             # ERA5 available but re-evaluation failed — penalty
             case_energy_final = 1e12
+            if missing_tracks > 0:
+                all_errors.append(
+                    f"{case}: PENALTY — energy set to 1e12 because "
+                    f"{missing_tracks} track file(s) are missing. "
+                    f"All {total_tracks} departures must have "
+                    f"corresponding track files for ERA5 re-evaluation."
+                )
+            else:
+                all_errors.append(
+                    f"{case}: PENALTY — energy set to 1e12 because "
+                    f"ERA5 re-evaluation could not be completed. "
+                    f"Check that track files have valid waypoints "
+                    f"(time_utc, lat_deg, lon_deg columns)."
+                )
 
         scores[f"{case}_energy_mwh"] = round(case_energy_final, 4)
         scores[f"{case}_reported_mwh"] = round(case_energy, 4)
