@@ -37,10 +37,8 @@ Run only the first 3 departures (quick test):
 
 from __future__ import annotations
 
-import contextlib
 import json
 import re
-import sys
 import tomllib
 from datetime import datetime
 from pathlib import Path
@@ -256,40 +254,6 @@ def _write_experiment_manifest(
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest_path
-
-
-class _TeeTextIO:
-    """Mirror writes to multiple text streams."""
-
-    def __init__(self, *streams: Any):
-        self._streams = streams
-
-    def write(self, text: str) -> int:
-        for stream in self._streams:
-            stream.write(text)
-        return len(text)
-
-    def flush(self) -> None:
-        for stream in self._streams:
-            stream.flush()
-
-
-@contextlib.contextmanager
-def _tee_output(log_path: Path | None):
-    """Mirror stdout and stderr to a log file when requested."""
-    if log_path is None:
-        yield
-        return
-
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("a", encoding="utf-8") as log_handle:
-        stdout_tee = _TeeTextIO(sys.stdout, log_handle)
-        stderr_tee = _TeeTextIO(sys.stderr, log_handle)
-        with (
-            contextlib.redirect_stdout(stdout_tee),
-            contextlib.redirect_stderr(stderr_tee),
-        ):
-            yield
 
 
 def _run_swopp3_configuration(
@@ -577,11 +541,6 @@ def main(
         "-o",
         help="Output directory for CSV files.",
     ),
-    log_path: Path | None = typer.Option(  # noqa: B008
-        None,
-        "--log-path",
-        help="Path to a log file that mirrors stdout and stderr for the run.",
-    ),
     submission: int = typer.Option(  # noqa: B008
         1,
         "--submission",
@@ -684,7 +643,6 @@ def main(
     wind_path_pacific = _unwrap_typer_default(wind_path_pacific)
     wave_path_pacific = _unwrap_typer_default(wave_path_pacific)
     output_dir = _unwrap_typer_default(output_dir)
-    log_path = _unwrap_typer_default(log_path)
     submission = _unwrap_typer_default(submission)
     n_points = _unwrap_typer_default(n_points)
     max_departures = _unwrap_typer_default(max_departures)
@@ -699,110 +657,104 @@ def main(
     maxfevals = _unwrap_typer_default(maxfevals)
     cmaes_verbose = _unwrap_typer_default(cmaes_verbose)
 
-    with _tee_output(log_path):
-        if log_path is not None and not quiet:
-            typer.echo(f"Writing run log to {log_path}")
-
-        try:
-            if experiment is not None:
-                profile = _load_experiment_profile(config_path, experiment)
-                manifest_path = _write_experiment_manifest(
-                    config_path=config_path,
-                    profile=profile,
+    try:
+        if experiment is not None:
+            profile = _load_experiment_profile(config_path, experiment)
+            manifest_path = _write_experiment_manifest(
+                config_path=config_path,
+                profile=profile,
+            )
+            if not quiet:
+                typer.echo(
+                    f"Loaded experiment '{experiment}' from {config_path} "
+                    f"-> {profile['output_dir']}"
                 )
+                typer.echo(f"Wrote experiment manifest to {manifest_path}")
+
+            for run_index, run in enumerate(profile["runs"], start=1):
                 if not quiet:
                     typer.echo(
-                        f"Loaded experiment '{experiment}' from {config_path} "
-                        f"-> {profile['output_dir']}"
+                        f"\n--- Experiment run {run_index}/{len(profile['runs'])}: "
+                        f"{run['name']} ---"
                     )
-                    typer.echo(f"Wrote experiment manifest to {manifest_path}")
-
-                for run_index, run in enumerate(profile["runs"], start=1):
-                    if not quiet:
-                        typer.echo(
-                            f"\n--- Experiment run {run_index}/{len(profile['runs'])}: "
-                            f"{run['name']} ---"
+                _run_swopp3_configuration(
+                    cases=run.get("cases"),
+                    strategy=run.get("strategy"),
+                    wind_path=run.get("wind_path", wind_path),
+                    wave_path=run.get("wave_path", wave_path),
+                    wind_path_atlantic=run.get(
+                        "wind_path_atlantic",
+                        wind_path_atlantic,
+                    ),
+                    wave_path_atlantic=run.get(
+                        "wave_path_atlantic",
+                        wave_path_atlantic,
+                    ),
+                    wind_path_pacific=run.get(
+                        "wind_path_pacific",
+                        wind_path_pacific,
+                    ),
+                    wave_path_pacific=run.get(
+                        "wave_path_pacific",
+                        wave_path_pacific,
+                    ),
+                    output_dir=Path(profile["output_dir"]),
+                    submission=int(run.get("submission", submission)),
+                    n_points=int(run.get("n_points", n_points)),
+                    max_departures=run.get("max_departures", max_departures),
+                    weather_penalty_weight=float(
+                        run.get("weather_penalty_weight", weather_penalty_weight)
+                    ),
+                    wind_penalty_weight=float(
+                        run.get("wind_penalty_weight", wind_penalty_weight)
+                    ),
+                    wave_penalty_weight=float(
+                        run.get("wave_penalty_weight", wave_penalty_weight)
+                    ),
+                    distance_penalty_weight=float(
+                        run.get(
+                            "distance_penalty_weight",
+                            distance_penalty_weight,
                         )
-                    _run_swopp3_configuration(
-                        cases=run.get("cases"),
-                        strategy=run.get("strategy"),
-                        wind_path=run.get("wind_path", wind_path),
-                        wave_path=run.get("wave_path", wave_path),
-                        wind_path_atlantic=run.get(
-                            "wind_path_atlantic",
-                            wind_path_atlantic,
-                        ),
-                        wave_path_atlantic=run.get(
-                            "wave_path_atlantic",
-                            wave_path_atlantic,
-                        ),
-                        wind_path_pacific=run.get(
-                            "wind_path_pacific",
-                            wind_path_pacific,
-                        ),
-                        wave_path_pacific=run.get(
-                            "wave_path_pacific",
-                            wave_path_pacific,
-                        ),
-                        output_dir=Path(profile["output_dir"]),
-                        submission=int(run.get("submission", submission)),
-                        n_points=int(run.get("n_points", n_points)),
-                        max_departures=run.get("max_departures", max_departures),
-                        weather_penalty_weight=float(
-                            run.get("weather_penalty_weight", weather_penalty_weight)
-                        ),
-                        wind_penalty_weight=float(
-                            run.get("wind_penalty_weight", wind_penalty_weight)
-                        ),
-                        wave_penalty_weight=float(
-                            run.get("wave_penalty_weight", wave_penalty_weight)
-                        ),
-                        distance_penalty_weight=float(
-                            run.get(
-                                "distance_penalty_weight",
-                                distance_penalty_weight,
-                            )
-                        ),
-                        dt_eval_minutes=float(
-                            run.get("dt_eval_minutes", dt_eval_minutes)
-                        ),
-                        cmaes_k=int(run.get("cmaes_k", cmaes_k)),
-                        sigma0=float(run.get("sigma0", sigma0)),
-                        popsize=int(run.get("popsize", popsize)),
-                        maxfevals=int(run.get("maxfevals", maxfevals)),
-                        cmaes_verbose=bool(run.get("cmaes_verbose", cmaes_verbose)),
-                        quiet=quiet,
-                    )
-                return
+                    ),
+                    dt_eval_minutes=float(run.get("dt_eval_minutes", dt_eval_minutes)),
+                    cmaes_k=int(run.get("cmaes_k", cmaes_k)),
+                    sigma0=float(run.get("sigma0", sigma0)),
+                    popsize=int(run.get("popsize", popsize)),
+                    maxfevals=int(run.get("maxfevals", maxfevals)),
+                    cmaes_verbose=bool(run.get("cmaes_verbose", cmaes_verbose)),
+                    quiet=quiet,
+                )
+            return
 
-            _run_swopp3_configuration(
-                cases=cases,
-                strategy=strategy,
-                wind_path=wind_path,
-                wave_path=wave_path,
-                wind_path_atlantic=wind_path_atlantic,
-                wave_path_atlantic=wave_path_atlantic,
-                wind_path_pacific=wind_path_pacific,
-                wave_path_pacific=wave_path_pacific,
-                output_dir=output_dir,
-                submission=submission,
-                n_points=n_points,
-                max_departures=max_departures,
-                weather_penalty_weight=weather_penalty_weight,
-                wind_penalty_weight=wind_penalty_weight,
-                wave_penalty_weight=wave_penalty_weight,
-                distance_penalty_weight=distance_penalty_weight,
-                dt_eval_minutes=dt_eval_minutes,
-                cmaes_k=cmaes_k,
-                sigma0=sigma0,
-                popsize=popsize,
-                maxfevals=maxfevals,
-                cmaes_verbose=cmaes_verbose,
-                quiet=quiet,
-            )
-        except (FileNotFoundError, KeyError, ValueError) as exc:
-            typer.echo(str(exc), err=True)
-            raise typer.Exit(1) from exc
+        _run_swopp3_configuration(
+            cases=cases,
+            strategy=strategy,
+            wind_path=wind_path,
+            wave_path=wave_path,
+            wind_path_atlantic=wind_path_atlantic,
+            wave_path_atlantic=wave_path_atlantic,
+            wind_path_pacific=wind_path_pacific,
+            wave_path_pacific=wave_path_pacific,
+            output_dir=output_dir,
+            submission=submission,
+            n_points=n_points,
+            max_departures=max_departures,
+            weather_penalty_weight=weather_penalty_weight,
+            wind_penalty_weight=wind_penalty_weight,
+            wave_penalty_weight=wave_penalty_weight,
+            distance_penalty_weight=distance_penalty_weight,
+            dt_eval_minutes=dt_eval_minutes,
+            cmaes_k=cmaes_k,
+            sigma0=sigma0,
+            popsize=popsize,
+            maxfevals=maxfevals,
+            cmaes_verbose=cmaes_verbose,
+            quiet=quiet,
+        )
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
 
 if __name__ == "__main__":
