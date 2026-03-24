@@ -172,6 +172,42 @@ weather data. This is intentional:
 If you download a different year or only one corridor, pass matching
 `--wind-path*` and `--wave-path*` options to `scripts/swopp3_run.py`.
 
+### Reproducible SWOPP3 experiment profiles
+
+`scripts/swopp3_run.py` supports named experiment profiles stored in
+`config.toml`.
+
+Run a named experiment:
+
+```bash
+uv run scripts/swopp3_run.py k15_p400_w1000
+```
+
+Use another TOML file if needed:
+
+```bash
+uv run scripts/swopp3_run.py k15_p400_w1000 --config-path path/to/experiments.toml
+```
+
+Each profile can define shared defaults plus one or more runs.
+
+The runner writes a resolved manifest to:
+
+```text
+output/<experiment>/experiment_manifest.json
+```
+
+This records the experiment name, config file, source script, and resolved run
+parameters used for the launch.
+
+To add a new experiment:
+
+1. Add a new `[swopp3.experiments.<name>]` section to `config.toml`.
+2. Put shared parameters under `[swopp3.experiments.<name>.defaults]`.
+3. Add one or more `[[swopp3.experiments.<name>.runs]]` entries.
+4. Set `source_script` to the script or workflow the profile replaces.
+5. Run `uv run scripts/swopp3_run.py <name>`.
+
 ## Reproduce the results (paper)
 
 To reproduce the results from the paper, run the following command:
