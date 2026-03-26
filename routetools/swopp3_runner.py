@@ -25,11 +25,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import jax.numpy as jnp
 
-from routetools.cost import cost_function_rise, evaluate_route_energy
+from routetools.cost import evaluate_route_energy
 from routetools.cost import segment_bearings_deg as _segment_bearings_deg
 from routetools.swopp3 import (
     SWOPP3_CASES,
@@ -44,12 +43,6 @@ from routetools.swopp3_output import (
     waypoint_times,
     write_file_a,
     write_file_b,
-)
-from routetools.weather import (
-    DEFAULT_HS_LIMIT,
-    DEFAULT_TWS_LIMIT,
-    weather_penalty,
-    weather_penalty_smooth,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,89 +62,6 @@ FieldClosure = Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
 ]
-
-
-def _penalized_rise_cost(
-    curve: jnp.ndarray,
-    *,
-    windfield: FieldClosure,
-    wavefield: FieldClosure | None,
-    travel_time: float,
-    wps: bool,
-    spherical_correction: bool,
-    time_offset: float = 0.0,
-    tws_limit: float = DEFAULT_TWS_LIMIT,
-    hs_limit: float = DEFAULT_HS_LIMIT,
-    weather_penalty_weight: float = 0.0,
-    wind_penalty_weight: float = 0.0,
-    wave_penalty_weight: float = 0.0,
-    distance_penalty_weight: float = 0.0,
-    weather_penalty_type: str = "smooth",
-    weather_penalty_sharpness: float = 5.0,
-    land: Any | None = None,
-    land_distance_epsilon: float = 1.0,
-) -> jnp.ndarray:
-    """Return the SWOPP3 objective optimized by both CMA-ES and FMS."""
-    total_cost = cost_function_rise(
-        windfield=windfield,
-        curve=curve,
-        travel_time=travel_time,
-        wavefield=wavefield,
-        wps=wps,
-        time_offset=time_offset,
-    )
-
-    combined_weather_penalty = (
-        weather_penalty_weight + wind_penalty_weight + wave_penalty_weight
-    )
-
-    if combined_weather_penalty > 0:
-        penalty_fn = (
-            weather_penalty_smooth
-            if weather_penalty_type == "smooth"
-            else weather_penalty
-        )
-        penalty_kwargs: dict[str, Any] = {
-            "curve": curve,
-            "windfield": windfield,
-            "wavefield": wavefield,
-            "tws_limit": tws_limit,
-            "hs_limit": hs_limit,
-            "penalty": combined_weather_penalty,
-            "travel_time": travel_time,
-            "spherical_correction": spherical_correction,
-            "time_offset": time_offset,
-        }
-        if weather_penalty_type == "smooth":
-            penalty_kwargs["sharpness"] = weather_penalty_sharpness
-        elif weather_penalty_type != "hard":
-            raise ValueError("weather_penalty_type must be 'hard' or 'smooth'")
-        total_cost = total_cost + penalty_fn(**penalty_kwargs)
-
-    if land is not None and distance_penalty_weight > 0:
-        total_cost = total_cost + land.distance_penalty(
-            curve,
-            weight=distance_penalty_weight,
-            epsilon=land_distance_epsilon,
-        )
-
-    return total_cost
-
-
-def _resolve_runner_verbosity(
-    verbose: bool | None,
-    verbosity: int | None,
-    *,
-    default: int = 1,
-) -> int:
-    """Resolve backward-compatible runner verbosity settings."""
-    if verbosity is not None:
-        if verbosity not in (0, 1, 2):
-            raise ValueError("verbosity must be one of 0, 1, or 2")
-        return verbosity
-    if verbose is None:
-        return default
-    return 1 if verbose else 0
 
 
 # ---------------------------------------------------------------------------
@@ -339,14 +249,12 @@ def run_optimised_departure(
     land=None,
     departure_offset_h: float = 0.0,
     n_points: int = 100,
-    verbosity: int | None = None,
     **cmaes_kwargs,
 ) -> DepartureResult:
-    """Optimise and evaluate a single departure using CMA-ES and FMS.
+    """Optimise and evaluate a single departure using CMA-ES.
 
-    Both CMA-ES and FMS optimize the same SWOPP3 objective: RISE energy plus
-    the configured weather and land-distance penalties. Energy is then
-    evaluated post-hoc with the SWOPP3 performance model.
+    The CMA-ES optimizer minimises travel cost through the wind field.
+    Energy is then evaluated post-hoc with the SWOPP3 performance model.
     Missing optimisation inputs are treated as an error; this function does
     not fall back to a great-circle route.
 
@@ -368,9 +276,6 @@ def run_optimised_departure(
         Time offset (hours) from field origin to departure.
     n_points : int
         Number of waypoints (CMA-ES ``L`` parameter).
-    verbosity : int, optional
-        Output level. ``0`` silences routine prints, ``1`` prints runner
-        progress, and ``2`` also enables CMA-ES and FMS verbose printing.
     **cmaes_kwargs
         Additional keyword arguments passed to :func:`routetools.cmaes.optimize`.
 
@@ -388,14 +293,13 @@ def run_optimised_departure(
     case = SWOPP3_CASES[case_id]
     src, dst = case_endpoints(case_id)
     travel_time = float(case["passage_hours"])
-    resolved_verbosity = _resolve_runner_verbosity(None, verbosity)
 
     t0 = _time.time()
 
     if vectorfield is not None:
-        import warnings
-
         if windfield is None:
+            import warnings
+
             warnings.warn(
                 "vectorfield provided without windfield; defaulting "
                 "windfield to vectorfield for RISE energy cost.",
@@ -404,7 +308,7 @@ def run_optimised_departure(
             windfield = vectorfield
         # Lazy import to avoid circular dependency / heavy JAX load
         from routetools.cmaes import optimize as cmaes_optimize
-        from routetools.fms import optimize_fms
+        from routetools.cost import cost_function_rise
 
         # Initialise from the great-circle route so CMA-ES starts near
         # the geodesic.
@@ -416,206 +320,46 @@ def run_optimised_departure(
         src_opt = jnp.array([gc_init[0, 0], gc_init[0, 1]])
         dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
 
+        # Build a RISE-based cost closure for CMA-ES.
+        # This directly minimises SWOPP3 energy (MWh) instead of the
+        # ocean-current proxy ‖SOG − wind‖².
         _wps = case["wps"]
 
-        defaults_cmaes: dict[str, Any] = dict(
+        def _rise_cost(curve_batch: jnp.ndarray) -> jnp.ndarray:
+            return cost_function_rise(
+                windfield=windfield,
+                curve=curve_batch,
+                travel_time=travel_time,
+                wavefield=wavefield,
+                wps=_wps,
+                time_offset=departure_offset_h,
+            )
+
+        defaults = dict(
             K=10,
             L=n_points,
+            travel_time=travel_time,
             curve0=gc_init,
             sigma0=0.1,
+            cost_fn=_rise_cost,
             penalty=1000,
             land_margin=2,
-            verbose=resolved_verbosity >= 2,
+            verbose=False,
             time_offset=departure_offset_h,
             windfield=windfield,
             wavefield=wavefield,
-            travel_time=travel_time,
-            spherical_correction=True,
-            weather_penalty_weight=10.0,
-            wind_penalty_weight=0.0,
-            wave_penalty_weight=0.0,
-            distance_penalty_weight=0.0,
-            tws_limit=DEFAULT_TWS_LIMIT,
-            hs_limit=DEFAULT_HS_LIMIT,
         )
-        defaults_fms = dict(
-            patience=cmaes_kwargs.pop("fms_patience", 200),
-            damping=cmaes_kwargs.pop("fms_damping", 0.95),
-            maxfevals=cmaes_kwargs.pop("fms_maxfevals", 10000),
-        )
-        weather_penalty_type = str(cmaes_kwargs.pop("weather_penalty_type", "smooth"))
-        weather_penalty_sharpness = float(
-            cmaes_kwargs.pop("weather_penalty_sharpness", 5.0)
-        )
-        land_distance_epsilon = float(cmaes_kwargs.pop("land_distance_epsilon", 1.0))
         if cmaes_kwargs.pop("cmaes_verbose", False):
             cmaes_kwargs["verbose"] = True
-        defaults_cmaes.update(cmaes_kwargs)
-        defaults_fms["verbose"] = bool(defaults_cmaes["verbose"])
+        defaults.update(cmaes_kwargs)
 
-        objective_travel_time = float(defaults_cmaes.get("travel_time", travel_time))
-        objective_time_offset = float(
-            defaults_cmaes.get("time_offset", departure_offset_h)
-        )
-        objective_spherical_correction = bool(
-            defaults_cmaes.get("spherical_correction", True)
-        )
-        tws_limit = float(defaults_cmaes.get("tws_limit", DEFAULT_TWS_LIMIT))
-        hs_limit = float(defaults_cmaes.get("hs_limit", DEFAULT_HS_LIMIT))
-        weather_penalty_weight = float(
-            defaults_cmaes.get("weather_penalty_weight", 0.0)
-        )
-        wind_penalty_weight = float(defaults_cmaes.get("wind_penalty_weight", 0.0))
-        wave_penalty_weight = float(defaults_cmaes.get("wave_penalty_weight", 0.0))
-        distance_penalty_weight = float(
-            defaults_cmaes.get("distance_penalty_weight", 0.0)
-        )
-
-        def _shared_cost(
-            curve: jnp.ndarray,
-            *,
-            travel_time: float | None = None,
-            time_offset: float | None = None,
-            spherical_correction: bool | None = None,
-            **_: Any,
-        ) -> jnp.ndarray:
-            return _penalized_rise_cost(
-                curve=curve,
-                windfield=windfield,
-                wavefield=wavefield,
-                travel_time=(
-                    objective_travel_time if travel_time is None else travel_time
-                ),
-                wps=_wps,
-                spherical_correction=(
-                    objective_spherical_correction
-                    if spherical_correction is None
-                    else spherical_correction
-                ),
-                time_offset=(
-                    objective_time_offset if time_offset is None else time_offset
-                ),
-                tws_limit=tws_limit,
-                hs_limit=hs_limit,
-                weather_penalty_weight=weather_penalty_weight,
-                wind_penalty_weight=wind_penalty_weight,
-                wave_penalty_weight=wave_penalty_weight,
-                distance_penalty_weight=distance_penalty_weight,
-                weather_penalty_type=weather_penalty_type,
-                weather_penalty_sharpness=weather_penalty_sharpness,
-                land=land,
-                land_distance_epsilon=land_distance_epsilon,
-            )
-
-        defaults_cmaes["cost_fn"] = _shared_cost
-        fms_costfun_kwargs: dict[str, Any] = {
-            "windfield": windfield,
-            "wavefield": wavefield,
-            "wps": _wps,
-            "spherical_correction": objective_spherical_correction,
-            "tws_limit": tws_limit,
-            "hs_limit": hs_limit,
-            "weather_penalty_weight": weather_penalty_weight,
-            "wind_penalty_weight": wind_penalty_weight,
-            "wave_penalty_weight": wave_penalty_weight,
-            "distance_penalty_weight": distance_penalty_weight,
-            "weather_penalty_type": weather_penalty_type,
-            "weather_penalty_sharpness": weather_penalty_sharpness,
-            "land": land,
-            "land_distance_epsilon": land_distance_epsilon,
-        }
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r"Sampling standard deviation i=.*",
-                category=UserWarning,
-                module=r"cma\.evolution_strategy",
-            )
-            warnings.filterwarnings(
-                "ignore",
-                message=(
-                    r"\[WARNING\] The optimized curve has a higher cost "
-                    r"than the initial curve0 provided .*"
-                ),
-                category=UserWarning,
-            )
-            cmaes_t0 = _time.time()
-            curve_cmaes, _ = cmaes_optimize(
-                vectorfield=vectorfield,
-                src=src_opt,
-                dst=dst_opt,
-                land=land,
-                **defaults_cmaes,
-            )
-        cmaes_distance_nm = sailed_distance_nm(curve_cmaes)
-        energy_cmaes, max_tws_cmaes, max_hs_cmaes = evaluate_energy(
-            curve_cmaes,
-            departure,
-            case["passage_hours"],
-            wps=case["wps"],
-            windfield=windfield,
-            wavefield=wavefield,
-            departure_offset_h=departure_offset_h,
-        )
-        cmaes_comp_time_s = _time.time() - cmaes_t0
-
-        fms_t0 = _time.time()
-        curve_fms, _ = optimize_fms(
+        curve, info = cmaes_optimize(
             vectorfield=vectorfield,
-            curve=curve_cmaes,
+            src=src_opt,
+            dst=dst_opt,
             land=land,
-            windfield=windfield,
-            wavefield=wavefield,
-            travel_time=objective_travel_time,
-            spherical_correction=objective_spherical_correction,
-            time_offset=objective_time_offset,
-            enforce_weather_limits=True,
-            tws_limit=tws_limit,
-            hs_limit=hs_limit,
-            costfun=_penalized_rise_cost,
-            costfun_kwargs=fms_costfun_kwargs,
-            **defaults_fms,
+            **defaults,
         )
-        curve_fms = curve_fms[0]
-        fms_distance_nm = sailed_distance_nm(curve_fms)
-        energy_fms, max_tws_fms, max_hs_fms = evaluate_energy(
-            curve_fms,
-            departure,
-            case["passage_hours"],
-            wps=case["wps"],
-            windfield=windfield,
-            wavefield=wavefield,
-            departure_offset_h=departure_offset_h,
-        )
-        fms_comp_time_s = _time.time() - fms_t0
-
-        if resolved_verbosity >= 1:
-            print()
-            print(
-                f"    CMA-ES  E={energy_cmaes:.2f} MWh  "
-                f"d={cmaes_distance_nm:.0f} nm  "
-                f"t={cmaes_comp_time_s:.1f}s"
-            )
-            print(
-                f"    FMS     E={energy_fms:.2f} MWh  "
-                f"d={fms_distance_nm:.0f} nm  "
-                f"t={fms_comp_time_s:.1f}s"
-            )
-
-        cmaes_is_valid = max_tws_cmaes <= tws_limit and max_hs_cmaes <= hs_limit
-        fms_is_valid = max_tws_fms <= tws_limit and max_hs_fms <= hs_limit
-
-        if fms_is_valid and (not cmaes_is_valid or energy_fms < energy_cmaes):
-            curve = curve_fms
-            energy_mwh = energy_fms
-            max_tws = max_tws_fms
-            max_hs = max_hs_fms
-        else:
-            curve = curve_cmaes
-            energy_mwh = energy_cmaes
-            max_tws = max_tws_cmaes
-            max_hs = max_hs_cmaes
     else:
         # No vectorfield → raise error
         raise ValueError(
@@ -624,6 +368,16 @@ def run_optimised_departure(
         )
 
     distance_nm = sailed_distance_nm(curve)
+
+    energy_mwh, max_tws, max_hs = evaluate_energy(
+        curve,
+        departure,
+        case["passage_hours"],
+        wps=case["wps"],
+        windfield=windfield,
+        wavefield=wavefield,
+        departure_offset_h=departure_offset_h,
+    )
     comp_time = _time.time() - t0
 
     return DepartureResult(
