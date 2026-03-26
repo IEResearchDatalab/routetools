@@ -29,7 +29,7 @@ import gc
 import re
 import shutil
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -62,6 +62,8 @@ _ERA5_FILE_RE = re.compile(
     r"^(?P<prefix>era5_[^_]+_[^_]+_)(?P<year>\d{4})(?:_(?P<suffix>\d{2}(?:-\d{2})?))?\.nc$"
 )
 _DTFMT = "%Y-%m-%d %H:%M:%S"
+_DEFAULT_ERA5_BATCH_DAYS = 183.0
+_DEFAULT_ERA5_RELOAD_MARGIN_DAYS = 20.0
 
 
 @dataclass(frozen=True)
@@ -207,6 +209,8 @@ def _load_corridor_resources_for_cases(
     corridor_wind: dict[str, Path],
     corridor_wave: dict[str, Path],
     *,
+    time_start: datetime | None = None,
+    time_end: datetime | None = None,
     quiet: bool,
 ) -> dict[str, CorridorResources]:
     """Load weather, vectorfield, and land resources needed by optimised cases."""
@@ -244,10 +248,22 @@ def _load_corridor_resources_for_cases(
                 f"{', '.join(str(path) for path in wave_paths)}"
             )
 
-        dataset_epoch = load_dataset_epoch(wind_target)
-        windfield = load_era5_windfield(wind_target)
+        dataset_epoch = load_dataset_epoch(
+            wind_target,
+            time_start=time_start,
+            time_end=time_end,
+        )
+        windfield = load_era5_windfield(
+            wind_target,
+            time_start=time_start,
+            time_end=time_end,
+        )
         vectorfield = windfield
-        wavefield = load_era5_wavefield(wave_target)
+        wavefield = load_era5_wavefield(
+            wave_target,
+            time_start=time_start,
+            time_end=time_end,
+        )
 
         with xr.open_dataset(wave_paths[0]) as ds:
             for lon_name in ("longitude", "lon"):
@@ -352,6 +368,22 @@ def _release_fms_state() -> None:
     gc.collect()
 
 
+def _batch_window_parameters(
+    passage_hours: float,
+    era5_batch_days: float,
+    era5_reload_margin_days: float,
+) -> tuple[timedelta, timedelta]:
+    """Return batch duration and reload margin for rolling ERA5 windows."""
+    if era5_batch_days <= 0:
+        raise ValueError("era5_batch_days must be positive")
+    if era5_reload_margin_days <= 0:
+        raise ValueError("era5_reload_margin_days must be positive")
+
+    margin_hours = max(passage_hours, era5_reload_margin_days * 24.0)
+    batch_hours = max(margin_hours, era5_batch_days * 24.0)
+    return timedelta(hours=batch_hours), timedelta(hours=margin_hours)
+
+
 def apply_fms_to_outputs(
     input_dir: Path,
     *,
@@ -365,6 +397,8 @@ def apply_fms_to_outputs(
     fms_patience: int = 200,
     fms_damping: float = 0.95,
     fms_maxfevals: int = 10000,
+    era5_batch_days: float = _DEFAULT_ERA5_BATCH_DAYS,
+    era5_reload_margin_days: float = _DEFAULT_ERA5_RELOAD_MARGIN_DAYS,
     tws_limit: float = DEFAULT_TWS_LIMIT,
     hs_limit: float = DEFAULT_HS_LIMIT,
     quiet: bool = False,
@@ -423,19 +457,52 @@ def apply_fms_to_outputs(
             continue
 
         corridor = str(case["route"])
-        resources = _load_corridor_resources_for_cases(
-            [case_file.case_id],
-            corridor_wind,
-            corridor_wave,
-            quiet=quiet,
-        )[corridor]
         passage_hours = float(case["passage_hours"])
+        batch_duration, reload_margin = _batch_window_parameters(
+            passage_hours,
+            era5_batch_days,
+            era5_reload_margin_days,
+        )
         output_rows: list[dict[str, str]] = []
+        resources: CorridorResources | None = None
+        reload_after: datetime | None = None
 
         try:
             rows = _read_file_a_rows(case_file.summary_path)
             for idx, row in enumerate(rows, start=1):
                 departure = datetime.strptime(row["departure_time_utc"], _DTFMT)
+                if (
+                    resources is None
+                    or reload_after is None
+                    or departure >= reload_after
+                ):
+                    if resources is not None:
+                        del resources
+                        _release_fms_state()
+
+                    batch_start = departure
+                    batch_end = batch_start + batch_duration
+                    reload_after = batch_end - reload_margin
+                    resources = _load_corridor_resources_for_cases(
+                        [case_file.case_id],
+                        corridor_wind,
+                        corridor_wave,
+                        time_start=batch_start,
+                        time_end=batch_end,
+                        quiet=quiet,
+                    )[corridor]
+                    if not quiet:
+                        typer.echo(
+                            f"Loaded {corridor} ERA5 batch for {case_file.case_id}: "
+                            f"{batch_start.strftime('%Y-%m-%d')} to "
+                            f"{batch_end.strftime('%Y-%m-%d')}"
+                        )
+
+                if resources is None:
+                    raise RuntimeError(
+                        f"Failed to load corridor resources for {case_file.case_id}"
+                    )
+
                 details_filename = row["details_filename"]
                 track_path = resolve_file_b_path(input_dir, details_filename)
                 curve_original = _read_track_curve(track_path)
@@ -530,8 +597,9 @@ def apply_fms_to_outputs(
 
             write_file_a(output_rows, resolved_output_dir / case_file.summary_path.name)
         finally:
-            del resources
-            _release_fms_state()
+            if resources is not None:
+                del resources
+                _release_fms_state()
 
     if not quiet:
         typer.echo(f"Wrote FMS-refined output folder to {resolved_output_dir}")
@@ -594,6 +662,18 @@ def main(
         "--fms-maxfevals",
         help="Maximum FMS iterations per route.",
     ),
+    era5_batch_days: float = typer.Option(  # noqa: B008
+        _DEFAULT_ERA5_BATCH_DAYS,
+        "--era5-batch-days",
+        help="Maximum number of days of ERA5 data to keep loaded at once.",
+    ),
+    era5_reload_margin_days: float = typer.Option(  # noqa: B008
+        _DEFAULT_ERA5_RELOAD_MARGIN_DAYS,
+        "--era5-reload-margin-days",
+        help=(
+            "Reload ERA5 data when a departure is this close to the current batch end."
+        ),
+    ),
     tws_limit: float = typer.Option(  # noqa: B008
         DEFAULT_TWS_LIMIT,
         "--tws-limit",
@@ -624,6 +704,8 @@ def main(
         fms_patience=fms_patience,
         fms_damping=fms_damping,
         fms_maxfevals=fms_maxfevals,
+        era5_batch_days=era5_batch_days,
+        era5_reload_margin_days=era5_reload_margin_days,
         tws_limit=tws_limit,
         hs_limit=hs_limit,
         quiet=quiet,
