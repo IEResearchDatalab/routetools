@@ -25,6 +25,7 @@ Use explicit ERA5 paths for both corridors::
 from __future__ import annotations
 
 import csv
+import gc
 import re
 import shutil
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import jax
 import jax.numpy as jnp
 import typer
 
@@ -215,7 +217,6 @@ def _load_corridor_resources_for_cases(
 
     from routetools.era5.loader import (
         load_dataset_epoch,
-        load_era5_vectorfield,
         load_era5_wavefield,
         load_era5_windfield,
         load_natural_earth_land_mask,
@@ -245,7 +246,7 @@ def _load_corridor_resources_for_cases(
 
         dataset_epoch = load_dataset_epoch(wind_target)
         windfield = load_era5_windfield(wind_target)
-        vectorfield = load_era5_vectorfield(wind_target)
+        vectorfield = windfield
         wavefield = load_era5_wavefield(wave_target)
 
         with xr.open_dataset(wave_paths[0]) as ds:
@@ -325,6 +326,32 @@ def _copy_case_outputs(case_file: CaseFile, input_dir: Path, output_dir: Path) -
         shutil.copy2(src, dst)
 
 
+def _case_output_complete(case_file: CaseFile, output_dir: Path) -> bool:
+    """Return whether a case summary and all referenced tracks already exist."""
+    summary_path = output_dir / case_file.summary_path.name
+    if not summary_path.exists():
+        return False
+
+    try:
+        rows = _read_file_a_rows(summary_path)
+    except (OSError, csv.Error, KeyError):
+        return False
+
+    if not rows:
+        return False
+
+    return all(
+        (output_dir / "tracks" / row["details_filename"]).exists() for row in rows
+    )
+
+
+def _release_fms_state() -> None:
+    """Release cached JAX/FMS state between optimised cases."""
+    if hasattr(jax, "clear_caches"):
+        jax.clear_caches()
+    gc.collect()
+
+
 def apply_fms_to_outputs(
     input_dir: Path,
     *,
@@ -378,17 +405,16 @@ def apply_fms_to_outputs(
 
     if optimised_case_ids:
         _validate_required_data_paths(optimised_case_ids, corridor_wind, corridor_wave)
-    resources_by_corridor = _load_corridor_resources_for_cases(
-        optimised_case_ids,
-        corridor_wind,
-        corridor_wave,
-        quiet=quiet,
-    )
 
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
     (resolved_output_dir / "tracks").mkdir(parents=True, exist_ok=True)
 
     for case_file in case_files:
+        if _case_output_complete(case_file, resolved_output_dir):
+            if not quiet:
+                typer.echo(f"Skipping completed case {case_file.case_id}")
+            continue
+
         case = SWOPP3_CASES[case_file.case_id]
         if case["strategy"] == "gc":
             if not quiet:
@@ -397,106 +423,115 @@ def apply_fms_to_outputs(
             continue
 
         corridor = str(case["route"])
-        resources = resources_by_corridor[corridor]
+        resources = _load_corridor_resources_for_cases(
+            [case_file.case_id],
+            corridor_wind,
+            corridor_wave,
+            quiet=quiet,
+        )[corridor]
         passage_hours = float(case["passage_hours"])
         output_rows: list[dict[str, str]] = []
 
-        rows = _read_file_a_rows(case_file.summary_path)
-        for idx, row in enumerate(rows, start=1):
-            departure = datetime.strptime(row["departure_time_utc"], _DTFMT)
-            details_filename = row["details_filename"]
-            track_path = resolve_file_b_path(input_dir, details_filename)
-            curve_original = _read_track_curve(track_path)
-            departure_offset_h = _departure_offset_hours(
-                departure,
-                resources.dataset_epoch,
-            )
-
-            curve_fms_batch, _ = optimize_fms(
-                vectorfield=resources.vectorfield,
-                curve=curve_original,
-                land=resources.land,
-                windfield=resources.windfield,
-                wavefield=resources.wavefield,
-                penalty=1.0,
-                travel_time=passage_hours,
-                patience=fms_patience,
-                damping=fms_damping,
-                maxfevals=fms_maxfevals,
-                spherical_correction=True,
-                costfun=cost_function_rise,
-                costfun_kwargs={
-                    "windfield": resources.windfield,
-                    "wavefield": resources.wavefield,
-                    "wps": bool(case["wps"]),
-                },
-                verbose=not quiet,
-                time_offset=departure_offset_h,
-                enforce_weather_limits=True,
-                tws_limit=tws_limit,
-                hs_limit=hs_limit,
-            )
-            curve_fms = curve_fms_batch[0]
-
-            original_energy, original_max_tws, original_max_hs = evaluate_energy(
-                curve_original,
-                departure,
-                passage_hours,
-                wps=bool(case["wps"]),
-                windfield=resources.windfield,
-                wavefield=resources.wavefield,
-                departure_offset_h=departure_offset_h,
-            )
-            fms_energy, fms_max_tws, fms_max_hs = evaluate_energy(
-                curve_fms,
-                departure,
-                passage_hours,
-                wps=bool(case["wps"]),
-                windfield=resources.windfield,
-                wavefield=resources.wavefield,
-                departure_offset_h=departure_offset_h,
-            )
-
-            if fms_energy < original_energy:
-                chosen_curve = curve_fms
-                chosen_energy = fms_energy
-                chosen_max_tws = fms_max_tws
-                chosen_max_hs = fms_max_hs
-                decision = "FMS"
-            else:
-                chosen_curve = curve_original
-                chosen_energy = original_energy
-                chosen_max_tws = original_max_tws
-                chosen_max_hs = original_max_hs
-                decision = "original"
-
-            distance_nm = sailed_distance_nm(chosen_curve)
-            write_file_b(
-                chosen_curve,
-                waypoint_times(chosen_curve, departure, passage_hours),
-                resolved_output_dir / "tracks" / details_filename,
-            )
-            output_rows.append(
-                file_a_row(
-                    departure=departure,
-                    passage_hours=passage_hours,
-                    energy_mwh=chosen_energy,
-                    max_wind_mps=chosen_max_tws,
-                    max_hs_m=chosen_max_hs,
-                    distance_nm=distance_nm,
-                    details_filename=details_filename,
-                )
-            )
-
-            if not quiet:
-                typer.echo(
-                    f"[{case_file.case_id}] {idx}/{len(rows)} "
-                    f"{departure.strftime('%Y-%m-%d')} "
-                    f"original={original_energy:.3f} MWh  "
-                    f"fms={fms_energy:.3f} MWh  keep={decision}"
+        try:
+            rows = _read_file_a_rows(case_file.summary_path)
+            for idx, row in enumerate(rows, start=1):
+                departure = datetime.strptime(row["departure_time_utc"], _DTFMT)
+                details_filename = row["details_filename"]
+                track_path = resolve_file_b_path(input_dir, details_filename)
+                curve_original = _read_track_curve(track_path)
+                departure_offset_h = _departure_offset_hours(
+                    departure,
+                    resources.dataset_epoch,
                 )
 
-        write_file_a(output_rows, resolved_output_dir / case_file.summary_path.name)
+                curve_fms_batch, _ = optimize_fms(
+                    vectorfield=resources.vectorfield,
+                    curve=curve_original,
+                    land=resources.land,
+                    windfield=resources.windfield,
+                    wavefield=resources.wavefield,
+                    penalty=1.0,
+                    travel_time=passage_hours,
+                    patience=fms_patience,
+                    damping=fms_damping,
+                    maxfevals=fms_maxfevals,
+                    spherical_correction=True,
+                    costfun=cost_function_rise,
+                    costfun_kwargs={
+                        "windfield": resources.windfield,
+                        "wavefield": resources.wavefield,
+                        "wps": bool(case["wps"]),
+                    },
+                    verbose=not quiet,
+                    time_offset=departure_offset_h,
+                    enforce_weather_limits=False,
+                    tws_limit=tws_limit,
+                    hs_limit=hs_limit,
+                )
+                curve_fms = curve_fms_batch[0]
+
+                original_energy, original_max_tws, original_max_hs = evaluate_energy(
+                    curve_original,
+                    departure,
+                    passage_hours,
+                    wps=bool(case["wps"]),
+                    windfield=resources.windfield,
+                    wavefield=resources.wavefield,
+                    departure_offset_h=departure_offset_h,
+                )
+                fms_energy, fms_max_tws, fms_max_hs = evaluate_energy(
+                    curve_fms,
+                    departure,
+                    passage_hours,
+                    wps=bool(case["wps"]),
+                    windfield=resources.windfield,
+                    wavefield=resources.wavefield,
+                    departure_offset_h=departure_offset_h,
+                )
+
+                if fms_energy < original_energy:
+                    chosen_curve = curve_fms
+                    chosen_energy = fms_energy
+                    chosen_max_tws = fms_max_tws
+                    chosen_max_hs = fms_max_hs
+                    decision = "FMS"
+                else:
+                    chosen_curve = curve_original
+                    chosen_energy = original_energy
+                    chosen_max_tws = original_max_tws
+                    chosen_max_hs = original_max_hs
+                    decision = "original"
+
+                distance_nm = sailed_distance_nm(chosen_curve)
+                write_file_b(
+                    chosen_curve,
+                    waypoint_times(chosen_curve, departure, passage_hours),
+                    resolved_output_dir / "tracks" / details_filename,
+                )
+                output_rows.append(
+                    file_a_row(
+                        departure=departure,
+                        passage_hours=passage_hours,
+                        energy_mwh=chosen_energy,
+                        max_wind_mps=chosen_max_tws,
+                        max_hs_m=chosen_max_hs,
+                        distance_nm=distance_nm,
+                        details_filename=details_filename,
+                    )
+                )
+
+                if not quiet:
+                    typer.echo(
+                        f"[{case_file.case_id}] {idx}/{len(rows)} "
+                        f"{departure.strftime('%Y-%m-%d')} "
+                        f"original={original_energy:.3f} MWh  "
+                        f"fms={fms_energy:.3f} MWh  keep={decision}"
+                    )
+
+            write_file_a(output_rows, resolved_output_dir / case_file.summary_path.name)
+        finally:
+            del resources
+            _release_fms_state()
 
     if not quiet:
         typer.echo(f"Wrote FMS-refined output folder to {resolved_output_dir}")
