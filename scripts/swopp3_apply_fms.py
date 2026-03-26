@@ -37,7 +37,7 @@ import jax
 import jax.numpy as jnp
 import typer
 
-from routetools.cost import cost_function_rise
+from routetools.cost import cost_function_rise_penalized
 from routetools.fms import optimize_fms
 from routetools.swopp3 import SWOPP3_CASES
 from routetools.swopp3_output import (
@@ -523,11 +523,13 @@ def apply_fms_to_outputs(
                     damping=fms_damping,
                     maxfevals=fms_maxfevals,
                     spherical_correction=True,
-                    costfun=cost_function_rise,
+                    costfun=cost_function_rise_penalized,
                     costfun_kwargs={
                         "windfield": resources.windfield,
                         "wavefield": resources.wavefield,
                         "wps": bool(case["wps"]),
+                        "wave_penalty_weight": 10,
+                        "wind_penalty_weight": 10,
                     },
                     verbose=not quiet,
                     time_offset=departure_offset_h,

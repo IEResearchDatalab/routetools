@@ -15,6 +15,7 @@ from routetools._cost.haversine import (
 )
 from routetools._cost.waves import wave_adjusted_speed
 from routetools.land import Land, move_curve_away_from_land
+from routetools.weather import wave_penalty_smooth, wind_penalty_smooth
 
 try:
     from routetools.performance import predict_power_batch, predict_power_jax
@@ -729,6 +730,103 @@ def cost_function_rise(
     energy_mwh = jnp.sum(power_kw, axis=1) * dt_h / 1000.0
 
     return energy_mwh
+
+
+def cost_function_rise_penalized(
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ],
+    curve: jnp.ndarray,
+    travel_time: float,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    wps: bool = False,
+    time_offset: float = 0.0,
+    wave_penalty_weight: float = 1.0,
+    wind_penalty_weight: float = 1.0,
+    wave_penalty_factor: float | None = None,
+    wind_penalty_factor: float | None = None,
+    hs_limit: float = 7.0,
+    tws_limit: float = 20.0,
+) -> jnp.ndarray:
+    """Compute RISE energy with penalties for high wind/wave conditions.
+
+    This is a variant of cost_function_rise that adds penalty terms to the
+    energy cost for segments with high wind speeds or wave heights.  The
+    penalties are linear in the segment's maximum wind speed and wave height,
+    scaled by the provided penalty factors.
+
+    Parameters
+    ----------
+    windfield : Callable
+        ``(lon, lat, t) -> (u10, v10)`` where ``u10, v10`` are wind
+        components in m/s.  ``t`` is in the same unit as *travel_time*
+        (hours for ERA5).
+    curve : jnp.ndarray
+        Batch of trajectories, shape ``(B, L, 2)`` with ``(lon, lat)``
+        in degrees. Coordinate order must match the wind/wave fields.
+    travel_time : float
+        Fixed total passage time (hours).
+    wavefield : Callable, optional
+        ``(lon, lat, t) -> (hs, mwd)`` where ``hs`` is significant wave
+        height in metres and ``mwd`` is mean wave direction (degrees
+        from North).
+    wps : bool
+        Whether wingsails are deployed.
+    time_offset : float
+        Departure offset in hours from the field's time origin.
+    wave_penalty_weight : float
+        Multiplier for the smooth wave-height penalty term.
+    wind_penalty_weight : float
+        Multiplier for the smooth wind-speed penalty term.
+    wave_penalty_factor : float, optional
+        Backward-compatible alias for ``wave_penalty_weight``.
+    wind_penalty_factor : float, optional
+        Backward-compatible alias for ``wind_penalty_weight``.
+    hs_limit : float
+        Wave-height threshold in metres used by the smooth penalty.
+    tws_limit : float
+        Wind-speed threshold in m/s used by the smooth penalty.
+    """
+    if wave_penalty_factor is not None:
+        wave_penalty_weight = wave_penalty_factor
+    if wind_penalty_factor is not None:
+        wind_penalty_weight = wind_penalty_factor
+
+    cost = cost_function_rise(
+        windfield=windfield,
+        curve=curve,
+        travel_time=travel_time,
+        wavefield=wavefield,
+        wps=wps,
+        time_offset=time_offset,
+    )
+
+    cost_wave = jnp.zeros_like(cost)
+    if wavefield is not None and wave_penalty_weight > 0:
+        cost_wave = wave_penalty_smooth(
+            curve,
+            wavefield,
+            hs_limit=hs_limit,
+            weight=wave_penalty_weight,
+            travel_time=travel_time,
+            time_offset=time_offset,
+        )
+
+    cost_wind = jnp.zeros_like(cost)
+    if wind_penalty_weight > 0:
+        cost_wind = wind_penalty_smooth(
+            curve,
+            windfield,
+            tws_limit=tws_limit,
+            weight=wind_penalty_weight,
+            travel_time=travel_time,
+            time_offset=time_offset,
+        )
+
+    return cost + cost_wave + cost_wind
 
 
 def interpolate_to_constant_cost(
