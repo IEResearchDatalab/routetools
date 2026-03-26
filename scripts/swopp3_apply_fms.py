@@ -65,6 +65,10 @@ _DTFMT = "%Y-%m-%d %H:%M:%S"
 _DEFAULT_ERA5_BATCH_DAYS = 183.0
 _DEFAULT_ERA5_RELOAD_MARGIN_DAYS = 20.0
 
+# TODO: set to 0 for final runs, or make configurable via CLI options
+WIND_PW = 1000
+WAVE_PW = 1000
+
 
 @dataclass(frozen=True)
 class CaseFile:
@@ -528,8 +532,8 @@ def apply_fms_to_outputs(
                         "windfield": resources.windfield,
                         "wavefield": resources.wavefield,
                         "wps": bool(case["wps"]),
-                        "wave_penalty_weight": 10,
-                        "wind_penalty_weight": 10,
+                        "wave_penalty_weight": WAVE_PW,
+                        "wind_penalty_weight": WIND_PW,
                     },
                     verbose=not quiet,
                     time_offset=departure_offset_h,
