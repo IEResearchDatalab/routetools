@@ -1,15 +1,16 @@
 """Count Codabench-style route violations for SWOPP3 output folders.
 
 This module reproduces the user-facing violation counting convention used for
-local analysis of SWOPP3 outputs:
+local analysis of SWOPP3 outputs.
 
-- wind violations: number of File A rows with ``max_wind_mps > 20`` for
-  optimised cases
-- wave violations: number of File A rows with ``max_hs_m > 7`` for optimised
-  cases
-- land violations: number of sampled File B waypoints on land across all cases,
-  using the same waypoint subsampling rule as the Codabench scorer
-  (``step = max(1, len(waypoints) // 50)``)
+By default, great-circle (GC) cases are excluded from the report entirely.
+Set ``include_gc=True`` to include them:
+
+- wind violations: number of File A rows with ``max_wind_mps > 20``
+- wave violations: number of File A rows with ``max_hs_m > 7``
+- land violations: number of sampled File B waypoints on land, using the same
+    waypoint subsampling rule as the Codabench scorer
+    (``step = max(1, len(waypoints) // 50)``)
 
 The resulting totals match the expected 2087 count for the
 ``output/cmaes_weather`` folder in this repository.
@@ -99,6 +100,11 @@ class CorridorWeatherResources:
     dataset_epoch: datetime
     windfield: object
     wavefield: object
+
+
+def is_gc_case(case_id: str) -> bool:
+    """Return whether a SWOPP3 case is a great-circle case."""
+    return str(SWOPP3_CASES[case_id]["strategy"]) == "gc"
 
 
 def find_team_prefix(input_dir: Path) -> str:
@@ -282,9 +288,6 @@ def count_summary_weather_violations(
     tuple[int, int]
         ``(wind_violations, wave_violations)``.
     """
-    if SWOPP3_CASES[case_id]["strategy"] == "gc":
-        return 0, 0
-
     wind_violations = 0
     wave_violations = 0
     with summary_path.open(newline="") as handle:
@@ -302,6 +305,7 @@ def count_folder_violations(
     weather_resources: dict[str, CorridorWeatherResources] | None = None,
     wind_penalty_weight: float = 1000.0,
     wave_penalty_weight: float = 1000.0,
+    include_gc: bool = False,
 ) -> list[ScenarioViolationCounts]:
     """Count violations for every SWOPP3 scenario in an output folder.
 
@@ -311,6 +315,8 @@ def count_folder_violations(
         SWOPP3 output directory.
     land_checker : LandChecker
         Callable ``(lat, lon) -> bool``.
+    include_gc : bool, optional
+        When ``False`` (default), omit great-circle cases from the report.
 
     Returns
     -------
@@ -323,6 +329,9 @@ def count_folder_violations(
     rows: list[ScenarioViolationCounts] = []
 
     for case_id in CASE_ORDER:
+        if not include_gc and is_gc_case(case_id):
+            continue
+
         summary_path = input_dir / f"{team_prefix}-{case_id}.csv"
         if not summary_path.exists():
             continue

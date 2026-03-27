@@ -54,6 +54,11 @@ def main(
         "--output-csv",
         help="CSV destination written under output by default.",
     ),
+    include_gc: bool = typer.Option(
+        False,
+        "--include-gc/--exclude-gc",
+        help="Include great-circle routes in the report.",
+    ),
 ) -> None:
     """Print per-scenario violation counts and save them as CSV."""
     land_checker = load_default_land_checker(land_shapefile)
@@ -68,6 +73,7 @@ def main(
                 weather_resources=weather_resources,
                 wind_penalty_weight=wind_penalty_weight,
                 wave_penalty_weight=wave_penalty_weight,
+                include_gc=include_gc,
             )
         )
     typer.echo(format_grouped_violation_table(all_rows))
