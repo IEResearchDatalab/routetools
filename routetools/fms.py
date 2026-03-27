@@ -166,7 +166,8 @@ def _build_travel_time_custom_solver(
         q: jnp.ndarray = jnp.linalg.solve(a, b)
         return jnp.nan_to_num(q)
 
-    jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=(0))
+    # Each tree-index is an integer; no need to wrap a single axis in a tuple.
+    jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
 
     @jit  # type: ignore[misc]
     def solve_equation(
@@ -174,7 +175,7 @@ def _build_travel_time_custom_solver(
         segment_time_offsets: jnp.ndarray,
         q_max: jnp.ndarray,
     ) -> jnp.ndarray:
-        curve_new = jnp.copy(curve)
+        # .at[].set() always returns a new array; no copy needed beforehand.
         q = jac_vectorized(
             curve[:-2],
             curve[1:-1],
@@ -184,9 +185,9 @@ def _build_travel_time_custom_solver(
         )
         dq = (1 - damping) * q
         dq = jnp.clip(dq, -q_max, q_max)
-        return curve_new.at[1:-1].set(dq + curve[1:-1])
+        return curve.at[1:-1].set(dq + curve[1:-1])
 
-    return jit(vmap(solve_equation, in_axes=(0, None, None), out_axes=(0)))
+    return jit(vmap(solve_equation, in_axes=(0, None, None), out_axes=0))
 
 
 def _weather_violation_mask(
@@ -783,11 +784,10 @@ def optimize_fms(
                 q: jnp.ndarray = jnp.linalg.solve(a, b)
                 return jnp.nan_to_num(q)
 
-            jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=(0))
+            jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
 
             @jit  # type: ignore[misc]
             def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
-                curve_new = jnp.copy(curve)
                 q = jac_vectorized(
                     curve[:-2],
                     curve[1:-1],
@@ -799,9 +799,9 @@ def optimize_fms(
                 # Clip updates to prevent divergence when the route is still
                 # far from a locally optimal path.
                 dq = jnp.clip(dq, -q_max, q_max)
-                return curve_new.at[1:-1].set(dq + curve[1:-1])
+                return curve.at[1:-1].set(dq + curve[1:-1])
 
-            solve_vectorized = vmap(solve_equation, in_axes=(0), out_axes=(0))
+            solve_vectorized = vmap(solve_equation, in_axes=0, out_axes=0)
 
     else:
         raise ValueError("Either travel_stw or travel_time must be provided")
@@ -833,13 +833,12 @@ def optimize_fms(
             q: jnp.ndarray = jnp.linalg.solve(a, b)
             return jnp.nan_to_num(q)
 
-        jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=(0))
+        jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
 
         q_max = jnp.mean(jnp.linalg.norm(curve[:, 1:] - curve[:, :-1], axis=-1))
 
         @jit  # type: ignore[misc]
         def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
-            curve_new = jnp.copy(curve)
             q = jac_vectorized(
                 curve[:-2],
                 curve[1:-1],
@@ -849,9 +848,9 @@ def optimize_fms(
             )
             dq = (1 - damping) * q
             dq = jnp.clip(dq, -q_max, q_max)
-            return curve_new.at[1:-1].set(dq + curve[1:-1])
+            return curve.at[1:-1].set(dq + curve[1:-1])
 
-        solve_vectorized = vmap(solve_equation, in_axes=(0), out_axes=(0))
+        solve_vectorized = vmap(solve_equation, in_axes=0, out_axes=0)
 
     cost_now = _evaluate_cost(
         curve,
