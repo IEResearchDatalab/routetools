@@ -68,6 +68,7 @@ _DEFAULT_ERA5_RELOAD_MARGIN_DAYS = 20.0
 # TODO: set to 0 for final runs, or make configurable via CLI options
 WIND_PW = 1000
 WAVE_PW = 1000
+ENFORCE_WEATHER_LIMITS = True
 
 
 @dataclass(frozen=True)
@@ -537,7 +538,7 @@ def apply_fms_to_outputs(
                     },
                     verbose=not quiet,
                     time_offset=departure_offset_h,
-                    enforce_weather_limits=False,
+                    enforce_weather_limits=ENFORCE_WEATHER_LIMITS,
                     tws_limit=tws_limit,
                     hs_limit=hs_limit,
                 )
@@ -562,32 +563,19 @@ def apply_fms_to_outputs(
                     departure_offset_h=departure_offset_h,
                 )
 
-                if fms_energy < original_energy:
-                    chosen_curve = curve_fms
-                    chosen_energy = fms_energy
-                    chosen_max_tws = fms_max_tws
-                    chosen_max_hs = fms_max_hs
-                    decision = "FMS"
-                else:
-                    chosen_curve = curve_original
-                    chosen_energy = original_energy
-                    chosen_max_tws = original_max_tws
-                    chosen_max_hs = original_max_hs
-                    decision = "original"
-
-                distance_nm = sailed_distance_nm(chosen_curve)
+                distance_nm = sailed_distance_nm(curve_fms)
                 write_file_b(
-                    chosen_curve,
-                    waypoint_times(chosen_curve, departure, passage_hours),
+                    curve_fms,
+                    waypoint_times(curve_fms, departure, passage_hours),
                     resolved_output_dir / "tracks" / details_filename,
                 )
                 output_rows.append(
                     file_a_row(
                         departure=departure,
                         passage_hours=passage_hours,
-                        energy_mwh=chosen_energy,
-                        max_wind_mps=chosen_max_tws,
-                        max_hs_m=chosen_max_hs,
+                        energy_mwh=fms_energy,
+                        max_wind_mps=fms_max_tws,
+                        max_hs_m=fms_max_hs,
                         distance_nm=distance_nm,
                         details_filename=details_filename,
                     )
@@ -598,7 +586,7 @@ def apply_fms_to_outputs(
                         f"[{case_file.case_id}] {idx}/{len(rows)} "
                         f"{departure.strftime('%Y-%m-%d')} "
                         f"original={original_energy:.3f} MWh  "
-                        f"fms={fms_energy:.3f} MWh  keep={decision}"
+                        f"fms={fms_energy:.3f} MWh"
                     )
 
             write_file_a(output_rows, resolved_output_dir / case_file.summary_path.name)
