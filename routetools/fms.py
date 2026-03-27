@@ -229,6 +229,58 @@ def _weather_violation_mask(
     )
 
 
+def _neighbor_mask(mask: jnp.ndarray) -> jnp.ndarray:
+    """Expand a per-route boolean mask to immediate neighboring positions."""
+    left = jnp.pad(mask[:, :-1], ((0, 0), (1, 0)), constant_values=False)
+    right = jnp.pad(mask[:, 1:], ((0, 0), (0, 1)), constant_values=False)
+    return mask | left | right
+
+
+def _rollback_land_increases(
+    curve: jnp.ndarray,
+    curve_old: jnp.ndarray,
+    *,
+    land: Land,
+) -> jnp.ndarray:
+    """Rollback only local changes that increase land-invalid route positions.
+
+    The rollback is intentionally local: it reverts changed waypoints that are
+    directly implicated in newly-invalid positions while preserving unrelated
+    updates elsewhere on the route. If local rollback cannot restore a route to
+    a non-increasing land count, the full route falls back to its previous
+    iterate as a final safety check.
+    """
+    curve_constrained = curve
+    land_old = land(curve_old) > 0
+    old_counts = jnp.sum(land_old, axis=1)
+
+    for _ in range(curve.shape[1]):
+        land_new = land(curve_constrained) > 0
+        increased = jnp.sum(land_new, axis=1) > old_counts
+        if not bool(jnp.any(increased)):
+            return curve_constrained
+
+        changed = jnp.any(curve_constrained != curve_old, axis=-1)
+        newly_invalid = (~land_old) & land_new & increased[:, None]
+        revert_mask = changed & _neighbor_mask(newly_invalid) & land_new
+
+        needs_fallback_mask = increased & (~jnp.any(revert_mask, axis=1))
+        revert_mask = revert_mask | (needs_fallback_mask[:, None] & changed & land_new)
+
+        if not bool(jnp.any(revert_mask)):
+            break
+
+        curve_constrained = jnp.where(
+            revert_mask[..., None],
+            curve_old,
+            curve_constrained,
+        )
+
+    land_new = land(curve_constrained) > 0
+    increased = jnp.sum(land_new, axis=1) > old_counts
+    return jnp.where(increased[:, None, None], curve_old, curve_constrained)
+
+
 def _apply_curve_constraints(
     curve: jnp.ndarray,
     curve_old: jnp.ndarray,
@@ -263,13 +315,10 @@ def _apply_curve_constraints(
     curve_constrained = curve
 
     if land is not None and penalty > 0:
-        is_land_old = land(curve_old) > 0
-        is_land_new = land(curve_constrained) > 0
-        newly_invalid = (~is_land_old) & is_land_new
-        curve_constrained = jnp.where(
-            newly_invalid[..., None],
-            curve_old,
+        curve_constrained = _rollback_land_increases(
             curve_constrained,
+            curve_old,
+            land=land,
         )
 
     weather_invalid_old = _weather_violation_mask(

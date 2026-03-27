@@ -89,6 +89,12 @@ class CorridorResources:
     dataset_epoch: datetime
 
 
+def _count_curve_land_violations(curve: jnp.ndarray, land: Any) -> int:
+    """Return the number of land-invalid positions for one route."""
+    curve_batch = curve if curve.ndim == 3 else curve[None, ...]
+    return int(jnp.sum(land(curve_batch) > 0))
+
+
 def _default_output_dir(input_dir: Path) -> Path:
     """Return the default FMS output directory for an input folder."""
     return input_dir.with_name(f"{input_dir.name}_fms")
@@ -544,6 +550,18 @@ def apply_fms_to_outputs(
                 )
                 curve_fms = curve_fms_batch[0]
 
+                original_land_violations = _count_curve_land_violations(
+                    curve_original,
+                    resources.land,
+                )
+                fms_land_violations = _count_curve_land_violations(
+                    curve_fms,
+                    resources.land,
+                )
+                if fms_land_violations > original_land_violations:
+                    curve_fms = curve_original
+                    fms_land_violations = original_land_violations
+
                 original_energy, original_max_tws, original_max_hs = evaluate_energy(
                     curve_original,
                     departure,
@@ -586,7 +604,8 @@ def apply_fms_to_outputs(
                         f"[{case_file.case_id}] {idx}/{len(rows)} "
                         f"{departure.strftime('%Y-%m-%d')} "
                         f"original={original_energy:.3f} MWh  "
-                        f"fms={fms_energy:.3f} MWh"
+                        f"fms={fms_energy:.3f} MWh  "
+                        f"land={original_land_violations}->{fms_land_violations}"
                     )
 
             write_file_a(output_rows, resolved_output_dir / case_file.summary_path.name)
