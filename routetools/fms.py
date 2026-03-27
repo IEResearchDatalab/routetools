@@ -75,20 +75,28 @@ def _sorted_costfun_kwargs_items(
         return None
 
 
-@lru_cache(maxsize=32)
-def _build_custom_evaluate_cost(
+def _make_custom_evaluate_cost(
     user_costfun: FmsCostFunction,
-    costfun_kwargs_items: tuple[tuple[str, Any], ...],
+    resolved_costfun_kwargs: dict[str, Any],
     custom_cost_accepts_kwargs: bool,
     custom_cost_accepts_curve_keyword: bool,
-    custom_cost_parameter_names: tuple[str, ...],
+    custom_cost_parameter_names: set[str],
     weight_l1: float,
     weight_l2: float,
     spherical_correction: bool,
 ) -> Callable[..., jnp.ndarray]:
-    """Build a reusable custom cost wrapper for FMS."""
-    resolved_costfun_kwargs = dict(costfun_kwargs_items)
-    parameter_names = set(custom_cost_parameter_names)
+    """Build a custom cost wrapper for FMS (not cached).
+
+    Constructs the internal ``_evaluate_cost`` closure that normalises the
+    call to ``user_costfun``: it merges ``costfun_kwargs``, travel context,
+    and metric weights into a single ``cost_kwargs`` dict, then filters it to
+    the parameters the function actually accepts before dispatching positionally
+    or by keyword based on the inspected signature.
+    """
+    # Take a snapshot so later mutations to the caller's dict do not affect the
+    # closure.
+    captured_kwargs = dict(resolved_costfun_kwargs)
+    accepted_names = set(custom_cost_parameter_names)
 
     def _evaluate_cost(
         curve_eval: jnp.ndarray,
@@ -98,7 +106,7 @@ def _build_custom_evaluate_cost(
         time_offset_eval: float = 0.0,
     ) -> jnp.ndarray:
         cost_kwargs = {
-            **resolved_costfun_kwargs,
+            **captured_kwargs,
             "travel_stw": travel_stw_eval,
             "travel_time": travel_time_eval,
             "weight_l1": weight_l1,
@@ -110,13 +118,42 @@ def _build_custom_evaluate_cost(
             cost_kwargs = {
                 name: value
                 for name, value in cost_kwargs.items()
-                if name in parameter_names
+                if name in accepted_names
             }
         if custom_cost_accepts_curve_keyword:
             return user_costfun(curve=curve_eval, **cost_kwargs)
         return user_costfun(curve_eval, **cost_kwargs)
 
     return _evaluate_cost
+
+
+@lru_cache(maxsize=32)
+def _build_custom_evaluate_cost(
+    user_costfun: FmsCostFunction,
+    costfun_kwargs_items: tuple[tuple[str, Any], ...],
+    custom_cost_accepts_kwargs: bool,
+    custom_cost_accepts_curve_keyword: bool,
+    custom_cost_parameter_names: tuple[str, ...],
+    weight_l1: float,
+    weight_l2: float,
+    spherical_correction: bool,
+) -> Callable[..., jnp.ndarray]:
+    """Build and cache a custom cost wrapper for FMS.
+
+    Accepts only hashable arguments so the result can be memoised via
+    lru_cache. Delegates to _make_custom_evaluate_cost for the actual closure
+    construction.
+    """
+    return _make_custom_evaluate_cost(
+        user_costfun,
+        dict(costfun_kwargs_items),
+        custom_cost_accepts_kwargs,
+        custom_cost_accepts_curve_keyword,
+        set(custom_cost_parameter_names),
+        weight_l1,
+        weight_l2,
+        spherical_correction,
+    )
 
 
 @lru_cache(maxsize=32)
@@ -661,32 +698,18 @@ def optimize_fms(
                 spherical_correction,
             )
         else:
-
-            def _evaluate_cost(
-                curve_eval: jnp.ndarray,
-                *,
-                travel_stw_eval: float | None = None,
-                travel_time_eval: float | None = None,
-                time_offset_eval: float = 0.0,
-            ) -> jnp.ndarray:
-                cost_kwargs = {
-                    **resolved_costfun_kwargs,
-                    "travel_stw": travel_stw_eval,
-                    "travel_time": travel_time_eval,
-                    "weight_l1": weight_l1,
-                    "weight_l2": weight_l2,
-                    "spherical_correction": spherical_correction,
-                    "time_offset": time_offset_eval,
-                }
-                if not custom_cost_accepts_kwargs:
-                    cost_kwargs = {
-                        name: value
-                        for name, value in cost_kwargs.items()
-                        if name in custom_cost_parameter_names
-                    }
-                if custom_cost_accepts_curve_keyword:
-                    return user_costfun(curve=curve_eval, **cost_kwargs)
-                return user_costfun(curve_eval, **cost_kwargs)
+            # costfun_kwargs contain unhashable values so caching is not
+            # possible. Build the wrapper directly without caching.
+            _evaluate_cost = _make_custom_evaluate_cost(
+                user_costfun,
+                resolved_costfun_kwargs,
+                custom_cost_accepts_kwargs,
+                custom_cost_accepts_curve_keyword,
+                custom_cost_parameter_names,
+                weight_l1,
+                weight_l2,
+                spherical_correction,
+            )
 
     # Initialize lagrangians
     if travel_stw is not None:
