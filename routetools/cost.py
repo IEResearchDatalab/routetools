@@ -15,7 +15,12 @@ from routetools._cost.haversine import (
 )
 from routetools._cost.waves import wave_adjusted_speed
 from routetools.land import Land, move_curve_away_from_land
-from routetools.weather import wave_penalty_smooth, wind_penalty_smooth
+from routetools.weather import (
+    DEFAULT_HS_LIMIT,
+    DEFAULT_TWS_LIMIT,
+    wave_penalty_smooth,
+    wind_penalty_smooth,
+)
 
 try:
     from routetools.performance import predict_power_batch, predict_power_jax
@@ -746,8 +751,8 @@ def cost_function_rise_penalized(
     time_offset: float = 0.0,
     wave_penalty_weight: float = 0.0,
     wind_penalty_weight: float = 0.0,
-    hs_limit: float = 7.0,
-    tws_limit: float = 20.0,
+    hs_limit: float = DEFAULT_HS_LIMIT,
+    tws_limit: float = DEFAULT_TWS_LIMIT,
 ) -> jnp.ndarray:
     """Compute RISE energy with penalties for high wind/wave conditions.
 
