@@ -367,13 +367,15 @@ def random_piecewise_curve(
         Ending point of the curves.
     num_curves : int
         Number of curves to generate.
-    key : jax.random.PRNGKey
-        Random key for generating random numbers.
+    num_points : int
+        Total number of waypoints per curve.
+    seed : int
+        Integer seed for reproducible random curve generation.
 
     Returns
     -------
     jnp.ndarray
-        Generated curves with shape (num_curves, num_segments, 2).
+        Generated curves with shape (num_curves, num_points, 2).
     """
     key = jax.random.PRNGKey(seed)
     num_segments = jax.random.randint(key, (num_curves,), minval=2, maxval=5)
@@ -499,8 +501,9 @@ def optimize_fms(
         Destination point, by default None
     curve : jnp.ndarray | None, optional
         Curve to optimize, shape L x 2, by default None
-    land_function : Callable[[jnp.ndarray], jnp.ndarray] | None, optional
-        Land function, by default None
+    land : Land | None, optional
+        Land mask used to reject updates that move waypoints onto land.
+        By default None.
     windfield : Callable, optional
         Wind field closure used to enforce route weather limits.
     num_curves : int, optional
