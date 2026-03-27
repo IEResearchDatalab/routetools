@@ -746,8 +746,6 @@ def cost_function_rise_penalized(
     time_offset: float = 0.0,
     wave_penalty_weight: float = 1.0,
     wind_penalty_weight: float = 1.0,
-    wave_penalty_factor: float | None = None,
-    wind_penalty_factor: float | None = None,
     hs_limit: float = 7.0,
     tws_limit: float = 20.0,
 ) -> jnp.ndarray:
@@ -781,20 +779,11 @@ def cost_function_rise_penalized(
         Multiplier for the smooth wave-height penalty term.
     wind_penalty_weight : float
         Multiplier for the smooth wind-speed penalty term.
-    wave_penalty_factor : float, optional
-        Backward-compatible alias for ``wave_penalty_weight``.
-    wind_penalty_factor : float, optional
-        Backward-compatible alias for ``wind_penalty_weight``.
     hs_limit : float
         Wave-height threshold in metres used by the smooth penalty.
     tws_limit : float
         Wind-speed threshold in m/s used by the smooth penalty.
     """
-    if wave_penalty_factor is not None:
-        wave_penalty_weight = wave_penalty_factor
-    if wind_penalty_factor is not None:
-        wind_penalty_weight = wind_penalty_factor
-
     cost = cost_function_rise(
         windfield=windfield,
         curve=curve,
