@@ -63,7 +63,7 @@ ROUTE_ATLANTIC = {
     "src_port": "ESSDR",
     "dst_port": "USNYC",
     "passage_hours": 354,
-    "gc_distance_nm": 2833,
+    "gc_distance_nm": 2826,
 }
 
 ROUTE_PACIFIC = {
