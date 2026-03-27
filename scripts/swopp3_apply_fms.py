@@ -3,9 +3,7 @@
 
 This script reads a folder produced by ``scripts/swopp3_run.py`` and writes a
 new folder with suffix ``_fms`` by default. Great-circle cases are copied as-is.
-Optimised cases are refined route-by-route with FMS; for each departure the FMS
-route is kept only when its evaluated energy is strictly lower than the energy
-of the original stored route.
+Optimised cases are refined route-by-route with FMS.
 
 Usage
 -----
@@ -37,7 +35,7 @@ import jax
 import jax.numpy as jnp
 import typer
 
-from routetools.cost import cost_function_rise
+from routetools.cost import cost_function_rise_penalized
 from routetools.fms import optimize_fms
 from routetools.swopp3 import SWOPP3_CASES
 from routetools.swopp3_output import (
@@ -65,6 +63,11 @@ _DTFMT = "%Y-%m-%d %H:%M:%S"
 _DEFAULT_ERA5_BATCH_DAYS = 183.0
 _DEFAULT_ERA5_RELOAD_MARGIN_DAYS = 20.0
 
+# TODO: set to 0 for final runs, or make configurable via CLI options
+WIND_PW = 1000
+WAVE_PW = 1000
+ENFORCE_WEATHER_LIMITS = False
+
 
 @dataclass(frozen=True)
 class CaseFile:
@@ -84,6 +87,12 @@ class CorridorResources:
     wavefield: FieldClosure
     land: Any
     dataset_epoch: datetime
+
+
+def _count_curve_land_violations(curve: jnp.ndarray, land: Any) -> int:
+    """Return the number of land-invalid positions for one route."""
+    curve_batch = curve if curve.ndim == 3 else curve[None, ...]
+    return int(jnp.sum(land(curve_batch) > 0))
 
 
 def _default_output_dir(input_dir: Path) -> Path:
@@ -523,19 +532,35 @@ def apply_fms_to_outputs(
                     damping=fms_damping,
                     maxfevals=fms_maxfevals,
                     spherical_correction=True,
-                    costfun=cost_function_rise,
+                    costfun=cost_function_rise_penalized,
                     costfun_kwargs={
                         "windfield": resources.windfield,
                         "wavefield": resources.wavefield,
                         "wps": bool(case["wps"]),
+                        "wave_penalty_weight": WAVE_PW,
+                        "wind_penalty_weight": WIND_PW,
+                        "tws_limit": tws_limit,
+                        "hs_limit": hs_limit,
                     },
                     verbose=not quiet,
                     time_offset=departure_offset_h,
-                    enforce_weather_limits=False,
+                    enforce_weather_limits=ENFORCE_WEATHER_LIMITS,
                     tws_limit=tws_limit,
                     hs_limit=hs_limit,
                 )
                 curve_fms = curve_fms_batch[0]
+
+                original_land_violations = _count_curve_land_violations(
+                    curve_original,
+                    resources.land,
+                )
+                fms_land_violations = _count_curve_land_violations(
+                    curve_fms,
+                    resources.land,
+                )
+                if fms_land_violations > original_land_violations:
+                    curve_fms = curve_original
+                    fms_land_violations = original_land_violations
 
                 original_energy, original_max_tws, original_max_hs = evaluate_energy(
                     curve_original,
@@ -556,32 +581,19 @@ def apply_fms_to_outputs(
                     departure_offset_h=departure_offset_h,
                 )
 
-                if fms_energy < original_energy:
-                    chosen_curve = curve_fms
-                    chosen_energy = fms_energy
-                    chosen_max_tws = fms_max_tws
-                    chosen_max_hs = fms_max_hs
-                    decision = "FMS"
-                else:
-                    chosen_curve = curve_original
-                    chosen_energy = original_energy
-                    chosen_max_tws = original_max_tws
-                    chosen_max_hs = original_max_hs
-                    decision = "original"
-
-                distance_nm = sailed_distance_nm(chosen_curve)
+                distance_nm = sailed_distance_nm(curve_fms)
                 write_file_b(
-                    chosen_curve,
-                    waypoint_times(chosen_curve, departure, passage_hours),
+                    curve_fms,
+                    waypoint_times(curve_fms, departure, passage_hours),
                     resolved_output_dir / "tracks" / details_filename,
                 )
                 output_rows.append(
                     file_a_row(
                         departure=departure,
                         passage_hours=passage_hours,
-                        energy_mwh=chosen_energy,
-                        max_wind_mps=chosen_max_tws,
-                        max_hs_m=chosen_max_hs,
+                        energy_mwh=fms_energy,
+                        max_wind_mps=fms_max_tws,
+                        max_hs_m=fms_max_hs,
                         distance_nm=distance_nm,
                         details_filename=details_filename,
                     )
@@ -592,7 +604,8 @@ def apply_fms_to_outputs(
                         f"[{case_file.case_id}] {idx}/{len(rows)} "
                         f"{departure.strftime('%Y-%m-%d')} "
                         f"original={original_energy:.3f} MWh  "
-                        f"fms={fms_energy:.3f} MWh  keep={decision}"
+                        f"fms={fms_energy:.3f} MWh  "
+                        f"land={original_land_violations}->{fms_land_violations}"
                     )
 
             write_file_a(output_rows, resolved_output_dir / case_file.summary_path.name)
