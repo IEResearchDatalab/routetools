@@ -584,6 +584,7 @@ def optimize_fms(
                 weight_l2=weight_l2,
                 spherical_correction=spherical_correction,
                 time_offset=time_offset_eval,
+                **resolved_costfun_kwargs,
             )
     else:
         costfun_kwargs_items = _sorted_costfun_kwargs_items(resolved_costfun_kwargs)

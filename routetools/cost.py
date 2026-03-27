@@ -744,8 +744,8 @@ def cost_function_rise_penalized(
     | None = None,
     wps: bool = False,
     time_offset: float = 0.0,
-    wave_penalty_weight: float = 1.0,
-    wind_penalty_weight: float = 1.0,
+    wave_penalty_weight: float = 0.0,
+    wind_penalty_weight: float = 0.0,
     hs_limit: float = 7.0,
     tws_limit: float = 20.0,
 ) -> jnp.ndarray:

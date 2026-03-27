@@ -68,7 +68,7 @@ _DEFAULT_ERA5_RELOAD_MARGIN_DAYS = 20.0
 # TODO: set to 0 for final runs, or make configurable via CLI options
 WIND_PW = 1000
 WAVE_PW = 1000
-ENFORCE_WEATHER_LIMITS = True
+ENFORCE_WEATHER_LIMITS = False
 
 
 @dataclass(frozen=True)
