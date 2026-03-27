@@ -322,6 +322,12 @@ def _apply_curve_constraints(
             land=land,
         )
 
+    # Skip both mask evaluations when weather enforcement is inactive or no
+    # field is provided; _weather_violation_mask already returns zeros in that
+    # case, but calling it twice per iteration is wasteful.
+    if not enforce_weather_limits or (windfield is None and wavefield is None):
+        return curve_constrained
+
     weather_invalid_old = _weather_violation_mask(
         curve_old,
         windfield=windfield,
