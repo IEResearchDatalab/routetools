@@ -3,9 +3,7 @@
 
 This script reads a folder produced by ``scripts/swopp3_run.py`` and writes a
 new folder with suffix ``_fms`` by default. Great-circle cases are copied as-is.
-Optimised cases are refined route-by-route with FMS; for each departure the FMS
-route is kept only when its evaluated energy is strictly lower than the energy
-of the original stored route.
+Optimised cases are refined route-by-route with FMS.
 
 Usage
 -----
@@ -535,6 +533,8 @@ def apply_fms_to_outputs(
                         "wps": bool(case["wps"]),
                         "wave_penalty_weight": WAVE_PW,
                         "wind_penalty_weight": WIND_PW,
+                        "tws_limit": tws_limit,
+                        "hs_limit": hs_limit,
                     },
                     verbose=not quiet,
                     time_offset=departure_offset_h,
