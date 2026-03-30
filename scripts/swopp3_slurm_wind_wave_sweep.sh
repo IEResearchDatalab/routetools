@@ -45,8 +45,9 @@ DIST_PW=10.0
 DT_EVAL=30   # Δt₂ = 30 min evaluation grid
 
 # ── Environment ──
-export PATH="$HOME/.local/bin:$PATH"
-cd "$HOME/routetools"
+ROOTDIR="/home/fjsuarez/routetools"
+export PATH="/home/fjsuarez/.local/bin:$PATH"
+cd "$ROOTDIR"
 source .venv/bin/activate
 
 export JAX_PLATFORMS=cpu
