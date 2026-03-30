@@ -268,6 +268,66 @@ class TestResampleTrack:
             assert -90 <= lat <= 90
 
 
+class TestCircularInterpolation:
+    """Circular (sin/cos) interpolation for angular variables like MWD."""
+
+    def _make_tiny_grid(self, mwd_values: np.ndarray) -> dict:
+        """Build a minimal 1×2×1 wave grid with given MWD at two time steps."""
+        mwd = mwd_values.reshape(2, 1, 1).astype(np.float32)
+        mwd_rad = np.radians(mwd)
+        return {
+            "data": {
+                "mwd": mwd,
+                "mwd_sin": np.sin(mwd_rad).astype(np.float32),
+                "mwd_cos": np.cos(mwd_rad).astype(np.float32),
+            },
+            "lat": np.array([40.0]),
+            "lon": np.array([10.0]),
+            "times_h": np.array([0.0, 1.0]),
+            "t0": np.datetime64("2024-01-01T00:00"),
+        }
+
+    def test_no_wrap_matches_linear(self) -> None:
+        """Away from 0/360, circular and linear interp should agree."""
+        grid = self._make_tiny_grid(np.array([100.0, 120.0]))
+        lat = np.array([40.0])
+        lon = np.array([10.0])
+        t_h = np.array([0.5])
+
+        linear = _interp_era5_trilinear(grid, "mwd", lat, lon, t_h)
+        circular = _interp_era5_angle_trilinear(grid, "mwd", lat, lon, t_h)
+        assert circular[0] == pytest.approx(linear[0], abs=0.5)
+        assert circular[0] == pytest.approx(110.0, abs=0.5)
+
+    def test_wrap_around_360(self) -> None:
+        """Midpoint of 350° and 10° should be ~0° (360°), not 180°."""
+        grid = self._make_tiny_grid(np.array([350.0, 10.0]))
+        lat = np.array([40.0])
+        lon = np.array([10.0])
+        t_h = np.array([0.5])
+
+        circular = _interp_era5_angle_trilinear(grid, "mwd", lat, lon, t_h)
+        linear = _interp_era5_trilinear(grid, "mwd", lat, lon, t_h)
+
+        # Circular should give ~0° (i.e. 360°)
+        circ_centered = (circular[0] + 180) % 360 - 180  # center around 0
+        assert abs(circ_centered) < 5.0, f"Circular gave {circular[0]}°, expected ~0°"
+
+        # Linear gives ~180° — the wrong answer
+        assert abs(linear[0] - 180.0) < 1.0, f"Linear gave {linear[0]}°, expected ~180°"
+
+    def test_wrap_around_near_north(self) -> None:
+        """5° and 355° should average to ~0°, not 180°."""
+        grid = self._make_tiny_grid(np.array([5.0, 355.0]))
+        lat = np.array([40.0])
+        lon = np.array([10.0])
+        t_h = np.array([0.5])
+
+        circular = _interp_era5_angle_trilinear(grid, "mwd", lat, lon, t_h)
+        circ_centered = (circular[0] + 180) % 360 - 180
+        assert abs(circ_centered) < 5.0
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Integration tests (require ERA5 data + routetools)
 # ══════════════════════════════════════════════════════════════════════
@@ -341,6 +401,12 @@ def _load_era5_numpy(nc_path: Path) -> dict:
         for v in data:
             data[v] = data[v][:, :, ::-1]
 
+    # Decompose angular variables into sin/cos for correct interpolation
+    if "mwd" in data:
+        mwd_rad = np.radians(data["mwd"])
+        data["mwd_sin"] = np.sin(mwd_rad).astype(np.float32)
+        data["mwd_cos"] = np.cos(mwd_rad).astype(np.float32)
+
     return {"data": data, "lat": lat, "lon": lon, "times_h": times_h, "t0": t0}
 
 
@@ -386,6 +452,23 @@ def _interp_era5_trilinear(
                 result += w * arr[it, ila, ilo]
 
     return result.astype(np.float64)
+
+
+def _interp_era5_angle_trilinear(
+    grid: dict,
+    var_name: str,
+    query_lat: np.ndarray,
+    query_lon: np.ndarray,
+    query_t_h: np.ndarray,
+) -> np.ndarray:
+    """Interpolate an angular ERA5 variable using sin/cos decomposition."""
+    sin_vals = _interp_era5_trilinear(
+        grid, f"{var_name}_sin", query_lat, query_lon, query_t_h
+    )
+    cos_vals = _interp_era5_trilinear(
+        grid, f"{var_name}_cos", query_lat, query_lon, query_t_h
+    )
+    return np.mod(np.degrees(np.arctan2(sin_vals, cos_vals)), 360.0)
 
 
 # RISE performance model constants (must match codabench scorer)
@@ -481,7 +564,7 @@ def _evaluate_energy(
     u10 = _interp_era5_trilinear(wind_grid, "u10", lats, lons, wp_times_h)
     v10 = _interp_era5_trilinear(wind_grid, "v10", lats, lons, wp_times_h)
     swh = _interp_era5_trilinear(wave_grid, "swh", lats, lons, wp_times_h)
-    mwd = _interp_era5_trilinear(wave_grid, "mwd", lats, lons, wp_times_h)
+    mwd = _interp_era5_angle_trilinear(wave_grid, "mwd", lats, lons, wp_times_h)
 
     tws_all = np.sqrt(u10**2 + v10**2)
 
