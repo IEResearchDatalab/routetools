@@ -44,7 +44,7 @@ from routetools._ports import DICT_PORTS
 # ---------------------------------------------------------------------------
 # Port coordinates  (lon, lat)  — matching routetools._ports.DICT_PORTS
 # ---------------------------------------------------------------------------
-_SWOPP3_PORT_CODES = ("ESSDR", "USNYC", "JPTYO", "USLAX")
+_SWOPP3_PORT_CODES = ("ESSDR", "USNYS", "JPTYO", "USLAX")
 PORTS: dict[str, dict[str, str | float]] = {
     code: {
         "name": str(DICT_PORTS[code].get("city", code)),
@@ -61,7 +61,7 @@ ROUTE_ATLANTIC = {
     "id": "atlantic",
     "label": "Trans-Atlantic",
     "src_port": "ESSDR",
-    "dst_port": "USNYC",
+    "dst_port": "USNYS",
     "passage_hours": 354,
     "gc_distance_nm": 2833,
 }
@@ -84,7 +84,7 @@ SWOPP3_CASES: dict[str, dict] = {
         "label": "Atlantic Optimised, with WPS",
         "route": "atlantic",
         "src_port": "ESSDR",
-        "dst_port": "USNYC",
+        "dst_port": "USNYS",
         "passage_hours": 354,
         "strategy": "optimised",
         "wps": True,
@@ -94,7 +94,7 @@ SWOPP3_CASES: dict[str, dict] = {
         "label": "Atlantic Optimised, without WPS",
         "route": "atlantic",
         "src_port": "ESSDR",
-        "dst_port": "USNYC",
+        "dst_port": "USNYS",
         "passage_hours": 354,
         "strategy": "optimised",
         "wps": False,
@@ -104,7 +104,7 @@ SWOPP3_CASES: dict[str, dict] = {
         "label": "Atlantic Great Circle, with WPS",
         "route": "atlantic",
         "src_port": "ESSDR",
-        "dst_port": "USNYC",
+        "dst_port": "USNYS",
         "passage_hours": 354,
         "strategy": "gc",
         "wps": True,
@@ -114,7 +114,7 @@ SWOPP3_CASES: dict[str, dict] = {
         "label": "Atlantic Great Circle, without WPS",
         "route": "atlantic",
         "src_port": "ESSDR",
-        "dst_port": "USNYC",
+        "dst_port": "USNYS",
         "passage_hours": 354,
         "strategy": "gc",
         "wps": False,

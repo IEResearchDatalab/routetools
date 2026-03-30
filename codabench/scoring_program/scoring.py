@@ -69,6 +69,10 @@ ENDPOINT_TOLERANCE_DEG = 0.5
 # Passage time tolerance (hours)
 PASSAGE_TIME_TOLERANCE_H = 1.0
 
+# Evaluation resampling interval (minutes)
+# Decouples waypoint density (Δt₁) from integration accuracy (Δt₂).
+EVAL_DT_MINUTES = 15.0
+
 CASE_NAMES = [
     "AO_WPS",
     "AO_noWPS",
@@ -86,28 +90,28 @@ GC_CASES = {"AGC_WPS", "AGC_noWPS", "PGC_WPS", "PGC_noWPS"}
 CASE_DEFS = {
     "AO_WPS": {
         "src": (43.6, -4.0),
-        "dst": (40.53, -73.80),
+        "dst": (40.6, -69.0),
         "passage_h": 354,
         "route": "atlantic",
         "wps": True,
     },
     "AO_noWPS": {
         "src": (43.6, -4.0),
-        "dst": (40.53, -73.80),
+        "dst": (40.6, -69.0),
         "passage_h": 354,
         "route": "atlantic",
         "wps": False,
     },
     "AGC_WPS": {
         "src": (43.6, -4.0),
-        "dst": (40.53, -73.80),
+        "dst": (40.6, -69.0),
         "passage_h": 354,
         "route": "atlantic",
         "wps": True,
     },
     "AGC_noWPS": {
         "src": (43.6, -4.0),
-        "dst": (40.53, -73.80),
+        "dst": (40.6, -69.0),
         "passage_h": 354,
         "route": "atlantic",
         "wps": False,
@@ -526,6 +530,12 @@ def _load_era5_grid(nc_paths: list[str]) -> dict | None:
         for v in data:
             data[v] = data[v][:, :, ::-1]
 
+    # Decompose angular variables into sin/cos for correct interpolation
+    if "mwd" in data:
+        mwd_rad = np.radians(data["mwd"])
+        data["mwd_sin"] = np.sin(mwd_rad).astype(np.float32)
+        data["mwd_cos"] = np.cos(mwd_rad).astype(np.float32)
+
     return {
         "data": data,
         "lat": lat,
@@ -600,6 +610,23 @@ def _interp_era5(
     return result.astype(np.float64)
 
 
+def _interp_era5_angle(
+    grid: dict,
+    var_name: str,
+    query_lat: np.ndarray,
+    query_lon: np.ndarray,
+    query_t_h: np.ndarray,
+) -> np.ndarray:
+    """Interpolate an angular ERA5 variable using sin/cos decomposition.
+
+    Avoids the discontinuity at 0/360 degrees that breaks linear
+    interpolation of angular quantities (e.g. mean wave direction).
+    """
+    sin_vals = _interp_era5(grid, f"{var_name}_sin", query_lat, query_lon, query_t_h)
+    cos_vals = _interp_era5(grid, f"{var_name}_cos", query_lat, query_lon, query_t_h)
+    return np.mod(np.degrees(np.arctan2(sin_vals, cos_vals)), 360.0)
+
+
 # ─── RISE performance model (self-contained, numpy only) ─────────────
 
 # Constants
@@ -630,8 +657,8 @@ def _rise_power(tws, twa_deg, swh, mwa_deg, v, wps):
     # Aerodynamic drag
     p_wind = _KA * v * (vr * ux - v**2)
 
-    # Wave added resistance
-    mwa_rad = np.radians(mwa_deg)
+    # Wave added resistance (center MWA to [-180, 180] before radians)
+    mwa_rad = np.radians(np.mod(mwa_deg + 180.0, 360.0) - 180.0)
     p_wave = _AW * swh**2 * v**1.5 * np.exp(-_KW * np.abs(mwa_rad) ** 3)
 
     power = p_hull + p_wind + p_wave
@@ -646,6 +673,70 @@ def _rise_power(tws, twa_deg, swh, mwa_deg, v, wps):
         power = power - np.where(sail_active, p_sail, 0.0)
 
     return np.maximum(power, 0.0)
+
+
+def _slerp(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+    f: float,
+) -> tuple[float, float]:
+    """Spherical linear interpolation at fraction *f* in [0, 1]."""
+    phi1, lam1 = math.radians(lat1), math.radians(lon1)
+    phi2, lam2 = math.radians(lat2), math.radians(lon2)
+    p1 = np.array(
+        [
+            math.cos(phi1) * math.cos(lam1),
+            math.cos(phi1) * math.sin(lam1),
+            math.sin(phi1),
+        ]
+    )
+    p2 = np.array(
+        [
+            math.cos(phi2) * math.cos(lam2),
+            math.cos(phi2) * math.sin(lam2),
+            math.sin(phi2),
+        ]
+    )
+    dot = float(np.clip(np.dot(p1, p2), -1.0, 1.0))
+    sigma = math.acos(dot)
+    if sigma < 1e-12:
+        lat = lat1 + f * (lat2 - lat1)
+        lon = lon1 + f * ((lon2 - lon1 + 180.0) % 360.0 - 180.0)
+        return lat, lon
+    a = math.sin((1 - f) * sigma) / math.sin(sigma)
+    b = math.sin(f * sigma) / math.sin(sigma)
+    p = a * p1 + b * p2
+    lat = math.degrees(math.atan2(p[2], math.sqrt(p[0] ** 2 + p[1] ** 2)))
+    lon = math.degrees(math.atan2(p[1], p[0]))
+    return lat, lon
+
+
+def _resample_waypoints(
+    waypoints: list[tuple[datetime, float, float]],
+    dt_minutes: float = EVAL_DT_MINUTES,
+) -> list[tuple[datetime, float, float]]:
+    """Resample a track to uniform Δt₂ via great-circle interpolation."""
+    if len(waypoints) < 2:
+        return list(waypoints)
+    dt_seconds = dt_minutes * 60.0
+    result: list[tuple[datetime, float, float]] = []
+    for i in range(len(waypoints) - 1):
+        t0, lat0, lon0 = waypoints[i]
+        t1, lat1, lon1 = waypoints[i + 1]
+        seg_seconds = (t1 - t0).total_seconds()
+        if seg_seconds <= 0:
+            result.append((t0, lat0, lon0))
+            continue
+        n_sub = max(1, math.ceil(seg_seconds / dt_seconds))
+        for j in range(n_sub):
+            f = j / n_sub
+            t = t0 + timedelta(seconds=f * seg_seconds)
+            lat, lon = _slerp(lat0, lon0, lat1, lon1, f)
+            result.append((t, lat, lon))
+    result.append(waypoints[-1])
+    return result
 
 
 def _haversine_m(lat1, lon1, lat2, lon2):
@@ -764,6 +855,10 @@ def try_load_era5_scorer(ref_dir: Path):
         if n_wp < 2:
             return None
 
+        # Resample to uniform Δt₂ for integration-accuracy independence
+        waypoints = _resample_waypoints(waypoints, EVAL_DT_MINUTES)
+        n_wp = len(waypoints)
+
         lats = np.array([wp[1] for wp in waypoints])
         lons = np.array([wp[2] for wp in waypoints])
 
@@ -797,7 +892,7 @@ def try_load_era5_scorer(ref_dir: Path):
         u10 = _interp_era5(wind_grid, "u10", mid_lat, mid_lon, seg_mid_h)
         v10 = _interp_era5(wind_grid, "v10", mid_lat, mid_lon, seg_mid_h)
         swh = _interp_era5(wave_grid, "swh", mid_lat, mid_lon, seg_mid_h)
-        mwd = _interp_era5(wave_grid, "mwd", mid_lat, mid_lon, seg_mid_h)
+        mwd = _interp_era5_angle(wave_grid, "mwd", mid_lat, mid_lon, seg_mid_h)
 
         # Ship speed (m/s)
         seg_dist_m = _haversine_m(lats[:-1], lons[:-1], lats[1:], lons[1:])
