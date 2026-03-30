@@ -18,7 +18,7 @@ Components:
 - Hull drag:  ``P_hull = K_H · v³``
 - Wind drag:  ``P_wind = K_A · v · (VR · u_x − v²)``
 - Wave added resistance:  ``P_wave = A_W · SWH² · v^{1.5} · exp(−K_W · |MWA_rad|³)``
-  where ``MWA_rad = MWA · π / 180``.
+  where ``MWA_rad`` is MWA centered to [-180°, 180°] then converted to radians.
 - Sail thrust:  ``P_sail = C(AWA) · VR² · v``
   where ``C(AWA) = K_S · sin(α) · (1 + 3/20 · sin²(α))`` for AWA ≥ 10°,
   and ``C(AWA) = 0`` for AWA < 10° (dead zone).
@@ -131,7 +131,7 @@ def predict_power_no_wps(
         Propulsive power in kW, clamped to ≥ 0.
     """
     twa_rad = math.radians(twa)
-    mwa_rad = math.radians(mwa)
+    mwa_rad = math.radians((mwa + 180.0) % 360.0 - 180.0)
 
     # Apparent wind components
     ux = tws * math.cos(twa_rad) + v
@@ -176,7 +176,7 @@ def predict_power_with_wps(
         Propulsive power in kW, clamped to ≥ 0.
     """
     twa_rad = math.radians(twa)
-    mwa_rad = math.radians(mwa)
+    mwa_rad = math.radians((mwa + 180.0) % 360.0 - 180.0)
 
     ux = tws * math.cos(twa_rad) + v
     uy = tws * math.sin(twa_rad)
@@ -282,7 +282,7 @@ def predict_power_batch(
     v = np.asarray(v, dtype=np.float64)
 
     twa_rad = np.radians(twa)
-    mwa_rad = np.radians(mwa)
+    mwa_rad = np.radians(np.mod(mwa + 180.0, 360.0) - 180.0)
 
     ux = tws * np.cos(twa_rad) + v
     uy = tws * np.sin(twa_rad)
@@ -346,7 +346,7 @@ def predict_power_jax(
         Propulsive power in kW.
     """
     twa_rad = jnp.radians(twa)
-    mwa_rad = jnp.radians(mwa)
+    mwa_rad = jnp.radians(jnp.mod(mwa + 180.0, 360.0) - 180.0)
 
     ux = tws * jnp.cos(twa_rad) + v
     uy = tws * jnp.sin(twa_rad)
