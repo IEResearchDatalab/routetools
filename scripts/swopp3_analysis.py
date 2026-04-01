@@ -112,7 +112,7 @@ Data dependencies
     tracked in Git). Expected layout for each experiment::
 
         output/swopp3_<experiment>/
-            IEUniversity-1-<case>.csv   # one summary file per case
+            <team-prefix>-<case>.csv    # one summary file per case
             tracks/
                 <details_filename from summary CSV>  # per-voyage track
 
@@ -124,6 +124,8 @@ from __future__ import annotations
 
 import argparse
 import warnings
+from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 import cartopy.crs as ccrs
@@ -135,6 +137,8 @@ import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 
+from routetools.violations import find_team_prefix
+
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import matplotlib.pyplot as plt  # noqa: E402
@@ -143,8 +147,39 @@ import matplotlib.pyplot as plt  # noqa: E402
 # Paths (defaults; overridden at runtime via CLI args in main())
 # ---------------------------------------------------------------------------
 _REPO_ROOT = Path(__file__).parent.parent
-OUTPUT_DIR: Path = _REPO_ROOT / "output"
-FIGS_DIR: Path = _REPO_ROOT / "output" / "analysis"
+
+
+@dataclass(frozen=True)
+class AnalysisPaths:
+    """Filesystem locations used by the analysis script."""
+
+    output_dir: Path
+    figs_dir: Path
+
+
+DEFAULT_PATHS = AnalysisPaths(
+    output_dir=_REPO_ROOT / "output",
+    figs_dir=_REPO_ROOT / "output" / "analysis",
+)
+
+
+@cache
+def _team_prefix(folder_dir: Path) -> str:
+    """Return the detected team prefix for one experiment output folder."""
+    return find_team_prefix(folder_dir)
+
+
+def _summary_csv_path(paths: AnalysisPaths, folder: str, case_id: str) -> Path | None:
+    """Return the summary CSV path for one case when present."""
+    folder_dir = paths.output_dir / folder
+    if not folder_dir.exists():
+        return None
+    try:
+        team_prefix = _team_prefix(folder_dir)
+    except FileNotFoundError:
+        return None
+    return folder_dir / f"{team_prefix}-{case_id}.csv"
+
 
 # ---------------------------------------------------------------------------
 # Experiment metadata
@@ -322,30 +357,25 @@ def add_source_note(
     )
 
 
-def _red_line_rule(ax: plt.Axes) -> None:
-    """Draw the signature Economist top red rule on the axes title area."""
-    x0, _, w, _ = ax.get_position().bounds
-    # We draw a thin red rectangle across the top of the axes
-    ax.axhline(
-        y=ax.get_ylim()[1], color="#000066", linewidth=2.5, clip_on=False, zorder=10
-    )
-
-
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
-def _outlier_cap(series: pd.Series, iqr_factor: float = 5.0) -> pd.Series:
+def _outlier_mask(series: pd.Series, iqr_factor: float = 5.0) -> pd.Series:
     """Return a boolean mask of non-outliers using IQR rule."""
     q1, q3 = series.quantile(0.25), series.quantile(0.75)
     iqr = q3 - q1
     return (series >= q1 - iqr_factor * iqr) & (series <= q3 + iqr_factor * iqr)
 
 
-def load_summary_csv(exp_key: str, case_id: str) -> pd.DataFrame | None:
+def load_summary_csv(
+    exp_key: str,
+    case_id: str,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> pd.DataFrame | None:
     """Load and annotate one experiment/case summary CSV."""
     folder = EXPERIMENTS[exp_key]["folder"]
-    path = OUTPUT_DIR / folder / f"IEUniversity-1-{case_id}.csv"
-    if not path.exists():
+    path = _summary_csv_path(paths, folder, case_id)
+    if path is None or not path.exists():
         return None
     df = pd.read_csv(path, parse_dates=["departure_time_utc", "arrival_time_utc"])
     df["experiment"] = exp_key
@@ -361,39 +391,43 @@ def load_summary_csv(exp_key: str, case_id: str) -> pd.DataFrame | None:
     df["any_viol"] = df["wind_viol"] | df["wave_viol"]
 
     # Remove extreme outliers (FMS occasionally yields 10000+ MWh routes)
-    mask = _outlier_cap(df["energy_cons_mwh"])
+    mask = _outlier_mask(df["energy_cons_mwh"])
     if (~mask).any():
         print(f"  [!] Dropping {(~mask).sum()} outliers from {exp_key}/{case_id}")
     return df[mask].copy()
 
 
-def load_gc_baselines() -> dict[str, float]:
+def load_gc_baselines(paths: AnalysisPaths = DEFAULT_PATHS) -> dict[str, float]:
     """Return mean energy for each GC case across both baseline folders."""
     baselines: dict[str, dict[str, list]] = {}
     for folder_key in ("no_penalty", "penalty"):
         folder = EXPERIMENTS[folder_key]["folder"]
         for gc_id in GC_CASES:
-            path = OUTPUT_DIR / folder / f"IEUniversity-1-{gc_id}.csv"
-            if not path.exists():
+            path = _summary_csv_path(paths, folder, gc_id)
+            if path is None or not path.exists():
                 continue
             df = pd.read_csv(path)
             baselines.setdefault(gc_id, []).append(df["energy_cons_mwh"].mean())
     return {k: float(np.mean(v)) for k, v in baselines.items()}
 
 
-def load_all_data() -> pd.DataFrame:
+def load_all_data(paths: AnalysisPaths = DEFAULT_PATHS) -> pd.DataFrame:
     """Load all optimised-case summary rows across all experiments."""
     frames = []
     for exp_key in EXPERIMENTS:
         for case_id in OPT_CASES:
-            df = load_summary_csv(exp_key, case_id)
+            df = load_summary_csv(exp_key, case_id, paths)
             if df is not None:
                 frames.append(df)
     return pd.concat(frames, ignore_index=True)
 
 
 def load_tracks(
-    exp_key: str, case_id: str, season_filter: str | None = None, n_sample: int = 8
+    exp_key: str,
+    case_id: str,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+    season_filter: str | None = None,
+    n_sample: int = 8,
 ) -> list[pd.DataFrame]:
     """Return sampled per-voyage tracks for one experiment/case pair.
 
@@ -401,19 +435,19 @@ def load_tracks(
     files inherit season and departure metadata from the same voyage rows.
     """
     folder = EXPERIMENTS[exp_key]["folder"]
-    tracks_dir = OUTPUT_DIR / folder / "tracks"
+    tracks_dir = paths.output_dir / folder / "tracks"
     if not tracks_dir.exists():
         return []
 
     # Load the summary to know departure dates by season
-    summary = load_summary_csv(exp_key, case_id)
+    summary = load_summary_csv(exp_key, case_id, paths)
     if summary is None:
         return []
 
     if season_filter:
         summary = summary[summary["season"] == season_filter]
 
-    # Sample evenly
+    # Keep figure selection deterministic so repeated runs save the same tracks.
     sample = summary.sample(
         min(n_sample, len(summary)), replace=False, random_state=42
     ).sort_values("departure_time_utc")
@@ -436,7 +470,10 @@ def load_tracks(
 # FIGURE 1 — Energy overview (violin plots)
 # ===========================================================================
 def fig_energy_overview(
-    df: pd.DataFrame, gc: dict[str, float], gc_full: pd.DataFrame
+    df: pd.DataFrame,
+    gc: dict[str, float],
+    gc_full: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> None:
     """Violin plot of energy distributions per case and experiment.
 
@@ -481,7 +518,7 @@ def fig_energy_overview(
         gc_vals_raw = gc_full.loc[
             gc_full["case_id"] == case_id, "energy_cons_mwh"
         ].dropna()
-        gc_vals = gc_vals_raw[_outlier_cap(gc_vals_raw)]
+        gc_vals = gc_vals_raw[_outlier_mask(gc_vals_raw)]
         gc_mean = gc_vals.median() if not gc_vals.empty else gc.get(gc_id, np.nan)
 
         # GC violin (position 1)
@@ -553,7 +590,7 @@ def fig_energy_overview(
     )
 
     add_source_note(fig)
-    out = FIGS_DIR / "fig01_energy_overview.pdf"
+    out = paths.figs_dir / "fig01_energy_overview.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -563,7 +600,11 @@ def fig_energy_overview(
 # ===========================================================================
 # FIGURE 2 — Optimisation gains vs GC baseline
 # ===========================================================================
-def fig_optimization_gains(df: pd.DataFrame, gc: dict[str, float]) -> None:
+def fig_optimization_gains(
+    df: pd.DataFrame,
+    gc: dict[str, float],
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Plot grouped bar chart of % energy savings vs GC baseline per experiment."""  # noqa: E501
     setup_style()
     fig, axes = plt.subplots(1, 2, figsize=(11, 5))
@@ -658,7 +699,7 @@ def fig_optimization_gains(df: pd.DataFrame, gc: dict[str, float]) -> None:
         ax.set_ylim(0, ymax)
 
     add_source_note(fig)
-    out = FIGS_DIR / "fig02_optimization_gains.pdf"
+    out = paths.figs_dir / "fig02_optimization_gains.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -668,7 +709,10 @@ def fig_optimization_gains(df: pd.DataFrame, gc: dict[str, float]) -> None:
 # ===========================================================================
 # FIGURE 3 — Penalty trade-off (safety vs efficiency)
 # ===========================================================================
-def fig_penalty_tradeoff(df: pd.DataFrame) -> None:
+def fig_penalty_tradeoff(
+    df: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Side-by-side bars: violation rate reduction vs energy overhead from penalty."""
     setup_style()
     # Keep only no_penalty vs penalty pairs  (drop FMS variants for clarity)
@@ -835,7 +879,7 @@ def fig_penalty_tradeoff(df: pd.DataFrame) -> None:
     )
 
     add_source_note(fig)
-    out = FIGS_DIR / "fig03_penalty_tradeoff.pdf"
+    out = paths.figs_dir / "fig03_penalty_tradeoff.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -851,6 +895,7 @@ def _fig_seasonality_panel(
     exp_keys: list[str],
     title: str,
     out_stem: str,
+    paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> None:
     """Shared implementation for fig04a and fig04b.
 
@@ -904,7 +949,7 @@ def _fig_seasonality_panel(
 
         # GC reference line
         gc_piece = gc_full[gc_full["case_id"] == case_id].copy()
-        gc_piece = gc_piece[_outlier_cap(gc_piece["energy_cons_mwh"])]
+        gc_piece = gc_piece[_outlier_mask(gc_piece["energy_cons_mwh"])]
         if not gc_piece.empty:
             gc_piece["doy"] = gc_piece["departure_time_utc"].dt.dayofyear
             gc_piece = gc_piece.sort_values("doy")
@@ -973,14 +1018,18 @@ def _fig_seasonality_panel(
         ax.set_ylim(ymin_all, ymax_all)
 
     add_source_note(fig)
-    out = FIGS_DIR / f"{out_stem}.pdf"
+    out = paths.figs_dir / f"{out_stem}.pdf"
     fig.savefig(out, bbox_inches="tight")
     fig.savefig(out.with_suffix(".png"), bbox_inches="tight")
     print(f"  Saved {out.name}")
     plt.close(fig)
 
 
-def fig_seasonality_a(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
+def fig_seasonality_a(
+    df: pd.DataFrame,
+    gc_full: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """fig04a — seasonal energy lines for non-penalized experiments (CMA-ES and FMS)."""
     _fig_seasonality_panel(
         df,
@@ -988,10 +1037,15 @@ def fig_seasonality_a(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
         exp_keys=["no_penalty", "no_penalty_fms"],
         title="Seasonal energy — non-penalized routing (GC · CMA-ES · CMA-ES + FMS)",
         out_stem="fig04a_seasonality_no_penalty",
+        paths=paths,
     )
 
 
-def fig_seasonality_b(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
+def fig_seasonality_b(
+    df: pd.DataFrame,
+    gc_full: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """fig04b — seasonal energy lines for penalized experiments.
 
     Shows CMA-ES + Penalty and CMA-ES + Penalty + FMS, plus GC baseline.
@@ -1005,6 +1059,7 @@ def fig_seasonality_b(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
             " (GC · CMA-ES + Penalty · CMA-ES + Penalty + FMS)"
         ),
         out_stem="fig04b_seasonality_penalty",
+        paths=paths,
     )
 
 
@@ -1014,6 +1069,7 @@ def _fig_relative_gain_panel(
     exp_keys: list[str],
     title: str,
     out_stem: str,
+    paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> None:
     """Shared implementation for fig13a and fig13b.
 
@@ -1135,14 +1191,18 @@ def _fig_relative_gain_panel(
         ax.set_ylim(ymin_all, ymax_all)
 
     add_source_note(fig)
-    out = FIGS_DIR / f"{out_stem}.pdf"
+    out = paths.figs_dir / f"{out_stem}.pdf"
     fig.savefig(out, bbox_inches="tight")
     fig.savefig(out.with_suffix(".png"), bbox_inches="tight")
     print(f"  Saved {out.name}")
     plt.close(fig)
 
 
-def fig_relative_gain_a(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
+def fig_relative_gain_a(
+    df: pd.DataFrame,
+    gc_full: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """fig13a — relative energy gain vs GC for non-penalized experiments."""
     _fig_relative_gain_panel(
         df,
@@ -1153,10 +1213,15 @@ def fig_relative_gain_a(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
             " — non-penalized routing (CMA-ES · CMA-ES + FMS)"
         ),
         out_stem="fig13a_relative_gain_no_penalty",
+        paths=paths,
     )
 
 
-def fig_relative_gain_b(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
+def fig_relative_gain_b(
+    df: pd.DataFrame,
+    gc_full: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """fig13b — relative energy gain vs GC for penalized experiments."""
     _fig_relative_gain_panel(
         df,
@@ -1167,13 +1232,17 @@ def fig_relative_gain_b(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
             " — penalized routing (CMA-ES + Penalty · CMA-ES + Penalty + FMS)"
         ),
         out_stem="fig13b_relative_gain_penalty",
+        paths=paths,
     )
 
 
 # ===========================================================================
 # FIGURE 5 — WPS impact
 # ===========================================================================
-def fig_wps_impact(df: pd.DataFrame) -> None:
+def fig_wps_impact(
+    df: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Bar chart of absolute and relative WPS energy savings per experiment."""
     setup_style()
     fig, axes = plt.subplots(1, 2, figsize=(11, 5))
@@ -1246,7 +1315,7 @@ def fig_wps_impact(df: pd.DataFrame) -> None:
         ax.set_ylim(0, ymax)
 
     add_source_note(fig)
-    out = FIGS_DIR / "fig05_wps_impact.pdf"
+    out = paths.figs_dir / "fig05_wps_impact.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -1256,7 +1325,10 @@ def fig_wps_impact(df: pd.DataFrame) -> None:
 # ===========================================================================
 # FIGURE 6 — FMS improvement scatter
 # ===========================================================================
-def fig_fms_improvement(df: pd.DataFrame) -> None:
+def fig_fms_improvement(
+    df: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Scatter plot: CMA-ES energy vs CMA-ES+FMS energy (each point = one departure)."""
     setup_style()
 
@@ -1352,7 +1424,7 @@ def fig_fms_improvement(df: pd.DataFrame) -> None:
         ax.legend(fontsize=8, loc="upper left", markerscale=1.5)
 
     add_source_note(fig)
-    out = FIGS_DIR / "fig06_fms_improvement.pdf"
+    out = paths.figs_dir / "fig06_fms_improvement.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -1363,13 +1435,16 @@ def fig_fms_improvement(df: pd.DataFrame) -> None:
 # GC track loader (used by fig07)
 # ===========================================================================
 def load_gc_tracks(
-    gc_case: str, season_filter: str | None = None, n_sample: int = 5
+    gc_case: str,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+    season_filter: str | None = None,
+    n_sample: int = 5,
 ) -> list[pd.DataFrame]:
     """Load sample GC track DataFrames from the penalty output folder."""
     folder = EXPERIMENTS["penalty"]["folder"]
-    tracks_dir = OUTPUT_DIR / folder / "tracks"
-    summary_path = OUTPUT_DIR / folder / f"IEUniversity-1-{gc_case}.csv"
-    if not summary_path.exists():
+    tracks_dir = paths.output_dir / folder / "tracks"
+    summary_path = _summary_csv_path(paths, folder, gc_case)
+    if summary_path is None or not summary_path.exists():
         return []
     gc_df = pd.read_csv(
         summary_path, parse_dates=["departure_time_utc", "arrival_time_utc"]
@@ -1377,9 +1452,9 @@ def load_gc_tracks(
     gc_df["season"] = gc_df["departure_time_utc"].dt.month.map(_MONTH_TO_SEASON)
     if season_filter:
         gc_df = gc_df[gc_df["season"] == season_filter]
-    sample = gc_df.sample(
-        min(n_sample, len(gc_df)), replace=False, random_state=7
-    ).sort_values("departure_time_utc")
+    # Keep GC track sampling deterministic so figure exports stay reproducible.
+    sample = gc_df.sample(min(n_sample, len(gc_df)), replace=False, random_state=7)
+    sample = sample.sort_values("departure_time_utc")
     result = []
     for _, row in sample.iterrows():
         fpath = tracks_dir / row["details_filename"]
@@ -1392,7 +1467,7 @@ def load_gc_tracks(
 # ===========================================================================
 # FIGURE 7 — Route maps
 # ===========================================================================
-def fig_route_maps() -> None:
+def fig_route_maps(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
     """Geographic maps showing representative routes for Atlantic and Pacific."""
     setup_style()
 
@@ -1468,7 +1543,11 @@ def fig_route_maps() -> None:
                 for case_id in cfg["cases"]:
                     for season in cfg["seasons"]:
                         tracks = load_tracks(
-                            exp_key, case_id, season_filter=season, n_sample=4
+                            exp_key,
+                            case_id,
+                            paths,
+                            season_filter=season,
+                            n_sample=4,
                         )
                         alpha = 0.55 if season == "Winter" else 0.35
                         for trk in tracks:
@@ -1488,7 +1567,10 @@ def fig_route_maps() -> None:
                 for season in cfg["seasons"]:
                     alpha_gc = 0.80 if season == "Winter" else 0.45
                     for trk in load_gc_tracks(
-                        gc_case, season_filter=season, n_sample=4
+                        gc_case,
+                        paths,
+                        season_filter=season,
+                        n_sample=4,
                     ):
                         ax.plot(
                             trk["lon_deg"].values,
@@ -1552,7 +1634,7 @@ def fig_route_maps() -> None:
 
         add_source_note(fig)
         fig.tight_layout(rect=[0, 0.05, 1, 0.93])
-        out = FIGS_DIR / "fig07_route_maps.pdf"
+        out = paths.figs_dir / "fig07_route_maps.pdf"
         fig.savefig(out, bbox_inches="tight")
         fig.savefig(out.with_suffix(".png"), bbox_inches="tight")
         print(f"  Saved {out.name}")
@@ -1562,7 +1644,10 @@ def fig_route_maps() -> None:
 # ===========================================================================
 # FIGURE 8 — Risk calendar (heatmap of violation rate)
 # ===========================================================================
-def fig_risk_calendar(df: pd.DataFrame) -> None:
+def fig_risk_calendar(
+    df: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Heatmap: departure month × case × experiment — violation rate."""
     setup_style()
 
@@ -1654,7 +1739,7 @@ def fig_risk_calendar(df: pd.DataFrame) -> None:
             cb.ax.tick_params(labelsize=7.5)
 
     add_source_note(fig)
-    out = FIGS_DIR / "fig08_risk_calendar.pdf"
+    out = paths.figs_dir / "fig08_risk_calendar.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -1664,7 +1749,11 @@ def fig_risk_calendar(df: pd.DataFrame) -> None:
 # ===========================================================================
 # SUMMARY TABLE
 # ===========================================================================
-def generate_summary_table(df: pd.DataFrame, gc: dict[str, float]) -> pd.DataFrame:
+def generate_summary_table(
+    df: pd.DataFrame,
+    gc: dict[str, float],
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> pd.DataFrame:
     """Generate and save a summary statistics table."""
     rows = []
     for exp_key in EXPERIMENTS:
@@ -1691,7 +1780,7 @@ def generate_summary_table(df: pd.DataFrame, gc: dict[str, float]) -> pd.DataFra
                 }
             )
     summary = pd.DataFrame(rows)
-    out = FIGS_DIR / "table01_summary.csv"
+    out = paths.figs_dir / "table01_summary.csv"
     summary.to_csv(out, index=False)
     print(f"  Saved {out.name}")
     return summary
@@ -1700,7 +1789,10 @@ def generate_summary_table(df: pd.DataFrame, gc: dict[str, float]) -> pd.DataFra
 # ===========================================================================
 # BONUS: FMS delta plot — per-voyage improvement
 # ===========================================================================
-def fig_fms_delta_byseason(df: pd.DataFrame) -> None:
+def fig_fms_delta_byseason(
+    df: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Bar chart: median FMS improvement (%) by season and by case."""
     setup_style()
 
@@ -1815,7 +1907,7 @@ def fig_fms_delta_byseason(df: pd.DataFrame) -> None:
         ax.set_ylim(ymin, ymax)
 
     add_source_note(fig)
-    out = FIGS_DIR / "fig09_fms_seasonal_delta.pdf"
+    out = paths.figs_dir / "fig09_fms_seasonal_delta.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -1834,7 +1926,7 @@ _GC_TO_OPT = {
 }
 
 
-def load_gc_full() -> pd.DataFrame:
+def load_gc_full(paths: AnalysisPaths = DEFAULT_PATHS) -> pd.DataFrame:
     """Load per-departure GC rows and map them onto optimised-case ids.
 
     GC summaries are read from the penalty output folder because that run
@@ -1843,8 +1935,8 @@ def load_gc_full() -> pd.DataFrame:
     folder = EXPERIMENTS["penalty"]["folder"]
     frames = []
     for gc_id, opt_id in _GC_TO_OPT.items():
-        path = OUTPUT_DIR / folder / f"IEUniversity-1-{gc_id}.csv"
-        if not path.exists():
+        path = _summary_csv_path(paths, folder, gc_id)
+        if path is None or not path.exists():
             continue
         gc = pd.read_csv(path, parse_dates=["departure_time_utc", "arrival_time_utc"])
         gc["case_id"] = opt_id
@@ -1887,7 +1979,11 @@ def _join_opt_to_gc(
 # ===========================================================================
 # FIGURE 10 — Monthly "victory rate" over GC
 # ===========================================================================
-def fig_gc_victory_rate(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
+def fig_gc_victory_rate(
+    df: pd.DataFrame,
+    gc_full: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Monthly % of departures that beat the GC energy for each case × experiment."""
     setup_style()
     fig, axes = plt.subplots(2, 2, figsize=(13, 9))
@@ -1983,7 +2079,7 @@ def fig_gc_victory_rate(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
         fontsize=8.5,
     )
     add_source_note(fig)
-    out = FIGS_DIR / "fig10_gc_victory_rate.pdf"
+    out = paths.figs_dir / "fig10_gc_victory_rate.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -1993,7 +2089,11 @@ def fig_gc_victory_rate(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
 # ===========================================================================
 # FIGURE 11 — Margin-over-GC heatmap
 # ===========================================================================
-def fig_gc_margin_heatmap(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
+def fig_gc_margin_heatmap(
+    df: pd.DataFrame,
+    gc_full: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Heatmap: median % margin over GC (rows=experiments, cols=months) per case."""
     setup_style()
     # 2×2 grid of cases; each subplot is an experiment×month heatmap
@@ -2094,7 +2194,7 @@ def fig_gc_margin_heatmap(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
         )
 
     add_source_note(fig)
-    out = FIGS_DIR / "fig11_gc_margin_heatmap.pdf"
+    out = paths.figs_dir / "fig11_gc_margin_heatmap.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -2104,7 +2204,11 @@ def fig_gc_margin_heatmap(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
 # ===========================================================================
 # FIGURE 12 — GC's own violations: the unfair baseline
 # ===========================================================================
-def fig_gc_violations(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
+def fig_gc_violations(
+    df: pd.DataFrame,
+    gc_full: pd.DataFrame,
+    paths: AnalysisPaths = DEFAULT_PATHS,
+) -> None:
     """Monthly 'any violation' rate — GC vs best optimised (Penalty + FMS)."""
     setup_style()
     best_exp = "penalty_fms"
@@ -2228,7 +2332,7 @@ def fig_gc_violations(df: pd.DataFrame, gc_full: pd.DataFrame) -> None:
         fontsize=9,
     )
     add_source_note(fig)
-    out = FIGS_DIR / "fig12_gc_violations.pdf"
+    out = paths.figs_dir / "fig12_gc_violations.pdf"
     fig.savefig(out)
     fig.savefig(out.with_suffix(".png"))
     print(f"  Saved {out.name}")
@@ -2280,16 +2384,17 @@ def parse_args() -> argparse.Namespace:
 # ===========================================================================
 def main() -> None:
     """Load datasets once, then generate the requested figures and summary."""
-    global OUTPUT_DIR, FIGS_DIR
-
     args = parse_args()
+    paths = AnalysisPaths(
+        output_dir=args.data_dir
+        if args.data_dir is not None
+        else DEFAULT_PATHS.output_dir,
+        figs_dir=args.output_dir
+        if args.output_dir is not None
+        else DEFAULT_PATHS.figs_dir,
+    )
 
-    if args.data_dir is not None:
-        OUTPUT_DIR = args.data_dir
-    if args.output_dir is not None:
-        FIGS_DIR = args.output_dir
-
-    FIGS_DIR.mkdir(parents=True, exist_ok=True)
+    paths.figs_dir.mkdir(parents=True, exist_ok=True)
 
     # Apply DPI setting
     import matplotlib as mpl  # noqa: PLC0415 — local import fine here
@@ -2304,9 +2409,9 @@ def main() -> None:
     print("Loading data…")
     # Keep shared datasets in memory once so each figure function can focus on
     # presentation instead of repeating the same I/O and alignment work.
-    gc_baselines = load_gc_baselines()
-    df = load_all_data()
-    gc_full = load_gc_full()
+    gc_baselines = load_gc_baselines(paths)
+    df = load_all_data(paths)
+    gc_full = load_gc_full(paths)
     print(
         f"  Loaded {len(df):,} voyage records across "
         f"{df['experiment'].nunique()} experiments and {df['case_id'].nunique()} cases."
@@ -2314,39 +2419,39 @@ def main() -> None:
 
     print("\nGenerating figures…")
     if _want(1):
-        fig_energy_overview(df, gc_baselines, gc_full)
+        fig_energy_overview(df, gc_baselines, gc_full, paths)
     if _want(2):
-        fig_optimization_gains(df, gc_baselines)
+        fig_optimization_gains(df, gc_baselines, paths)
     if _want(3):
-        fig_penalty_tradeoff(df)
+        fig_penalty_tradeoff(df, paths)
     if _want(4):
-        fig_seasonality_a(df, gc_full)
-        fig_seasonality_b(df, gc_full)
+        fig_seasonality_a(df, gc_full, paths)
+        fig_seasonality_b(df, gc_full, paths)
     if _want(5):
-        fig_wps_impact(df)
+        fig_wps_impact(df, paths)
     if _want(6):
-        fig_fms_improvement(df)
+        fig_fms_improvement(df, paths)
     if _want(7):
-        fig_route_maps()
+        fig_route_maps(paths)
     if _want(8):
-        fig_risk_calendar(df)
+        fig_risk_calendar(df, paths)
     if _want(9):
-        fig_fms_delta_byseason(df)
+        fig_fms_delta_byseason(df, paths)
     if _want(10):
-        fig_gc_victory_rate(df, gc_full)
+        fig_gc_victory_rate(df, gc_full, paths)
     if _want(11):
-        fig_gc_margin_heatmap(df, gc_full)
+        fig_gc_margin_heatmap(df, gc_full, paths)
     if _want(12):
-        fig_gc_violations(df, gc_full)
+        fig_gc_violations(df, gc_full, paths)
     if _want(13):
-        fig_relative_gain_a(df, gc_full)
-        fig_relative_gain_b(df, gc_full)
+        fig_relative_gain_a(df, gc_full, paths)
+        fig_relative_gain_b(df, gc_full, paths)
 
     print("\nGenerating summary table…")
-    summary = generate_summary_table(df, gc_baselines)
+    summary = generate_summary_table(df, gc_baselines, paths)
     print(summary.to_string(index=False))
 
-    print(f"\nAll outputs saved to {FIGS_DIR}/")
+    print(f"\nAll outputs saved to {paths.figs_dir}/")
 
 
 if __name__ == "__main__":
