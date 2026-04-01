@@ -4,16 +4,13 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
-import numpy as np
-from wrr_bench.benchmark import load
-from wrr_bench.ocean import Ocean
-from wrr_utils.optimization import Circumnavigate
-from wrr_utils.route import Route
 
+from routetools.circumnavigate import circumnavigate
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
 from routetools.land import Land
 from routetools.vectorfield import time_variant, vectorfield_zero
+from routetools.wrr_bench import Ocean, load_real_instance
 
 
 def get_currents_to_vectorfield(
@@ -191,6 +188,9 @@ def load_benchmark_instance(
     instance_name: str,
     date_start: str = "2023-01-08",
     vel_ship: int = 6,
+    use_currents: bool = True,
+    use_waves: bool = True,
+    route_days: int = 10,
     bounding_border: int = 10,
     data_path: str = "./data",
 ) -> dict[str, Any]:
@@ -205,6 +205,13 @@ def load_benchmark_instance(
         Start date for the benchmark instance, by default "2023-01-08".
     vel_ship : int, optional
         Velocity of the ship in knots, by default 6.
+    use_currents : bool, optional
+        Whether to use ocean currents data, by default True.
+    use_waves : bool, optional
+        Whether to use ocean waves data, by default True.
+    route_days : int, optional
+        Number of days of ocean data to load. If the route goes for
+        longer, it will repeat the last day. By default 10.
     bounding_border: int, optional
         Border size for bounding box, by default 10.
     data_path : str, optional
@@ -221,12 +228,15 @@ def load_benchmark_instance(
         - vectorfield: Callable function to get the current vectors
         - land: Land instance for land penalization
     """
-    dict_instance = load(
+    dict_instance = load_real_instance(
         instance_name,
         date_start=date_start,
         vel_ship=vel_ship,
         data_path=data_path,
         bounding_border=bounding_border,
+        use_currents=use_currents,
+        use_waves=use_waves,
+        route_days=route_days,
     )
 
     # Load ocean and land data
@@ -260,16 +270,13 @@ def load_benchmark_instance(
     }
 
 
-def circumnavigate(
+def circumnavigate_and_smooth(
     lat_start: float,
     lon_start: float,
     lat_end: float,
     lon_end: float,
     ocean: Ocean,
     land: LandBenchmark,
-    date_start: np.datetime64,
-    date_end: np.datetime64 | None = None,
-    vel_ship: float = 10.0,
     grid_resolution: int = 4,
     neighbour_disk_size: int = 3,
     land_dilation: int = 0,
@@ -296,12 +303,6 @@ def circumnavigate(
     land : Land | None, optional
         Land instance to derive navigable cells from. If None, assumes no land
         constraints, by default None.
-    date_start : np.datetime64
-        Start date for the route.
-    date_end : np.datetime64 | None, optional
-        End date for the route, by default None.
-    vel_ship : float, optional
-        Speed through water of the ship in knots, by default 10.0.
     grid_resolution : int, optional
         Grid resolution in kilometers, by default 4.
     neighbour_disk_size : int, optional
@@ -325,27 +326,18 @@ def circumnavigate(
         - The initial A* route as an array of (lon, lat) points.
     """
     # Circumnavigate optimizer
-    opt = Circumnavigate(
-        grid_resolution=grid_resolution,
-        neighbour_disk_size=neighbour_disk_size,
-        land_dilation=land_dilation,
-        num_iter=0,  # No FMS refinement here
-    )
-    route: Route = opt.optimize(
+    lats, lons = circumnavigate(
         lat_start=lat_start,
         lon_start=lon_start,
         lat_end=lat_end,
         lon_end=lon_end,
         data=ocean,
-        bounding_box=ocean.bounding_box,  # Required explicitly
-        date_start=date_start,
-        date_end=date_end,  # Required explicitly, but not used
-        vel_ship=vel_ship,  # Required explicitly, but not used
+        grid_resolution=grid_resolution,
+        neighbour_disk_size=neighbour_disk_size,
+        land_dilation=land_dilation,
     )
 
-    # Retrieve the curve from the Route instance
-    lats = jnp.asarray(route.lats)
-    lons = jnp.asarray(route.lons)
+    # Retrieve the curve from the optimizer and ensure it has the correct shape (L, 2)
     curve = jnp.stack([lons, lats], axis=1)
     assert (
         curve.ndim == 2 and curve.shape[1] == 2
@@ -384,7 +376,7 @@ def circumnavigate(
 
 def optimize_benchmark_instance(
     dict_instance: dict[str, Any],
-    penalty: float = 1e8,
+    penalty: float = 1e10,
     K: int = 6,
     L: int = 64,
     num_pieces: int = 1,
@@ -420,7 +412,7 @@ def optimize_benchmark_instance(
         The problem instance contains the following information:
         lat_start, lon_start, lat_end, lon_end, date_start, vel_ship, bounding_box, data
     penalty : float, optional
-        Penalty for land points, by default 1e8
+        Penalty for land points, by default 1e10
     K : int, optional
         Number of free Bézier control points. By default 6
     L : int, optional
@@ -463,16 +455,13 @@ def optimize_benchmark_instance(
         if verbose:
             print("[INFO] Initializing with circumnavigation route...")
         # Initialize the circumnavigation route
-        curve0 = circumnavigate(
+        curve0 = circumnavigate_and_smooth(
             lat_start=dict_instance["lat_start"],
             lon_start=dict_instance["lon_start"],
             lat_end=dict_instance["lat_end"],
             lon_end=dict_instance["lon_end"],
             ocean=dict_instance["data"],
             land=dict_instance["land"],
-            date_start=dict_instance["date_start"],
-            date_end=dict_instance.get("date_end"),
-            vel_ship=dict_instance.get("vel_ship"),
             grid_resolution=4,
             neighbour_disk_size=3,
             land_dilation=0,
