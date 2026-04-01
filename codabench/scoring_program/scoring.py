@@ -333,21 +333,29 @@ def validate_file_b(
     departure_dt: datetime | None = None,
     arrival_dt: datetime | None = None,
     land_checker=None,
-) -> list[str]:
-    """Validate a File B (track waypoints) CSV."""
+) -> tuple[list[str], int]:
+    """Validate a File B (track waypoints) CSV.
+
+    Returns
+    -------
+    tuple[list[str], int]
+        ``(errors, land_count)`` where *land_count* is the number of sampled
+        waypoints found on land (0 when the check is skipped).
+    """
     errors: list[str] = []
+    land_count = 0
     fname = path.name
     case_def = CASE_DEFS[case_id]
 
     if not path.exists():
         errors.append(f"{fname}: File not found")
-        return errors
+        return errors, land_count
 
     with path.open() as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None:
             errors.append(f"{fname}: No header row")
-            return errors
+            return errors, land_count
 
         missing = set(FILE_B_COLUMNS) - set(reader.fieldnames)
         if missing:
@@ -357,7 +365,7 @@ def validate_file_b(
 
     if len(rows) < 2:
         errors.append(f"{fname}: Less than 2 waypoints")
-        return errors
+        return errors, land_count
 
     # Parse all waypoints
     waypoints: list[tuple[datetime | None, float | None, float | None]] = []
@@ -387,8 +395,7 @@ def validate_file_b(
         waypoints.append((t, lat, lon))
 
     if not waypoints:
-        return errors
-
+        return errors, land_count
     # ── Endpoint position checks ──
     src_lat, src_lon = case_def["src"]
     dst_lat, dst_lon = case_def["dst"]
@@ -428,7 +435,6 @@ def validate_file_b(
 
     # ── Land crossing checks (skipped for GC cases) ──
     if land_checker is not None and case_id not in GC_CASES:
-        land_count = 0
         step = max(1, len(waypoints) // 50)  # check ~50 points max
         for idx in range(0, len(waypoints), step):
             _, lat, lon = waypoints[idx]
@@ -440,7 +446,7 @@ def validate_file_b(
                 f"(checked {len(range(0, len(waypoints), step))} points)"
             )
 
-    return errors
+    return errors, land_count
 
 
 # ─── ERA5 loading (self-contained, numpy + netCDF4 only) ─────────────
@@ -830,7 +836,7 @@ def try_load_era5_scorer(ref_dir: Path):
         case_id: str,
         waypoints: list[tuple[datetime, float, float]],
         departure_str: str,
-    ) -> float | None:
+    ) -> dict | None:
         """Re-evaluate a single route using ERA5 + RISE model.
 
         Parameters
@@ -839,7 +845,8 @@ def try_load_era5_scorer(ref_dir: Path):
         waypoints : list of (datetime, lat_deg, lon_deg) tuples
         departure_str : departure datetime as string
 
-        Returns energy in MWh, or None if evaluation is not possible.
+        Returns dict with energy_mwh, max_tws, max_hs,
+        wind_violation_segs, wave_violation_segs; or None.
         """
         case_def = CASE_DEFS[case_id]
         corridor = case_def["route"]
@@ -914,7 +921,18 @@ def try_load_era5_scorer(ref_dir: Path):
 
         # Energy integration (per-segment dt)
         energy_mwh = float(np.sum(power_kw * seg_dt_h) / 1000.0)
-        return energy_mwh
+
+        # Violation counts
+        wind_violation_segs = int(np.sum(tws > MAX_WIND_MPS))
+        wave_violation_segs = int(np.sum(swh > MAX_HS_M))
+
+        return {
+            "energy_mwh": energy_mwh,
+            "max_tws": float(np.max(tws)) if len(tws) > 0 else 0.0,
+            "max_hs": float(np.max(swh)) if len(swh) > 0 else 0.0,
+            "wind_violation_segs": wind_violation_segs,
+            "wave_violation_segs": wave_violation_segs,
+        }
 
     return evaluate_route
 
@@ -1133,6 +1151,7 @@ def _write_detailed_results(
     all_warnings: list,
     case_energies: dict,
     case_routes: dict,
+    case_violations: dict | None = None,
     data_dir: Path | None = None,
 ):
     """Write detailed_results.html with scores, diagnostics, and plots."""
@@ -1225,6 +1244,36 @@ def _write_detailed_results(
             '<p class="ok"><strong>All validation checks passed ✓</strong></p>'
         )
 
+    # Violations summary
+    if case_violations:
+        has_any = any(len(v) > 0 for v in case_violations.values())
+        if has_any:
+            html_parts.append("<h2>Weather &amp; Land Violations</h2>")
+            html_parts.append(
+                "<table><tr><th>Case</th><th>Departures</th>"
+                "<th>Wind (&gt;20 m/s)</th>"
+                "<th>Wave (&gt;7 m)</th>"
+                "<th>Land</th></tr>"
+            )
+            for case_key, deps in sorted(case_violations.items()):
+                if not deps:
+                    continue
+                n_dep = len(deps)
+                wind_d = sum(1 for d in deps if d.get("wind_violation_segs", 0) > 0)
+                wave_d = sum(1 for d in deps if d.get("wave_violation_segs", 0) > 0)
+                land_d = sum(1 for d in deps if d.get("land_count", 0) > 0)
+                ek = html_mod.escape(case_key)
+                wind_cls = ' class="err"' if wind_d else ' class="ok"'
+                wave_cls = ' class="err"' if wave_d else ' class="ok"'
+                land_cls = ' class="err"' if land_d else ' class="ok"'
+                html_parts.append(
+                    f"<tr><td>{ek}</td><td>{n_dep}</td>"
+                    f"<td{wind_cls}>{wind_d}</td>"
+                    f"<td{wave_cls}>{wave_d}</td>"
+                    f"<td{land_cls}>{land_d}</td></tr>"
+                )
+            html_parts.append("</table>")
+
     # Plots
     if plots:
         html_parts.append("<h2>Figures</h2>")
@@ -1253,6 +1302,7 @@ def score_submission() -> dict:
     # Data collectors for detailed results
     case_energies: dict[str, list] = {c: [] for c in CASE_NAMES}
     case_routes: dict[str, list] = {c: [] for c in CASE_NAMES}
+    case_violations: dict[str, list] = {c: [] for c in CASE_NAMES}
 
     # Detect team prefix
     team_prefix = find_team_prefix(submission_dir)
@@ -1327,7 +1377,7 @@ def score_submission() -> dict:
             except (ValueError, KeyError):
                 pass
 
-            fb_errors = validate_file_b(
+            fb_errors, fb_land_count = validate_file_b(
                 fb_path,
                 case,
                 departure_dt=dep_dt,
@@ -1348,10 +1398,22 @@ def score_submission() -> dict:
                             lon = float(wp_row["lon_deg"])
                             waypoints.append((t, lat, lon))
                     dep_str = dep_dt.strftime(DTFMT)
-                    e = era5_scorer(case, waypoints, dep_str)
-                    if e is not None:
+                    result = era5_scorer(case, waypoints, dep_str)
+                    if result is not None:
+                        e = result["energy_mwh"]
                         re_eval_energy += e
                         case_energies[case].append((dep_dt, e))
+                        case_violations[case].append(
+                            {
+                                "departure": dep_dt,
+                                "energy_mwh": e,
+                                "max_tws": result["max_tws"],
+                                "max_hs": result["max_hs"],
+                                "wind_violation_segs": result["wind_violation_segs"],
+                                "wave_violation_segs": result["wave_violation_segs"],
+                                "land_count": fb_land_count,
+                            }
+                        )
                         # Collect route coords (subsample for memory)
                         lats = [wp[1] for wp in waypoints]
                         lons = [wp[2] for wp in waypoints]
@@ -1406,6 +1468,16 @@ def score_submission() -> dict:
         scores[f"{case}_reported_mwh"] = round(case_energy, 4)
         total_energy += case_energy_final
 
+        # Per-case violation summary from ERA5 re-evaluation
+        cv = case_violations[case]
+        if cv:
+            wind_deps = sum(1 for v in cv if v["wind_violation_segs"] > 0)
+            wave_deps = sum(1 for v in cv if v["wave_violation_segs"] > 0)
+            land_deps = sum(1 for v in cv if v["land_count"] > 0)
+            scores[f"{case}_wind_violation_departures"] = wind_deps
+            scores[f"{case}_wave_violation_departures"] = wave_deps
+            scores[f"{case}_land_violation_departures"] = land_deps
+
     # ── Cross-case consistency checks ──
     wps_pairs = [
         ("AO_WPS", "AO_noWPS"),
@@ -1453,6 +1525,7 @@ def score_submission() -> dict:
         all_warnings,
         case_energies,
         case_routes,
+        case_violations,
         data_dir=data_dir,
     )
 
