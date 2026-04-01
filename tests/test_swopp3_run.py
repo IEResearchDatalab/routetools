@@ -1,9 +1,12 @@
 """Tests for the SWOPP3 CLI input-validation helpers."""
 
 import importlib.util
+import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 
 def _load_swopp3_run_module():
@@ -19,7 +22,21 @@ def _load_swopp3_run_module():
 
 _swopp3_run = _load_swopp3_run_module()
 _loadable_era5_paths = _swopp3_run._loadable_era5_paths
+_load_experiment_profile = _swopp3_run._load_experiment_profile
+_resolve_case_ids = _swopp3_run._resolve_case_ids
+_resolve_config_value_path = _swopp3_run._resolve_config_value_path
 _validate_required_data_paths = _swopp3_run._validate_required_data_paths
+_write_experiment_manifest = _swopp3_run._write_experiment_manifest
+_runner = CliRunner()
+
+
+def _write_config(tmp_path: Path, content: str) -> Path:
+    """Create a temporary SWOPP3 experiment config file."""
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    config_path = config_dir / "experiments.toml"
+    config_path.write_text(content)
+    return config_path
 
 
 def test_loadable_era5_paths_adds_next_year_continuation(tmp_path: Path):
@@ -32,6 +49,213 @@ def test_loadable_era5_paths_adds_next_year_continuation(tmp_path: Path):
     feb.touch()
 
     assert _loadable_era5_paths(base) == [base, jan, feb]
+
+
+def test_resolve_config_value_path_anchors_relative_paths_to_config_dir(tmp_path: Path):
+    """Relative config paths should resolve from the TOML directory."""
+    config_path = tmp_path / "configs" / "experiments.toml"
+    config_path.parent.mkdir()
+
+    resolved = _resolve_config_value_path(config_path, "../data/example.nc")
+
+    assert resolved == (tmp_path / "data" / "example.nc").resolve()
+
+
+def test_load_experiment_profile_merges_defaults_and_resolves_paths(tmp_path: Path):
+    """Profile loading should merge defaults with per-run overrides."""
+    config_path = _write_config(
+        tmp_path,
+        """
+[swopp3.experiments.demo]
+description = "Demo profile"
+source_script = "scripts/swopp3_slurm.sh"
+output_dir = "../output/demo"
+
+[swopp3.experiments.demo.defaults]
+wind_path_atlantic = "../data/default_wind.nc"
+wave_path_atlantic = "../data/default_wave.nc"
+n_points = 178
+submission = 2
+
+[[swopp3.experiments.demo.runs]]
+name = "atlantic"
+cases = ["AO_WPS"]
+
+[[swopp3.experiments.demo.runs]]
+name = "override"
+cases = "PO_WPS"
+wind_path_atlantic = "../data/override_wind.nc"
+""".strip(),
+    )
+
+    profile = _load_experiment_profile(config_path, "demo")
+
+    assert profile["name"] == "demo"
+    assert profile["output_dir"] == (tmp_path / "output" / "demo").resolve()
+    assert len(profile["runs"]) == 2
+    assert profile["runs"][0]["n_points"] == 178
+    assert profile["runs"][0]["submission"] == 2
+    assert (
+        profile["runs"][0]["wind_path_atlantic"]
+        == (tmp_path / "data" / "default_wind.nc").resolve()
+    )
+    assert (
+        profile["runs"][1]["wind_path_atlantic"]
+        == (tmp_path / "data" / "override_wind.nc").resolve()
+    )
+    assert profile["runs"][1]["cases"] == ["PO_WPS"]
+
+
+def test_load_experiment_profile_raises_for_unknown_name(tmp_path: Path):
+    """Unknown experiment names should list the available profiles."""
+    config_path = _write_config(
+        tmp_path,
+        """
+[swopp3.experiments.demo]
+[[swopp3.experiments.demo.runs]]
+name = "run"
+cases = ["AO_WPS"]
+""".strip(),
+    )
+
+    with pytest.raises(KeyError, match="Unknown SWOPP3 experiment 'missing'"):
+        _load_experiment_profile(config_path, "missing")
+
+
+def test_load_experiment_profile_raises_for_empty_runs(tmp_path: Path):
+    """Profiles without runs should fail with a clear error."""
+    config_path = _write_config(
+        tmp_path,
+        """
+[swopp3.experiments.demo]
+description = "Demo profile"
+""".strip(),
+    )
+
+    with pytest.raises(ValueError, match="does not define any runs"):
+        _load_experiment_profile(config_path, "demo")
+
+
+def test_write_experiment_manifest_serializes_resolved_paths(tmp_path: Path):
+    """Manifest writing should preserve resolved paths as JSON strings."""
+    config_path = tmp_path / "configs" / "experiments.toml"
+    config_path.parent.mkdir()
+    output_dir = tmp_path / "output" / "demo"
+    profile = {
+        "name": "demo",
+        "description": "Demo profile",
+        "source_script": "scripts/swopp3_slurm.sh",
+        "output_dir": output_dir,
+        "runs": [
+            {
+                "name": "atlantic",
+                "cases": ["AO_WPS"],
+                "wind_path_atlantic": tmp_path / "data" / "wind.nc",
+            }
+        ],
+    }
+
+    manifest_path = _write_experiment_manifest(
+        config_path=config_path,
+        profile=profile,
+    )
+
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["experiment"] == "demo"
+    assert manifest["config_path"] == str(config_path)
+    assert manifest["output_dir"] == str(output_dir)
+    assert manifest["runs"][0]["wind_path_atlantic"] == str(
+        tmp_path / "data" / "wind.nc"
+    )
+
+
+def test_resolve_case_ids_filters_selected_strategy():
+    """Strategy filtering should keep only matching case IDs."""
+    case_ids = _resolve_case_ids(None, "optimised")
+
+    assert case_ids
+    assert all(case_id.endswith(("WPS", "noWPS")) for case_id in case_ids)
+    assert all(
+        case_id in {"AO_WPS", "AO_noWPS", "PO_WPS", "PO_noWPS"} for case_id in case_ids
+    )
+
+
+def test_resolve_case_ids_raises_for_empty_strategy_match():
+    """Unknown strategy filters should fail with a clear error."""
+    with pytest.raises(ValueError, match="No cases match strategy 'missing'"):
+        _resolve_case_ids(None, "missing")
+
+
+def test_run_configuration_raises_for_mismatched_weather_epochs(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """Runner should fail fast when wind and wave dataset epochs differ."""
+    import routetools.era5.loader as loader
+    import routetools.swopp3 as swopp3
+    import routetools.swopp3_runner as swopp3_runner
+
+    wind_path = tmp_path / "era5_wind_atlantic_2024.nc"
+    wave_path = tmp_path / "era5_waves_atlantic_2024.nc"
+    wind_path.touch()
+    wave_path.touch()
+
+    monkeypatch.setattr(
+        loader,
+        "load_dataset_epoch",
+        lambda target: datetime(2024, 1, 1)
+        if "wind" in str(target)
+        else datetime(2024, 1, 2),
+    )
+    monkeypatch.setattr(loader, "load_era5_windfield", lambda target: object())
+    monkeypatch.setattr(loader, "load_era5_wavefield", lambda target: object())
+    monkeypatch.setattr(
+        loader,
+        "load_era5_vectorfield",
+        lambda target: pytest.fail("vectorfield should not load when epochs differ"),
+    )
+    monkeypatch.setattr(
+        loader,
+        "load_natural_earth_land_mask",
+        lambda lon_range, lat_range: pytest.fail(
+            "land mask should not load when epochs differ"
+        ),
+    )
+    monkeypatch.setattr(swopp3, "departures_2024", lambda: [datetime(2024, 1, 1)])
+    monkeypatch.setattr(
+        swopp3_runner,
+        "run_case",
+        lambda *args, **kwargs: pytest.fail(
+            "run_case should not execute when epochs differ"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Wind and wave dataset epochs differ"):
+        _swopp3_run._run_swopp3_configuration(
+            cases=["AGC_WPS"],
+            strategy=None,
+            wind_path=None,
+            wave_path=None,
+            wind_path_atlantic=wind_path,
+            wave_path_atlantic=wave_path,
+            wind_path_pacific=None,
+            wave_path_pacific=None,
+            output_dir=tmp_path / "output",
+            submission=1,
+            n_points=100,
+            max_departures=1,
+            weather_penalty_weight=0.0,
+            wind_penalty_weight=0.0,
+            wave_penalty_weight=0.0,
+            distance_penalty_weight=0.0,
+            dt_eval_minutes=0.0,
+            cmaes_k=10,
+            sigma0=0.1,
+            popsize=200,
+            maxfevals=25000,
+            cmaes_verbose=False,
+            quiet=True,
+        )
 
 
 def test_shared_cli_paths_override_default_corridor_paths(monkeypatch):
@@ -50,20 +274,36 @@ def test_shared_cli_paths_override_default_corridor_paths(monkeypatch):
     monkeypatch.setattr(_swopp3_run, "_validate_required_data_paths", fake_validate)
 
     with pytest.raises(StopCli):
-        _swopp3_run.main(
-            cases=["AGC_WPS", "PGC_WPS"],
-            strategy=None,
-            wind_path=Path("shared_wind.nc"),
-            wave_path=Path("shared_wave.nc"),
-            wind_path_atlantic=Path("data/era5/era5_wind_atlantic_2024.nc"),
-            wave_path_atlantic=Path("data/era5/era5_waves_atlantic_2024.nc"),
-            wind_path_pacific=Path("data/era5/era5_wind_pacific_2024.nc"),
-            wave_path_pacific=Path("data/era5/era5_waves_pacific_2024.nc"),
-            output_dir=Path("output/swopp3"),
-            submission=1,
-            n_points=100,
-            max_departures=1,
-            quiet=True,
+        _runner.invoke(
+            _swopp3_run.app,
+            [
+                "--cases",
+                "AGC_WPS",
+                "--cases",
+                "PGC_WPS",
+                "--wind-path",
+                "shared_wind.nc",
+                "--wave-path",
+                "shared_wave.nc",
+                "--wind-path-atlantic",
+                "data/era5/era5_wind_atlantic_2024.nc",
+                "--wave-path-atlantic",
+                "data/era5/era5_waves_atlantic_2024.nc",
+                "--wind-path-pacific",
+                "data/era5/era5_wind_pacific_2024.nc",
+                "--wave-path-pacific",
+                "data/era5/era5_waves_pacific_2024.nc",
+                "--output-dir",
+                "output/swopp3",
+                "--submission",
+                "1",
+                "--n-points",
+                "100",
+                "--max-departures",
+                "1",
+                "--quiet",
+            ],
+            catch_exceptions=False,
         )
 
     assert captured["wind"] == {

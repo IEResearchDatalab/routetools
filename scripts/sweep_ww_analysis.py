@@ -282,9 +282,7 @@ def main(
 
             # Per-point violations from tracks
             print(f"  Analysing {case_id} tracks ...")
-            stats = _analyse_tracks(
-                track_dir, case_id, windfield, wavefield, field_t0
-            )
+            stats = _analyse_tracks(track_dir, case_id, windfield, wavefield, field_t0)
 
             row = {
                 "wind_pw": wind_pw,

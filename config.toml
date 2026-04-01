@@ -6,7 +6,7 @@ ylim = [-1, 6]
 travel_stw = 1
 
 [vectorfield.circular]
-src = [0.8660254037844386, 0.5]  # [cos(pi/6), sin(pi/6)]
+src = [0.8660254037844386, 0.5] # [cos(pi/6), sin(pi/6)]
 dst = [0, 1]
 xlim = [-0.5, 1.0]
 ylim = [0.0, 1.5]
@@ -35,7 +35,7 @@ ylim = [-1, 6]
 travel_time = 30
 
 [vectorfield.techy]
-src = [0.8660254037844386, 0.5]  # [cos(pi/6), sin(pi/6)]
+src = [0.8660254037844386, 0.5] # [cos(pi/6), sin(pi/6)]
 dst = [0, 1]
 xlim = [-1, 1]
 ylim = [-0.5, 1.5]
@@ -65,3 +65,467 @@ maxfevals = [50000]
 patience = [50]
 damping = [0.5]
 maxfevals = [50000]
+
+# Shell recipes capture reference parameters for helper shell scripts. They are
+# kept here so the script settings live next to the Python config, but
+# scripts/swopp3_run.py does not read this section.
+[shell_recipes.activate_gpu]
+source_script = "scripts/activate_gpu.sh"
+description = "Shell environment defaults for GPU-first JAX sessions."
+jax_platform_name = "cuda"
+cuda_visible_devices = "0"
+xla_python_client_preallocate = "false"
+
+[shell_recipes.parameter_search]
+source_script = "scripts/parameter_search.sh"
+description = "Chunked parameter search launcher for scripts/parameter_search.py."
+batch_size = 10
+total_combinations = 81000
+config_path = "config.toml"
+results_dir = "output"
+
+[shell_recipes.run_results]
+source_script = "scripts/run_results.sh"
+description = "Restart loop for the realworld results pipeline with faulthandler logging."
+logfile = "/home/SHARED/routetools/run_results.log"
+restart_delay_seconds = 10
+commands = [
+    "uv run python -X faulthandler scripts/realworld/results.py",
+    "uv run python -X faulthandler scripts/realworld/figures.py",
+    "uv run python -X faulthandler scripts/realworld/tables.py",
+]
+
+[swopp3.experiments.swopp3_0125_rust]
+description = "Full 8-case SWOPP3 run on 0.125 degree ERA5 data in CPU mode."
+source_script = "scripts/swopp3_slurm.sh"
+output_dir = "output/swopp3_0125_rust"
+
+[swopp3.experiments.swopp3_0125_rust.defaults]
+wind_path_atlantic = "data/era5_0125/era5_wind_atlantic_2024.nc"
+wave_path_atlantic = "data/era5_0125/era5_waves_atlantic_2024.nc"
+wind_path_pacific = "data/era5_0125/era5_wind_pacific_2024.nc"
+wave_path_pacific = "data/era5_0125/era5_waves_pacific_2024.nc"
+
+[[swopp3.experiments.swopp3_0125_rust.runs]]
+name = "full_run"
+
+[swopp3.experiments.swopp3_0125_gpu]
+description = "Full 8-case SWOPP3 run on 0.125 degree ERA5 data in GPU mode."
+source_script = "scripts/swopp3_slurm_gpu.sh"
+output_dir = "output/swopp3_0125_gpu"
+
+[swopp3.experiments.swopp3_0125_gpu.defaults]
+wind_path_atlantic = "data/era5_0125/era5_wind_atlantic_2024.nc"
+wave_path_atlantic = "data/era5_0125/era5_waves_atlantic_2024.nc"
+wind_path_pacific = "data/era5_0125/era5_wind_pacific_2024.nc"
+wave_path_pacific = "data/era5_0125/era5_waves_pacific_2024.nc"
+
+[[swopp3.experiments.swopp3_0125_gpu.runs]]
+name = "full_run"
+
+[swopp3.experiments.hard_penalty]
+description = "Full SWOPP3 run with hard weather penalties on separate Atlantic and Pacific meshes."
+source_script = "scripts/swopp3_slurm_hard_penalty.sh"
+output_dir = "output/swopp3_hard_penalty"
+
+[swopp3.experiments.hard_penalty.defaults]
+weather_penalty_weight = 10.0
+distance_penalty_weight = 10.0
+dt_eval_minutes = 30.0
+
+[[swopp3.experiments.hard_penalty.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.hard_penalty.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.k15_p400_w1000]
+description = "Kitchen-sink optimised-only run with K=15, popsize=400, and wind/wave penalties of 1000."
+source_script = "scripts/swopp3_slurm_k15_popsize400.sh"
+output_dir = "output/swopp3_k15_p400_w1000"
+
+[swopp3.experiments.k15_p400_w1000.defaults]
+strategy = "optimised"
+cmaes_k = 15
+popsize = 400
+maxfevals = 50000
+dt_eval_minutes = 30.0
+wind_penalty_weight = 1000.0
+wave_penalty_weight = 1000.0
+distance_penalty_weight = 10.0
+cmaes_verbose = true
+
+[[swopp3.experiments.k15_p400_w1000.runs]]
+name = "ao_wps"
+cases = ["AO_WPS"]
+n_points = 178
+
+[[swopp3.experiments.k15_p400_w1000.runs]]
+name = "ao_no_wps"
+cases = ["AO_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.k15_p400_w1000.runs]]
+name = "po_wps"
+cases = ["PO_WPS"]
+n_points = 293
+
+[[swopp3.experiments.k15_p400_w1000.runs]]
+name = "po_no_wps"
+cases = ["PO_noWPS"]
+n_points = 293
+
+[swopp3.experiments.k15_w200]
+description = "K=15 smooth-penalty experiment with wind and wave weights set to 200."
+source_script = "scripts/swopp3_slurm_k15_sweep.sh"
+output_dir = "output/swopp3_k15_w200"
+
+[swopp3.experiments.k15_w200.defaults]
+cmaes_k = 15
+dt_eval_minutes = 30.0
+wind_penalty_weight = 200.0
+wave_penalty_weight = 200.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.k15_w200.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.k15_w200.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.k15_w500]
+description = "K=15 smooth-penalty experiment with wind and wave weights set to 500."
+source_script = "scripts/swopp3_slurm_k15_sweep.sh"
+output_dir = "output/swopp3_k15_w500"
+
+[swopp3.experiments.k15_w500.defaults]
+cmaes_k = 15
+dt_eval_minutes = 30.0
+wind_penalty_weight = 500.0
+wave_penalty_weight = 500.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.k15_w500.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.k15_w500.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.max_sweep_w5]
+description = "Max-based penalty sweep experiment with wind and wave weights set to 5."
+source_script = "scripts/swopp3_slurm_max_penalty_sweep.sh"
+output_dir = "output/swopp3_max_sweep_w5"
+
+[swopp3.experiments.max_sweep_w5.defaults]
+strategy = "optimised"
+dt_eval_minutes = 30.0
+wind_penalty_weight = 5.0
+wave_penalty_weight = 5.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.max_sweep_w5.runs]]
+name = "ao_wps"
+cases = ["AO_WPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w5.runs]]
+name = "ao_no_wps"
+cases = ["AO_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w5.runs]]
+name = "po_wps"
+cases = ["PO_WPS"]
+n_points = 293
+
+[[swopp3.experiments.max_sweep_w5.runs]]
+name = "po_no_wps"
+cases = ["PO_noWPS"]
+n_points = 293
+
+[swopp3.experiments.max_sweep_w10]
+description = "Max-based penalty sweep experiment with wind and wave weights set to 10."
+source_script = "scripts/swopp3_slurm_max_penalty_sweep.sh"
+output_dir = "output/swopp3_max_sweep_w10"
+
+[swopp3.experiments.max_sweep_w10.defaults]
+strategy = "optimised"
+dt_eval_minutes = 30.0
+wind_penalty_weight = 10.0
+wave_penalty_weight = 10.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.max_sweep_w10.runs]]
+name = "ao_wps"
+cases = ["AO_WPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w10.runs]]
+name = "ao_no_wps"
+cases = ["AO_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w10.runs]]
+name = "po_wps"
+cases = ["PO_WPS"]
+n_points = 293
+
+[[swopp3.experiments.max_sweep_w10.runs]]
+name = "po_no_wps"
+cases = ["PO_noWPS"]
+n_points = 293
+
+[swopp3.experiments.max_sweep_w25]
+description = "Max-based penalty sweep experiment with wind and wave weights set to 25."
+source_script = "scripts/swopp3_slurm_max_penalty_sweep.sh"
+output_dir = "output/swopp3_max_sweep_w25"
+
+[swopp3.experiments.max_sweep_w25.defaults]
+strategy = "optimised"
+dt_eval_minutes = 30.0
+wind_penalty_weight = 25.0
+wave_penalty_weight = 25.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.max_sweep_w25.runs]]
+name = "ao_wps"
+cases = ["AO_WPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w25.runs]]
+name = "ao_no_wps"
+cases = ["AO_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w25.runs]]
+name = "po_wps"
+cases = ["PO_WPS"]
+n_points = 293
+
+[[swopp3.experiments.max_sweep_w25.runs]]
+name = "po_no_wps"
+cases = ["PO_noWPS"]
+n_points = 293
+
+[swopp3.experiments.max_sweep_w50]
+description = "Max-based penalty sweep experiment with wind and wave weights set to 50."
+source_script = "scripts/swopp3_slurm_max_penalty_sweep.sh"
+output_dir = "output/swopp3_max_sweep_w50"
+
+[swopp3.experiments.max_sweep_w50.defaults]
+strategy = "optimised"
+dt_eval_minutes = 30.0
+wind_penalty_weight = 50.0
+wave_penalty_weight = 50.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.max_sweep_w50.runs]]
+name = "ao_wps"
+cases = ["AO_WPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w50.runs]]
+name = "ao_no_wps"
+cases = ["AO_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w50.runs]]
+name = "po_wps"
+cases = ["PO_WPS"]
+n_points = 293
+
+[[swopp3.experiments.max_sweep_w50.runs]]
+name = "po_no_wps"
+cases = ["PO_noWPS"]
+n_points = 293
+
+[swopp3.experiments.max_sweep_w100]
+description = "Max-based penalty sweep experiment with wind and wave weights set to 100."
+source_script = "scripts/swopp3_slurm_max_penalty_sweep.sh"
+output_dir = "output/swopp3_max_sweep_w100"
+
+[swopp3.experiments.max_sweep_w100.defaults]
+strategy = "optimised"
+dt_eval_minutes = 30.0
+wind_penalty_weight = 100.0
+wave_penalty_weight = 100.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.max_sweep_w100.runs]]
+name = "ao_wps"
+cases = ["AO_WPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w100.runs]]
+name = "ao_no_wps"
+cases = ["AO_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.max_sweep_w100.runs]]
+name = "po_wps"
+cases = ["PO_WPS"]
+n_points = 293
+
+[[swopp3.experiments.max_sweep_w100.runs]]
+name = "po_no_wps"
+cases = ["PO_noWPS"]
+n_points = 293
+
+[swopp3.experiments.no_penalty]
+description = "Full SWOPP3 run with zero weather penalties and a distance-to-land penalty of 10."
+source_script = "scripts/swopp3_slurm_no_penalty.sh"
+output_dir = "output/swopp3_no_penalty"
+
+[swopp3.experiments.no_penalty.defaults]
+dt_eval_minutes = 30.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.no_penalty.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.no_penalty.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.optimal_params]
+description = "Full SWOPP3 run using the sweep-recommended CMA-ES parameters K=15 and sigma0=0.3."
+source_script = "scripts/swopp3_slurm_optimal_params.sh"
+output_dir = "output/swopp3_optimal_params"
+
+[swopp3.experiments.optimal_params.defaults]
+cmaes_k = 15
+sigma0 = 0.3
+dt_eval_minutes = 30.0
+wind_penalty_weight = 10.0
+wave_penalty_weight = 10.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.optimal_params.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.optimal_params.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.sweep_w50]
+description = "Normalized-mean penalty sweep experiment with wind and wave weights set to 50."
+source_script = "scripts/swopp3_slurm_penalty_sweep.sh"
+output_dir = "output/swopp3_sweep_w50"
+
+[swopp3.experiments.sweep_w50.defaults]
+dt_eval_minutes = 30.0
+wind_penalty_weight = 50.0
+wave_penalty_weight = 50.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.sweep_w50.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.sweep_w50.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.sweep_w100]
+description = "Normalized-mean penalty sweep experiment with wind and wave weights set to 100."
+source_script = "scripts/swopp3_slurm_penalty_sweep.sh"
+output_dir = "output/swopp3_sweep_w100"
+
+[swopp3.experiments.sweep_w100.defaults]
+dt_eval_minutes = 30.0
+wind_penalty_weight = 100.0
+wave_penalty_weight = 100.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.sweep_w100.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.sweep_w100.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.sweep_w200]
+description = "Normalized-mean penalty sweep experiment with wind and wave weights set to 200."
+source_script = "scripts/swopp3_slurm_penalty_sweep.sh"
+output_dir = "output/swopp3_sweep_w200"
+
+[swopp3.experiments.sweep_w200.defaults]
+dt_eval_minutes = 30.0
+wind_penalty_weight = 200.0
+wave_penalty_weight = 200.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.sweep_w200.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.sweep_w200.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.sweep_w500]
+description = "Normalized-mean penalty sweep experiment with wind and wave weights set to 500."
+source_script = "scripts/swopp3_slurm_penalty_sweep.sh"
+output_dir = "output/swopp3_sweep_w500"
+
+[swopp3.experiments.sweep_w500.defaults]
+dt_eval_minutes = 30.0
+wind_penalty_weight = 500.0
+wave_penalty_weight = 500.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.sweep_w500.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.sweep_w500.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
+[swopp3.experiments.split_penalty]
+description = "Full SWOPP3 run with split wind and wave penalties of 100."
+source_script = "scripts/swopp3_slurm_split_penalty.sh"
+output_dir = "output/swopp3_split_penalty"
+
+[swopp3.experiments.split_penalty.defaults]
+dt_eval_minutes = 30.0
+wind_penalty_weight = 100.0
+wave_penalty_weight = 100.0
+distance_penalty_weight = 10.0
+
+[[swopp3.experiments.split_penalty.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.split_penalty.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
