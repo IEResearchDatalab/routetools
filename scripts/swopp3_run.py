@@ -626,37 +626,6 @@ def main(
     loading any corridor and exits with a precise message if a required file
     is missing.
     """
-
-    def _unwrap_typer_default(value: Any) -> Any:
-        if isinstance(value, typer.models.OptionInfo | typer.models.ArgumentInfo):
-            return value.default
-        return value
-
-    experiment = _unwrap_typer_default(experiment)
-    config_path = _unwrap_typer_default(config_path)
-    cases = _unwrap_typer_default(cases)
-    strategy = _unwrap_typer_default(strategy)
-    wind_path = _unwrap_typer_default(wind_path)
-    wave_path = _unwrap_typer_default(wave_path)
-    wind_path_atlantic = _unwrap_typer_default(wind_path_atlantic)
-    wave_path_atlantic = _unwrap_typer_default(wave_path_atlantic)
-    wind_path_pacific = _unwrap_typer_default(wind_path_pacific)
-    wave_path_pacific = _unwrap_typer_default(wave_path_pacific)
-    output_dir = _unwrap_typer_default(output_dir)
-    submission = _unwrap_typer_default(submission)
-    n_points = _unwrap_typer_default(n_points)
-    max_departures = _unwrap_typer_default(max_departures)
-    weather_penalty_weight = _unwrap_typer_default(weather_penalty_weight)
-    wind_penalty_weight = _unwrap_typer_default(wind_penalty_weight)
-    wave_penalty_weight = _unwrap_typer_default(wave_penalty_weight)
-    distance_penalty_weight = _unwrap_typer_default(distance_penalty_weight)
-    dt_eval_minutes = _unwrap_typer_default(dt_eval_minutes)
-    cmaes_k = _unwrap_typer_default(cmaes_k)
-    sigma0 = _unwrap_typer_default(sigma0)
-    popsize = _unwrap_typer_default(popsize)
-    maxfevals = _unwrap_typer_default(maxfevals)
-    cmaes_verbose = _unwrap_typer_default(cmaes_verbose)
-
     try:
         if experiment is not None:
             profile = _load_experiment_profile(config_path, experiment)

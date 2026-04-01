@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 
 def _load_swopp3_run_module():
@@ -25,6 +26,7 @@ _resolve_case_ids = _swopp3_run._resolve_case_ids
 _resolve_config_value_path = _swopp3_run._resolve_config_value_path
 _validate_required_data_paths = _swopp3_run._validate_required_data_paths
 _write_experiment_manifest = _swopp3_run._write_experiment_manifest
+_runner = CliRunner()
 
 
 def _write_config(tmp_path: Path, content: str) -> Path:
@@ -199,20 +201,36 @@ def test_shared_cli_paths_override_default_corridor_paths(monkeypatch):
     monkeypatch.setattr(_swopp3_run, "_validate_required_data_paths", fake_validate)
 
     with pytest.raises(StopCli):
-        _swopp3_run.main(
-            cases=["AGC_WPS", "PGC_WPS"],
-            strategy=None,
-            wind_path=Path("shared_wind.nc"),
-            wave_path=Path("shared_wave.nc"),
-            wind_path_atlantic=Path("data/era5/era5_wind_atlantic_2024.nc"),
-            wave_path_atlantic=Path("data/era5/era5_waves_atlantic_2024.nc"),
-            wind_path_pacific=Path("data/era5/era5_wind_pacific_2024.nc"),
-            wave_path_pacific=Path("data/era5/era5_waves_pacific_2024.nc"),
-            output_dir=Path("output/swopp3"),
-            submission=1,
-            n_points=100,
-            max_departures=1,
-            quiet=True,
+        _runner.invoke(
+            _swopp3_run.app,
+            [
+                "--cases",
+                "AGC_WPS",
+                "--cases",
+                "PGC_WPS",
+                "--wind-path",
+                "shared_wind.nc",
+                "--wave-path",
+                "shared_wave.nc",
+                "--wind-path-atlantic",
+                "data/era5/era5_wind_atlantic_2024.nc",
+                "--wave-path-atlantic",
+                "data/era5/era5_waves_atlantic_2024.nc",
+                "--wind-path-pacific",
+                "data/era5/era5_wind_pacific_2024.nc",
+                "--wave-path-pacific",
+                "data/era5/era5_waves_pacific_2024.nc",
+                "--output-dir",
+                "output/swopp3",
+                "--submission",
+                "1",
+                "--n-points",
+                "100",
+                "--max-departures",
+                "1",
+                "--quiet",
+            ],
+            catch_exceptions=False,
         )
 
     assert captured["wind"] == {
