@@ -123,6 +123,7 @@ Data dependencies
 from __future__ import annotations
 
 import argparse
+import tomllib
 import warnings
 from dataclasses import dataclass
 from functools import cache
@@ -155,11 +156,13 @@ class AnalysisPaths:
 
     output_dir: Path
     figs_dir: Path
+    config_path: Path
 
 
 DEFAULT_PATHS = AnalysisPaths(
     output_dir=_REPO_ROOT / "output",
     figs_dir=_REPO_ROOT / "output" / "analysis",
+    config_path=_REPO_ROOT / "config.toml",
 )
 
 
@@ -181,12 +184,63 @@ def _summary_csv_path(paths: AnalysisPaths, folder: str, case_id: str) -> Path |
     return folder_dir / f"{team_prefix}-{case_id}.csv"
 
 
+@cache
+def _configured_output_dirs(config_path: Path) -> dict[str, str]:
+    """Return output-folder names declared in the SWOPP3 config file."""
+    if not config_path.exists():
+        return {}
+
+    with config_path.open("rb") as handle:
+        config = tomllib.load(handle)
+
+    experiments = config.get("swopp3", {}).get("experiments", {})
+    output_dirs: dict[str, str] = {}
+    for experiment_name, experiment_config in experiments.items():
+        output_dir = experiment_config.get("output_dir")
+        if isinstance(output_dir, str) and output_dir:
+            output_dirs[experiment_name] = Path(output_dir).name
+    return output_dirs
+
+
+def _experiment_folder(exp_key: str, paths: AnalysisPaths) -> str:
+    """Return the folder name for one analysis experiment.
+
+    Prefer config-driven folder names when the merged SWOPP3 experiment config
+    defines a matching output directory. Keep the legacy folder names as a
+    fallback so older result folders remain readable.
+    """
+    metadata = EXPERIMENTS[exp_key]
+    configured_dirs = _configured_output_dirs(paths.config_path)
+    candidates: list[str] = []
+
+    config_experiment = metadata.get("config_experiment")
+    if isinstance(config_experiment, str):
+        configured = configured_dirs.get(config_experiment)
+        if configured is not None:
+            candidates.append(configured)
+
+    config_parent = metadata.get("config_parent")
+    if isinstance(config_parent, str):
+        configured_parent = configured_dirs.get(config_parent)
+        if configured_parent is not None:
+            candidates.append(f"{configured_parent}_fms")
+
+    legacy_folder = str(metadata["folder"])
+    candidates.append(legacy_folder)
+
+    for candidate in candidates:
+        if (paths.output_dir / candidate).exists():
+            return candidate
+    return candidates[0]
+
+
 # ---------------------------------------------------------------------------
 # Experiment metadata
 # ---------------------------------------------------------------------------
 EXPERIMENTS: dict[str, dict] = {
     "no_penalty": {
         "folder": "swopp3_no_penalty",
+        "config_experiment": "no_penalty",
         "label": "CMA-ES",
         "short": "No Penalty",
         "color": "#F23333",  # IE law red — unconstrained
@@ -196,6 +250,7 @@ EXPERIMENTS: dict[str, dict] = {
     },
     "no_penalty_fms": {
         "folder": "swopp3_no_penalty_fms",
+        "config_parent": "no_penalty",
         "label": "CMA-ES + FMS",
         "short": "No Penalty + FMS",
         "color": "#007A3D",  # emerald green — high contrast with red
@@ -205,6 +260,7 @@ EXPERIMENTS: dict[str, dict] = {
     },
     "penalty": {
         "folder": "swopp3_penalty",
+        "config_experiment": "split_penalty",
         "label": "CMA-ES + Penalty",
         "short": "Penalty",
         "color": "#000066",  # IE primary ocean-blue — constrained
@@ -214,6 +270,7 @@ EXPERIMENTS: dict[str, dict] = {
     },
     "penalty_fms": {
         "folder": "swopp3_penalty_fms",
+        "config_parent": "split_penalty",
         "label": "CMA-ES + Penalty + FMS",
         "short": "Penalty + FMS",
         "color": "#E09400",  # amber — high contrast with dark navy
@@ -373,7 +430,7 @@ def load_summary_csv(
     paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> pd.DataFrame | None:
     """Load and annotate one experiment/case summary CSV."""
-    folder = EXPERIMENTS[exp_key]["folder"]
+    folder = _experiment_folder(exp_key, paths)
     path = _summary_csv_path(paths, folder, case_id)
     if path is None or not path.exists():
         return None
@@ -401,7 +458,7 @@ def load_gc_baselines(paths: AnalysisPaths = DEFAULT_PATHS) -> dict[str, float]:
     """Return mean energy for each GC case across both baseline folders."""
     baselines: dict[str, dict[str, list]] = {}
     for folder_key in ("no_penalty", "penalty"):
-        folder = EXPERIMENTS[folder_key]["folder"]
+        folder = _experiment_folder(folder_key, paths)
         for gc_id in GC_CASES:
             path = _summary_csv_path(paths, folder, gc_id)
             if path is None or not path.exists():
@@ -434,7 +491,7 @@ def load_tracks(
     The sampling operates on the summary CSV first so that the selected track
     files inherit season and departure metadata from the same voyage rows.
     """
-    folder = EXPERIMENTS[exp_key]["folder"]
+    folder = _experiment_folder(exp_key, paths)
     tracks_dir = paths.output_dir / folder / "tracks"
     if not tracks_dir.exists():
         return []
@@ -1441,7 +1498,7 @@ def load_gc_tracks(
     n_sample: int = 5,
 ) -> list[pd.DataFrame]:
     """Load sample GC track DataFrames from the penalty output folder."""
-    folder = EXPERIMENTS["penalty"]["folder"]
+    folder = _experiment_folder("penalty", paths)
     tracks_dir = paths.output_dir / folder / "tracks"
     summary_path = _summary_csv_path(paths, folder, gc_case)
     if summary_path is None or not summary_path.exists():
@@ -1932,7 +1989,7 @@ def load_gc_full(paths: AnalysisPaths = DEFAULT_PATHS) -> pd.DataFrame:
     GC summaries are read from the penalty output folder because that run
     contains the reference great-circle exports for all four cases.
     """
-    folder = EXPERIMENTS["penalty"]["folder"]
+    folder = _experiment_folder("penalty", paths)
     frames = []
     for gc_id, opt_id in _GC_TO_OPT.items():
         path = _summary_csv_path(paths, folder, gc_id)
@@ -2392,6 +2449,7 @@ def main() -> None:
         figs_dir=args.output_dir
         if args.output_dir is not None
         else DEFAULT_PATHS.figs_dir,
+        config_path=DEFAULT_PATHS.config_path,
     )
 
     paths.figs_dir.mkdir(parents=True, exist_ok=True)
