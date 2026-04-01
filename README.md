@@ -189,6 +189,9 @@ Use another TOML file if needed:
 uv run scripts/swopp3_run.py k15_p400_w1000 --config-path path/to/experiments.toml
 ```
 
+Relative paths inside a profile are resolved from the directory that contains
+the TOML file, not from your current working directory.
+
 Each profile can define shared defaults plus one or more runs.
 
 The runner writes a resolved manifest to:
