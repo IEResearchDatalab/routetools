@@ -315,6 +315,8 @@ def _run_swopp3_configuration(
     if wave_path_pacific is not None:
         corridor_wave["pacific"] = wave_path_pacific
 
+    # Shared paths intentionally override corridor defaults so the one-flag
+    # workflow still works for single-corridor runs.
     if wind_path is not None:
         corridor_wind["atlantic"] = wind_path
         corridor_wind["pacific"] = wind_path
@@ -330,6 +332,7 @@ def _run_swopp3_configuration(
     _loaded_land: dict[str, object] = {}
 
     def _get_wind(corridor: str) -> tuple[FieldClosure, datetime]:
+        """Return the windfield closure and dataset epoch for one corridor."""
         if corridor in _loaded_wind:
             return _loaded_wind[corridor]
         wp = corridor_wind.get(corridor)
@@ -347,6 +350,7 @@ def _run_swopp3_configuration(
         return wf, epoch
 
     def _get_vectorfield(corridor: str) -> FieldClosure:
+        """Return the ERA5 vectorfield closure for one corridor."""
         if corridor in _loaded_vf:
             return _loaded_vf[corridor]
         wp = corridor_wind.get(corridor)
@@ -363,6 +367,7 @@ def _run_swopp3_configuration(
         return vf
 
     def _get_wave(corridor: str) -> tuple[FieldClosure, datetime]:
+        """Return the wavefield closure and dataset epoch for one corridor."""
         if corridor in _loaded_wave:
             return _loaded_wave[corridor]
         wp = corridor_wave.get(corridor)
@@ -380,8 +385,11 @@ def _run_swopp3_configuration(
         return wvf, epoch
 
     def _get_land(corridor: str):
+        """Build and cache the Natural Earth land mask for one corridor."""
         if corridor in _loaded_land:
             return _loaded_land[corridor]
+        # Infer the spatial extent from the weather files so the land mask only
+        # covers the active corridor.
         wp = corridor_wave.get(corridor) or corridor_wind.get(corridor)
         if wp is None:
             raise ValueError(f"No wind/wave path available for corridor '{corridor}'")
@@ -421,7 +429,12 @@ def _run_swopp3_configuration(
         typer.echo(f"{'=' * 60}")
 
         windfield, wind_epoch = _get_wind(corridor)
-        wavefield, _ = _get_wave(corridor)
+        wavefield, wave_epoch = _get_wave(corridor)
+        if wave_epoch != wind_epoch:
+            raise ValueError(
+                "Wind and wave dataset epochs differ for corridor "
+                f"'{corridor}': {wind_epoch.isoformat()} != {wave_epoch.isoformat()}"
+            )
         vectorfield = _get_vectorfield(corridor)
         land = _get_land(corridor)
         dataset_epoch = wind_epoch

@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -183,6 +184,78 @@ def test_resolve_case_ids_raises_for_empty_strategy_match():
     """Unknown strategy filters should fail with a clear error."""
     with pytest.raises(ValueError, match="No cases match strategy 'missing'"):
         _resolve_case_ids(None, "missing")
+
+
+def test_run_configuration_raises_for_mismatched_weather_epochs(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """Runner should fail fast when wind and wave dataset epochs differ."""
+    import routetools.era5.loader as loader
+    import routetools.swopp3 as swopp3
+    import routetools.swopp3_runner as swopp3_runner
+
+    wind_path = tmp_path / "era5_wind_atlantic_2024.nc"
+    wave_path = tmp_path / "era5_waves_atlantic_2024.nc"
+    wind_path.touch()
+    wave_path.touch()
+
+    monkeypatch.setattr(
+        loader,
+        "load_dataset_epoch",
+        lambda target: datetime(2024, 1, 1)
+        if "wind" in str(target)
+        else datetime(2024, 1, 2),
+    )
+    monkeypatch.setattr(loader, "load_era5_windfield", lambda target: object())
+    monkeypatch.setattr(loader, "load_era5_wavefield", lambda target: object())
+    monkeypatch.setattr(
+        loader,
+        "load_era5_vectorfield",
+        lambda target: pytest.fail("vectorfield should not load when epochs differ"),
+    )
+    monkeypatch.setattr(
+        loader,
+        "load_natural_earth_land_mask",
+        lambda lon_range, lat_range: pytest.fail(
+            "land mask should not load when epochs differ"
+        ),
+    )
+    monkeypatch.setattr(swopp3, "departures_2024", lambda: [datetime(2024, 1, 1)])
+    monkeypatch.setattr(
+        swopp3_runner,
+        "run_case",
+        lambda *args, **kwargs: pytest.fail(
+            "run_case should not execute when epochs differ"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Wind and wave dataset epochs differ"):
+        _swopp3_run._run_swopp3_configuration(
+            cases=["AGC_WPS"],
+            strategy=None,
+            wind_path=None,
+            wave_path=None,
+            wind_path_atlantic=wind_path,
+            wave_path_atlantic=wave_path,
+            wind_path_pacific=None,
+            wave_path_pacific=None,
+            output_dir=tmp_path / "output",
+            submission=1,
+            n_points=100,
+            max_departures=1,
+            weather_penalty_weight=0.0,
+            wind_penalty_weight=0.0,
+            wave_penalty_weight=0.0,
+            distance_penalty_weight=0.0,
+            dt_eval_minutes=0.0,
+            cmaes_k=10,
+            sigma0=0.1,
+            popsize=200,
+            maxfevals=25000,
+            cmaes_verbose=False,
+            quiet=True,
+        )
 
 
 def test_shared_cli_paths_override_default_corridor_paths(monkeypatch):
