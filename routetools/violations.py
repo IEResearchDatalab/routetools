@@ -35,6 +35,7 @@ from routetools.era5.loader import (
     load_dataset_epoch,
     load_era5_wavefield,
     load_era5_windfield,
+    loadable_era5_paths,
 )
 from routetools.swopp3 import SWOPP3_CASES
 from routetools.weather import (
@@ -45,7 +46,6 @@ from routetools.weather import (
 )
 
 _DTFMT = "%Y-%m-%d %H:%M:%S"
-_ERA5_FILE_RE = r"^(?P<prefix>era5_[^_]+_[^_]+_)(?P<year>\d{4})(?:_(?P<suffix>\d{2}(?:-\d{2})?))?\.nc$"  # noqa: E501
 
 CASE_ORDER = [
     "AO_WPS",
@@ -156,6 +156,12 @@ def load_default_land_checker(shapefile_path: Path | None = None) -> LandChecker
     -------
     LandChecker
         Callable ``(lat, lon) -> bool``.
+
+    Notes
+    -----
+    This helper imports ``cartopy`` and the shapefile stack lazily at runtime.
+    Local analysis environments therefore need the geospatial dependencies
+    required by ``cartopy`` and ``shapely`` when this checker is used.
     """
     if shapefile_path is None:
         import cartopy.io.shapereader as shpreader
@@ -181,24 +187,6 @@ def load_default_land_checker(shapefile_path: Path | None = None) -> LandChecker
     return is_on_land
 
 
-def _loadable_era5_paths(path: Path) -> list[Path]:
-    """Return the base ERA5 file plus any next-year continuation files."""
-    import re
-
-    match = re.match(_ERA5_FILE_RE, path.name)
-    if match is None:
-        return [path]
-
-    prefix = match.group("prefix")
-    next_year = int(match.group("year")) + 1
-    exact_next_year = path.with_name(f"{prefix}{next_year}.nc")
-    if exact_next_year.exists():
-        return [path, exact_next_year]
-
-    continuation_paths = sorted(path.parent.glob(f"{prefix}{next_year}_*.nc"))
-    return [path, *continuation_paths]
-
-
 def load_default_weather_resources(
     *,
     wind_path_atlantic: Path = Path("data/era5/era5_wind_atlantic_2024.nc"),
@@ -217,8 +205,8 @@ def load_default_weather_resources(
     }
     resources: dict[str, CorridorWeatherResources] = {}
     for corridor, (wind_path, wave_path) in path_map.items():
-        wind_paths = _loadable_era5_paths(wind_path)
-        wave_paths = _loadable_era5_paths(wave_path)
+        wind_paths = loadable_era5_paths(wind_path)
+        wave_paths = loadable_era5_paths(wave_path)
         wind_target = wind_paths if len(wind_paths) > 1 else wind_paths[0]
         wave_target = wave_paths if len(wave_paths) > 1 else wave_paths[0]
         resources[corridor] = CorridorWeatherResources(
