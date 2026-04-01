@@ -442,7 +442,7 @@ class TestPublicAPI:
         tws = rng.uniform(0, 30, n)
         twa = rng.uniform(0, 180, n)
         swh = rng.uniform(0, 10, n)
-        mwa = rng.uniform(0, 180, n)
+        mwa = rng.uniform(0, 360, n)
         v = rng.uniform(0, 14.5, n)
 
         batch = predict_power_batch(tws, twa, swh, mwa, v, wps=False)
@@ -459,7 +459,7 @@ class TestPublicAPI:
         tws = rng.uniform(0, 30, n)
         twa = rng.uniform(0, 180, n)
         swh = rng.uniform(0, 10, n)
-        mwa = rng.uniform(0, 180, n)
+        mwa = rng.uniform(0, 360, n)
         v = rng.uniform(0, 14.5, n)
 
         batch = predict_power_batch(tws, twa, swh, mwa, v, wps=True)
@@ -495,7 +495,7 @@ class TestJaxParity:
         tws = rng.uniform(0, 30, n)
         twa = rng.uniform(0, 180, n)
         swh = rng.uniform(0, 10, n)
-        mwa = rng.uniform(0, 180, n)
+        mwa = rng.uniform(0, 360, n)
         v = rng.uniform(0, 14.5, n)
 
         np_result = predict_power_batch(tws, twa, swh, mwa, v, wps=False)
@@ -531,7 +531,7 @@ class TestJaxParity:
         tws = rng.uniform(0, 30, n)
         twa = rng.uniform(0, 180, n)
         swh = rng.uniform(0, 10, n)
-        mwa = rng.uniform(0, 180, n)
+        mwa = rng.uniform(0, 360, n)
         v = rng.uniform(0, 14.5, n)
 
         np_result = predict_power_batch(tws, twa, swh, mwa, v, wps=True)
@@ -553,3 +553,66 @@ class TestJaxParity:
             atol=0.02,
             err_msg="predict_power_jax (WPS) diverges from predict_power_batch",
         )
+
+
+# ===================================================================
+#  MWA wrapping regression test
+# ===================================================================
+class TestMWAWrapping:
+    """Regression tests for MWA angle wrapping (GH issue: wave term
+    vanished for MWA near 360° because radians(356°) = 6.2 rad made
+    exp(-K_W·|6.2|³) ≈ 0)."""
+
+    @pytest.mark.parametrize(
+        "mwa_pair",
+        [
+            (10, 350),
+            (5, 355),
+            (1, 359),
+            (30, 330),
+            (0, 360),
+        ],
+    )
+    def test_mwa_symmetry_scalar(self, mwa_pair: tuple[float, float]) -> None:
+        """MWA=x and MWA=(360-x) must give identical power (symmetry)."""
+        mwa_a, mwa_b = mwa_pair
+        for wps in (True, False):
+            fn = parametric_with_wps if wps else parametric_no_wps
+            pa = fn(10.0, 60.0, 4.0, mwa_a, 6.0)
+            pb = fn(10.0, 60.0, 4.0, mwa_b, 6.0)
+            assert abs(pa - pb) < 1e-10, (
+                f"wps={wps}, mwa={mwa_a} vs {mwa_b}: "
+                f"power_a={pa:.4f}, power_b={pb:.4f}"
+            )
+
+    def test_mwa_near_360_has_wave_contribution(self) -> None:
+        """MWA=356° (nearly following seas) must have non-zero wave power."""
+        # swh=5 m ensures a large wave term when MWA is near 0/360
+        p = parametric_no_wps(10.0, 60.0, 5.0, 356.0, 6.0)
+        p_no_wave = parametric_no_wps(10.0, 60.0, 0.0, 0.0, 6.0)
+        assert p > p_no_wave + 100.0, (
+            f"MWA=356° with swh=5 must add substantial wave resistance, "
+            f"got p={p:.1f} vs no-wave={p_no_wave:.1f}"
+        )
+
+    def test_mwa_batch_symmetry(self) -> None:
+        """Batch version: MWA and (360-MWA) give same results."""
+        mwa_a = np.array([10, 5, 1, 30, 0], dtype=np.float64)
+        mwa_b = 360.0 - mwa_a
+        tws = np.full(5, 10.0)
+        twa = np.full(5, 60.0)
+        swh = np.full(5, 4.0)
+        v = np.full(5, 6.0)
+        pa = predict_power_batch(tws, twa, swh, mwa_a, v, wps=False)
+        pb = predict_power_batch(tws, twa, swh, mwa_b, v, wps=False)
+        np.testing.assert_allclose(pa, pb, atol=1e-10)
+
+    @needs_swopp3
+    @pytest.mark.parametrize("mwa", [330, 340, 350, 355, 358, 359])
+    def test_mwa_high_angles_vs_wheel(self, mwa: float) -> None:
+        """Parametric model matches wheel for MWA > 180°."""
+        ref = swopp3.predict_no_wps(12.0, 90.0, 4.0, mwa, 7.0)
+        par = parametric_no_wps(12.0, 90.0, 4.0, mwa, 7.0)
+        assert (
+            abs(par - ref) < 0.15
+        ), f"mwa={mwa}: ref={ref:.4f}, par={par:.4f}, err={abs(par - ref):.4f}"

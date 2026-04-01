@@ -75,20 +75,28 @@ def _sorted_costfun_kwargs_items(
         return None
 
 
-@lru_cache(maxsize=32)
-def _build_custom_evaluate_cost(
+def _make_custom_evaluate_cost(
     user_costfun: FmsCostFunction,
-    costfun_kwargs_items: tuple[tuple[str, Any], ...],
+    resolved_costfun_kwargs: dict[str, Any],
     custom_cost_accepts_kwargs: bool,
     custom_cost_accepts_curve_keyword: bool,
-    custom_cost_parameter_names: tuple[str, ...],
+    custom_cost_parameter_names: set[str],
     weight_l1: float,
     weight_l2: float,
     spherical_correction: bool,
 ) -> Callable[..., jnp.ndarray]:
-    """Build a reusable custom cost wrapper for FMS."""
-    resolved_costfun_kwargs = dict(costfun_kwargs_items)
-    parameter_names = set(custom_cost_parameter_names)
+    """Build a custom cost wrapper for FMS (not cached).
+
+    Constructs the internal ``_evaluate_cost`` closure that normalises the
+    call to ``user_costfun``: it merges ``costfun_kwargs``, travel context,
+    and metric weights into a single ``cost_kwargs`` dict, then filters it to
+    the parameters the function actually accepts before dispatching positionally
+    or by keyword based on the inspected signature.
+    """
+    # Take a snapshot so later mutations to the caller's dict do not affect the
+    # closure.
+    captured_kwargs = dict(resolved_costfun_kwargs)
+    accepted_names = set(custom_cost_parameter_names)
 
     def _evaluate_cost(
         curve_eval: jnp.ndarray,
@@ -98,7 +106,7 @@ def _build_custom_evaluate_cost(
         time_offset_eval: float = 0.0,
     ) -> jnp.ndarray:
         cost_kwargs = {
-            **resolved_costfun_kwargs,
+            **captured_kwargs,
             "travel_stw": travel_stw_eval,
             "travel_time": travel_time_eval,
             "weight_l1": weight_l1,
@@ -110,13 +118,42 @@ def _build_custom_evaluate_cost(
             cost_kwargs = {
                 name: value
                 for name, value in cost_kwargs.items()
-                if name in parameter_names
+                if name in accepted_names
             }
         if custom_cost_accepts_curve_keyword:
             return user_costfun(curve=curve_eval, **cost_kwargs)
         return user_costfun(curve_eval, **cost_kwargs)
 
     return _evaluate_cost
+
+
+@lru_cache(maxsize=32)
+def _build_custom_evaluate_cost(
+    user_costfun: FmsCostFunction,
+    costfun_kwargs_items: tuple[tuple[str, Any], ...],
+    custom_cost_accepts_kwargs: bool,
+    custom_cost_accepts_curve_keyword: bool,
+    custom_cost_parameter_names: tuple[str, ...],
+    weight_l1: float,
+    weight_l2: float,
+    spherical_correction: bool,
+) -> Callable[..., jnp.ndarray]:
+    """Build and cache a custom cost wrapper for FMS.
+
+    Accepts only hashable arguments so the result can be memoised via
+    lru_cache. Delegates to _make_custom_evaluate_cost for the actual closure
+    construction.
+    """
+    return _make_custom_evaluate_cost(
+        user_costfun,
+        dict(costfun_kwargs_items),
+        custom_cost_accepts_kwargs,
+        custom_cost_accepts_curve_keyword,
+        set(custom_cost_parameter_names),
+        weight_l1,
+        weight_l2,
+        spherical_correction,
+    )
 
 
 @lru_cache(maxsize=32)
@@ -166,7 +203,8 @@ def _build_travel_time_custom_solver(
         q: jnp.ndarray = jnp.linalg.solve(a, b)
         return jnp.nan_to_num(q)
 
-    jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=(0))
+    # Each tree-index is an integer; no need to wrap a single axis in a tuple.
+    jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
 
     @jit  # type: ignore[misc]
     def solve_equation(
@@ -174,7 +212,7 @@ def _build_travel_time_custom_solver(
         segment_time_offsets: jnp.ndarray,
         q_max: jnp.ndarray,
     ) -> jnp.ndarray:
-        curve_new = jnp.copy(curve)
+        # .at[].set() always returns a new array; no copy needed beforehand.
         q = jac_vectorized(
             curve[:-2],
             curve[1:-1],
@@ -184,9 +222,87 @@ def _build_travel_time_custom_solver(
         )
         dq = (1 - damping) * q
         dq = jnp.clip(dq, -q_max, q_max)
-        return curve_new.at[1:-1].set(dq + curve[1:-1])
+        return curve.at[1:-1].set(dq + curve[1:-1])
 
-    return jit(vmap(solve_equation, in_axes=(0, None, None), out_axes=(0)))
+    return jit(vmap(solve_equation, in_axes=(0, None, None), out_axes=0))
+
+
+@lru_cache(maxsize=32)
+def _build_travel_stw_custom_solver(
+    evaluate_cost: Callable[..., jnp.ndarray],
+    damping: float,
+    h: float,
+    travel_stw: float,
+) -> Callable[[jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+    """Build and cache a speed-through-water FMS solver for custom costs.
+
+    Mirrors _build_travel_time_custom_solver for the STW mode. The Lagrangian
+    squares the cost (L2 style) and passes travel_stw instead of travel_time
+    to the cost evaluator. Caching avoids a fresh JAX trace for every
+    departure that shares the same evaluator, damping, step size, and speed.
+    """
+
+    def lagrangian(
+        q0: jnp.ndarray,
+        q1: jnp.ndarray,
+        segment_time_offset: float,
+    ) -> jnp.ndarray:
+        q = jnp.vstack([q0, q1])[None, ...]
+        lag = evaluate_cost(
+            q,
+            travel_stw_eval=travel_stw,
+            time_offset_eval=segment_time_offset,
+        )
+        return jnp.sum(h * lag**2)
+
+    d1ld = grad(lagrangian, argnums=0)
+    d2ld = grad(lagrangian, argnums=1)
+    d11ld = hessian(lagrangian, argnums=0)
+    d22ld = hessian(lagrangian, argnums=1)
+
+    @jit  # type: ignore[misc]
+    def jacobian(
+        qkm1: jnp.ndarray,
+        qk: jnp.ndarray,
+        qkp1: jnp.ndarray,
+        left_time_offset: float,
+        right_time_offset: float,
+    ) -> jnp.ndarray:
+        b = -d2ld(qkm1, qk, left_time_offset) - d1ld(
+            qk,
+            qkp1,
+            right_time_offset,
+        )
+        a = d22ld(qkm1, qk, left_time_offset) + d11ld(
+            qk,
+            qkp1,
+            right_time_offset,
+        )
+        q: jnp.ndarray = jnp.linalg.solve(a, b)
+        return jnp.nan_to_num(q)
+
+    # Each tree-index is an integer; no need to wrap a single axis in a tuple.
+    jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
+
+    @jit  # type: ignore[misc]
+    def solve_equation(
+        curve: jnp.ndarray,
+        segment_time_offsets: jnp.ndarray,
+        q_max: jnp.ndarray,
+    ) -> jnp.ndarray:
+        # .at[].set() always returns a new array; no copy needed beforehand.
+        q = jac_vectorized(
+            curve[:-2],
+            curve[1:-1],
+            curve[2:],
+            segment_time_offsets[:-1],
+            segment_time_offsets[1:],
+        )
+        dq = (1 - damping) * q
+        dq = jnp.clip(dq, -q_max, q_max)
+        return curve.at[1:-1].set(dq + curve[1:-1])
+
+    return jit(vmap(solve_equation, in_axes=(0, None, None), out_axes=0))
 
 
 def _weather_violation_mask(
@@ -229,6 +345,58 @@ def _weather_violation_mask(
     )
 
 
+def _neighbor_mask(mask: jnp.ndarray) -> jnp.ndarray:
+    """Expand a per-route boolean mask to immediate neighboring positions."""
+    left = jnp.pad(mask[:, :-1], ((0, 0), (1, 0)), constant_values=False)
+    right = jnp.pad(mask[:, 1:], ((0, 0), (0, 1)), constant_values=False)
+    return mask | left | right
+
+
+def _rollback_land_increases(
+    curve: jnp.ndarray,
+    curve_old: jnp.ndarray,
+    *,
+    land: Land,
+) -> jnp.ndarray:
+    """Rollback only local changes that increase land-invalid route positions.
+
+    The rollback is intentionally local: it reverts changed waypoints that are
+    directly implicated in newly-invalid positions while preserving unrelated
+    updates elsewhere on the route. If local rollback cannot restore a route to
+    a non-increasing land count, the full route falls back to its previous
+    iterate as a final safety check.
+    """
+    curve_constrained = curve
+    land_old = land(curve_old) > 0
+    old_counts = jnp.sum(land_old, axis=1)
+
+    for _ in range(curve.shape[1]):
+        land_new = land(curve_constrained) > 0
+        increased = jnp.sum(land_new, axis=1) > old_counts
+        if not bool(jnp.any(increased)):
+            return curve_constrained
+
+        changed = jnp.any(curve_constrained != curve_old, axis=-1)
+        newly_invalid = (~land_old) & land_new & increased[:, None]
+        revert_mask = changed & _neighbor_mask(newly_invalid) & land_new
+
+        needs_fallback_mask = increased & (~jnp.any(revert_mask, axis=1))
+        revert_mask = revert_mask | (needs_fallback_mask[:, None] & changed & land_new)
+
+        if not bool(jnp.any(revert_mask)):
+            break
+
+        curve_constrained = jnp.where(
+            revert_mask[..., None],
+            curve_old,
+            curve_constrained,
+        )
+
+    land_new = land(curve_constrained) > 0
+    increased = jnp.sum(land_new, axis=1) > old_counts
+    return jnp.where(increased[:, None, None], curve_old, curve_constrained)
+
+
 def _apply_curve_constraints(
     curve: jnp.ndarray,
     curve_old: jnp.ndarray,
@@ -263,14 +431,17 @@ def _apply_curve_constraints(
     curve_constrained = curve
 
     if land is not None and penalty > 0:
-        is_land_old = land(curve_old) > 0
-        is_land_new = land(curve_constrained) > 0
-        newly_invalid = (~is_land_old) & is_land_new
-        curve_constrained = jnp.where(
-            newly_invalid[..., None],
-            curve_old,
+        curve_constrained = _rollback_land_increases(
             curve_constrained,
+            curve_old,
+            land=land,
         )
+
+    # Skip both mask evaluations when weather enforcement is inactive or no
+    # field is provided; _weather_violation_mask already returns zeros in that
+    # case, but calling it twice per iteration is wasteful.
+    if not enforce_weather_limits or (windfield is None and wavefield is None):
+        return curve_constrained
 
     weather_invalid_old = _weather_violation_mask(
         curve_old,
@@ -318,13 +489,15 @@ def random_piecewise_curve(
         Ending point of the curves.
     num_curves : int
         Number of curves to generate.
-    key : jax.random.PRNGKey
-        Random key for generating random numbers.
+    num_points : int
+        Total number of waypoints per curve.
+    seed : int
+        Integer seed for reproducible random curve generation.
 
     Returns
     -------
     jnp.ndarray
-        Generated curves with shape (num_curves, num_segments, 2).
+        Generated curves with shape (num_curves, num_points, 2).
     """
     key = jax.random.PRNGKey(seed)
     num_segments = jax.random.randint(key, (num_curves,), minval=2, maxval=5)
@@ -450,8 +623,9 @@ def optimize_fms(
         Destination point, by default None
     curve : jnp.ndarray | None, optional
         Curve to optimize, shape L x 2, by default None
-    land_function : Callable[[jnp.ndarray], jnp.ndarray] | None, optional
-        Land function, by default None
+    land : Land | None, optional
+        Land mask used to reject updates that move waypoints onto land.
+        By default None.
     windfield : Callable, optional
         Wind field closure used to enforce route weather limits.
     num_curves : int, optional
@@ -602,36 +776,22 @@ def optimize_fms(
                 spherical_correction,
             )
         else:
-
-            def _evaluate_cost(
-                curve_eval: jnp.ndarray,
-                *,
-                travel_stw_eval: float | None = None,
-                travel_time_eval: float | None = None,
-                time_offset_eval: float = 0.0,
-            ) -> jnp.ndarray:
-                cost_kwargs = {
-                    **resolved_costfun_kwargs,
-                    "travel_stw": travel_stw_eval,
-                    "travel_time": travel_time_eval,
-                    "weight_l1": weight_l1,
-                    "weight_l2": weight_l2,
-                    "spherical_correction": spherical_correction,
-                    "time_offset": time_offset_eval,
-                }
-                if not custom_cost_accepts_kwargs:
-                    cost_kwargs = {
-                        name: value
-                        for name, value in cost_kwargs.items()
-                        if name in custom_cost_parameter_names
-                    }
-                if custom_cost_accepts_curve_keyword:
-                    return user_costfun(curve=curve_eval, **cost_kwargs)
-                return user_costfun(curve_eval, **cost_kwargs)
+            # costfun_kwargs contain unhashable values so caching is not
+            # possible. Build the wrapper directly without caching.
+            _evaluate_cost = _make_custom_evaluate_cost(
+                user_costfun,
+                resolved_costfun_kwargs,
+                custom_cost_accepts_kwargs,
+                custom_cost_accepts_curve_keyword,
+                custom_cost_parameter_names,
+                weight_l1,
+                weight_l2,
+                spherical_correction,
+            )
 
     # Initialize lagrangians
     if travel_stw is not None:
-        # Average distance between points
+        # Average distance between points, used as the per-segment time step.
         d = jnp.mean(jnp.linalg.norm(curve[:, 1:] - curve[:, :-1], axis=-1))
         h = float(d / travel_stw)
         # NOTE: segment_time_offsets is derived from the initial route geometry
@@ -644,23 +804,89 @@ def optimize_fms(
             dtype=jnp.float32,
         )
 
-        def lagrangian(
-            q0: jnp.ndarray,
-            q1: jnp.ndarray,
-            segment_time_offset: float,
-        ) -> jnp.ndarray:
-            # Stack q0 and q1 to form array of shape (1, 2, 2)
-            q = jnp.vstack([q0, q1])[None, ...]
-            lag = _evaluate_cost(
-                q,
-                travel_stw_eval=travel_stw,
-                time_offset_eval=segment_time_offset,
+        q_max = jnp.mean(jnp.linalg.norm(curve[:, 1:] - curve[:, :-1], axis=-1))
+
+        if not use_builtin_costfun and costfun_kwargs_items is not None:
+            # All arguments are hashable; reuse a previously compiled solver.
+            cached_solve_vectorized = _build_travel_stw_custom_solver(
+                _evaluate_cost,
+                damping,
+                h,
+                travel_stw,
             )
-            ld = jnp.sum(h * lag**2)
-            # Do note: The original formula used q0, q1 to compute l1, l2 and then
-            # took the average of (l1**2 + l2**2) / 2
-            # We simplified that without loss of generality
-            return ld
+
+            def solve_vectorized(curve_eval: jnp.ndarray) -> jnp.ndarray:
+                return cached_solve_vectorized(
+                    curve_eval,
+                    segment_time_offsets,
+                    q_max,
+                )
+
+        else:
+
+            def lagrangian(
+                q0: jnp.ndarray,
+                q1: jnp.ndarray,
+                segment_time_offset: float,
+            ) -> jnp.ndarray:
+                # Stack q0 and q1 to form array of shape (1, 2, 2)
+                q = jnp.vstack([q0, q1])[None, ...]
+                lag = _evaluate_cost(
+                    q,
+                    travel_stw_eval=travel_stw,
+                    time_offset_eval=segment_time_offset,
+                )
+                ld = jnp.sum(h * lag**2)
+                # Do note: The original formula used q0, q1 to compute l1, l2 and then
+                # took the average of (l1**2 + l2**2) / 2
+                # We simplified that without loss of generality
+                return ld
+
+            d1ld = grad(lagrangian, argnums=0)
+            d2ld = grad(lagrangian, argnums=1)
+            d11ld = hessian(lagrangian, argnums=0)
+            d22ld = hessian(lagrangian, argnums=1)
+
+            @jit  # type: ignore[misc]
+            def jacobian(
+                qkm1: jnp.ndarray,
+                qk: jnp.ndarray,
+                qkp1: jnp.ndarray,
+                left_time_offset: float,
+                right_time_offset: float,
+            ) -> jnp.ndarray:
+                b = -d2ld(qkm1, qk, left_time_offset) - d1ld(
+                    qk,
+                    qkp1,
+                    right_time_offset,
+                )
+                a = d22ld(qkm1, qk, left_time_offset) + d11ld(
+                    qk,
+                    qkp1,
+                    right_time_offset,
+                )
+                q: jnp.ndarray = jnp.linalg.solve(a, b)
+                return jnp.nan_to_num(q)
+
+            # Each tree-index is an integer; no need to wrap a single axis in a tuple.
+            jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
+
+            @jit  # type: ignore[misc]
+            def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
+                q = jac_vectorized(
+                    curve[:-2],
+                    curve[1:-1],
+                    curve[2:],
+                    segment_time_offsets[:-1],
+                    segment_time_offsets[1:],
+                )
+                dq = (1 - damping) * q
+                # Clip updates to prevent divergence when the route is still
+                # far from a locally optimal path.
+                dq = jnp.clip(dq, -q_max, q_max)
+                return curve.at[1:-1].set(dq + curve[1:-1])
+
+            solve_vectorized = vmap(solve_equation, in_axes=0, out_axes=0)
 
     elif travel_time is not None:
         assert travel_time > 0, "Travel time must be positive"
@@ -731,11 +957,10 @@ def optimize_fms(
                 q: jnp.ndarray = jnp.linalg.solve(a, b)
                 return jnp.nan_to_num(q)
 
-            jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=(0))
+            jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
 
             @jit  # type: ignore[misc]
             def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
-                curve_new = jnp.copy(curve)
                 q = jac_vectorized(
                     curve[:-2],
                     curve[1:-1],
@@ -747,59 +972,12 @@ def optimize_fms(
                 # Clip updates to prevent divergence when the route is still
                 # far from a locally optimal path.
                 dq = jnp.clip(dq, -q_max, q_max)
-                return curve_new.at[1:-1].set(dq + curve[1:-1])
+                return curve.at[1:-1].set(dq + curve[1:-1])
 
-            solve_vectorized = vmap(solve_equation, in_axes=(0), out_axes=(0))
+            solve_vectorized = vmap(solve_equation, in_axes=0, out_axes=0)
 
     else:
         raise ValueError("Either travel_stw or travel_time must be provided")
-
-    if travel_stw is not None:
-        d1ld = grad(lagrangian, argnums=0)
-        d2ld = grad(lagrangian, argnums=1)
-        d11ld = hessian(lagrangian, argnums=0)
-        d22ld = hessian(lagrangian, argnums=1)
-
-        @jit  # type: ignore[misc]
-        def jacobian(
-            qkm1: jnp.ndarray,
-            qk: jnp.ndarray,
-            qkp1: jnp.ndarray,
-            left_time_offset: float,
-            right_time_offset: float,
-        ) -> jnp.ndarray:
-            b = -d2ld(qkm1, qk, left_time_offset) - d1ld(
-                qk,
-                qkp1,
-                right_time_offset,
-            )
-            a = d22ld(qkm1, qk, left_time_offset) + d11ld(
-                qk,
-                qkp1,
-                right_time_offset,
-            )
-            q: jnp.ndarray = jnp.linalg.solve(a, b)
-            return jnp.nan_to_num(q)
-
-        jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=(0))
-
-        q_max = jnp.mean(jnp.linalg.norm(curve[:, 1:] - curve[:, :-1], axis=-1))
-
-        @jit  # type: ignore[misc]
-        def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
-            curve_new = jnp.copy(curve)
-            q = jac_vectorized(
-                curve[:-2],
-                curve[1:-1],
-                curve[2:],
-                segment_time_offsets[:-1],
-                segment_time_offsets[1:],
-            )
-            dq = (1 - damping) * q
-            dq = jnp.clip(dq, -q_max, q_max)
-            return curve_new.at[1:-1].set(dq + curve[1:-1])
-
-        solve_vectorized = vmap(solve_equation, in_axes=(0), out_axes=(0))
 
     cost_now = _evaluate_cost(
         curve,

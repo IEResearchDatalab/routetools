@@ -63,10 +63,9 @@ _DTFMT = "%Y-%m-%d %H:%M:%S"
 _DEFAULT_ERA5_BATCH_DAYS = 183.0
 _DEFAULT_ERA5_RELOAD_MARGIN_DAYS = 20.0
 
-# TODO: set to 0 for final runs, or make configurable via CLI options
-WIND_PW = 1000
-WAVE_PW = 1000
-ENFORCE_WEATHER_LIMITS = False
+# Default penalty weights forwarded to cost_function_rise_penalized.
+_DEFAULT_WIND_PENALTY_WEIGHT = 1000
+_DEFAULT_WAVE_PENALTY_WEIGHT = 1000
 
 
 @dataclass(frozen=True)
@@ -87,6 +86,12 @@ class CorridorResources:
     wavefield: FieldClosure
     land: Any
     dataset_epoch: datetime
+
+
+def _count_curve_land_violations(curve: jnp.ndarray, land: Any) -> int:
+    """Return the number of land-invalid positions for one route."""
+    curve_batch = curve if curve.ndim == 3 else curve[None, ...]
+    return int(jnp.sum(land(curve_batch) > 0))
 
 
 def _default_output_dir(input_dir: Path) -> Path:
@@ -404,6 +409,9 @@ def apply_fms_to_outputs(
     era5_reload_margin_days: float = _DEFAULT_ERA5_RELOAD_MARGIN_DAYS,
     tws_limit: float = DEFAULT_TWS_LIMIT,
     hs_limit: float = DEFAULT_HS_LIMIT,
+    wind_penalty_weight: float = _DEFAULT_WIND_PENALTY_WEIGHT,
+    wave_penalty_weight: float = _DEFAULT_WAVE_PENALTY_WEIGHT,
+    enforce_weather_limits: bool = False,
     quiet: bool = False,
 ) -> Path:
     """Apply FMS to an existing SWOPP3 output folder and write a sibling folder."""
@@ -531,18 +539,30 @@ def apply_fms_to_outputs(
                         "windfield": resources.windfield,
                         "wavefield": resources.wavefield,
                         "wps": bool(case["wps"]),
-                        "wave_penalty_weight": WAVE_PW,
-                        "wind_penalty_weight": WIND_PW,
+                        "wave_penalty_weight": wave_penalty_weight,
+                        "wind_penalty_weight": wind_penalty_weight,
                         "tws_limit": tws_limit,
                         "hs_limit": hs_limit,
                     },
                     verbose=not quiet,
                     time_offset=departure_offset_h,
-                    enforce_weather_limits=ENFORCE_WEATHER_LIMITS,
+                    enforce_weather_limits=enforce_weather_limits,
                     tws_limit=tws_limit,
                     hs_limit=hs_limit,
                 )
                 curve_fms = curve_fms_batch[0]
+
+                original_land_violations = _count_curve_land_violations(
+                    curve_original,
+                    resources.land,
+                )
+                fms_land_violations = _count_curve_land_violations(
+                    curve_fms,
+                    resources.land,
+                )
+                if fms_land_violations > original_land_violations:
+                    curve_fms = curve_original
+                    fms_land_violations = original_land_violations
 
                 original_energy, original_max_tws, original_max_hs = evaluate_energy(
                     curve_original,
@@ -586,7 +606,8 @@ def apply_fms_to_outputs(
                         f"[{case_file.case_id}] {idx}/{len(rows)} "
                         f"{departure.strftime('%Y-%m-%d')} "
                         f"original={original_energy:.3f} MWh  "
-                        f"fms={fms_energy:.3f} MWh"
+                        f"fms={fms_energy:.3f} MWh  "
+                        f"land={original_land_violations}->{fms_land_violations}"
                     )
 
             write_file_a(output_rows, resolved_output_dir / case_file.summary_path.name)
@@ -678,6 +699,25 @@ def main(
         "--hs-limit",
         help="Maximum significant wave height allowed during FMS refinement.",
     ),
+    wind_penalty_weight: float = typer.Option(  # noqa: B008
+        _DEFAULT_WIND_PENALTY_WEIGHT,
+        "--wind-penalty-weight",
+        help="Penalty weight for wind violations in the RISE cost function.",
+    ),
+    wave_penalty_weight: float = typer.Option(  # noqa: B008
+        _DEFAULT_WAVE_PENALTY_WEIGHT,
+        "--wave-penalty-weight",
+        help="Penalty weight for wave violations in the RISE cost function.",
+    ),
+    enforce_weather_limits: bool = typer.Option(  # noqa: B008
+        False,
+        "--enforce-weather-limits/--no-enforce-weather-limits",
+        help=(
+            "Reject FMS updates that newly violate the configured weather limits. "
+            "Already-violating routes may keep moving so FMS can escape an "
+            "initially infeasible route."
+        ),
+    ),
     quiet: bool = typer.Option(  # noqa: B008
         False,
         "--quiet",
@@ -702,6 +742,9 @@ def main(
         era5_reload_margin_days=era5_reload_margin_days,
         tws_limit=tws_limit,
         hs_limit=hs_limit,
+        wind_penalty_weight=wind_penalty_weight,
+        wave_penalty_weight=wave_penalty_weight,
+        enforce_weather_limits=enforce_weather_limits,
         quiet=quiet,
     )
 

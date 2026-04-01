@@ -31,7 +31,7 @@ _N = 50  # waypoints for tests
 def _atlantic_gc(n: int = _N) -> jnp.ndarray:
     """Great circle route Santander → New York."""
     src = jnp.array([-4.0, 43.6])
-    dst = jnp.array([-73.80, 40.53])
+    dst = jnp.array([-69.0, 40.6])
     return great_circle_route(src, dst, n_points=n)
 
 
@@ -361,7 +361,7 @@ class TestTimeOffsetForwarding:
 
             n = kwargs.get("L", 20)
             src = jnp.array([-4.0, 43.6])
-            dst = jnp.array([-73.80, 40.53])
+            dst = jnp.array([-69.0, 40.6])
             curve = great_circle_route(src, dst, n_points=n)
             return curve, {"cost": 100.0, "niter": 1, "comp_time": 0}
 
@@ -400,7 +400,7 @@ class TestTimeOffsetForwarding:
 
             n = kwargs.get("L", 20)
             src = jnp.array([-4.0, 43.6])
-            dst = jnp.array([-73.80, 40.53])
+            dst = jnp.array([-69.0, 40.6])
             curve = great_circle_route(src, dst, n_points=n)
             return curve, {"cost": 100.0, "niter": 1, "comp_time": 0}
 

@@ -23,15 +23,15 @@ from routetools.swopp3 import (
 # ---------------------------------------------------------------------------
 class TestPorts:
     def test_all_four_ports_defined(self):
-        assert set(PORTS.keys()) == {"ESSDR", "USNYC", "JPTYO", "USLAX"}
+        assert set(PORTS.keys()) == {"ESSDR", "USNYS", "JPTYO", "USLAX"}
 
     def test_santander_coords(self):
         assert PORTS["ESSDR"]["lat"] == 43.6
         assert PORTS["ESSDR"]["lon"] == -4.0
 
     def test_new_york_coords(self):
-        assert PORTS["USNYC"]["lat"] == 40.53
-        assert PORTS["USNYC"]["lon"] == -73.80
+        assert PORTS["USNYS"]["lat"] == 40.6
+        assert PORTS["USNYS"]["lon"] == -69.0
 
     def test_tokyo_coords(self):
         assert PORTS["JPTYO"]["lat"] == 34.8
@@ -54,7 +54,7 @@ class TestRoutes:
 
     def test_atlantic_ports(self):
         assert ROUTE_ATLANTIC["src_port"] == "ESSDR"
-        assert ROUTE_ATLANTIC["dst_port"] == "USNYC"
+        assert ROUTE_ATLANTIC["dst_port"] == "USNYS"
 
     def test_pacific_ports(self):
         assert ROUTE_PACIFIC["src_port"] == "JPTYO"
@@ -130,7 +130,7 @@ class TestCases:
     def test_atlantic_route(self):
         for cid in _ATLANTIC_CASES:
             assert SWOPP3_CASES[cid]["src_port"] == "ESSDR"
-            assert SWOPP3_CASES[cid]["dst_port"] == "USNYC"
+            assert SWOPP3_CASES[cid]["dst_port"] == "USNYS"
 
     def test_pacific_route(self):
         for cid in _PACIFIC_CASES:
@@ -191,7 +191,7 @@ class TestCaseEndpoints:
         # src should be Santander (lon, lat)
         assert jnp.allclose(src, jnp.array([-4.0, 43.6]))
         # dst should be New York (lon, lat)
-        assert jnp.allclose(dst, jnp.array([-73.80, 40.53]))
+        assert jnp.allclose(dst, jnp.array([-69.0, 40.6]))
 
     def test_all_atlantic_same_endpoints(self):
         src_ref, dst_ref = case_endpoints("AO_WPS")
@@ -236,7 +236,7 @@ class TestCaseTravelTime:
 class TestGreatCircle:
     def test_endpoints_match(self):
         src = jnp.array([-4.0, 43.6])
-        dst = jnp.array([-73.80, 40.53])
+        dst = jnp.array([-69.0, 40.6])
         route = great_circle_route(src, dst, n_points=50)
         assert route.shape == (50, 2)
         assert jnp.allclose(route[0], src, atol=1e-4)
@@ -266,10 +266,10 @@ class TestGreatCircle:
     def test_route_latitude_range(self):
         """Atlantic GC route should curve northward (higher than both endpoints)."""
         src = jnp.array([-4.0, 43.6])  # Santander
-        dst = jnp.array([-73.80, 40.53])  # NYC
+        dst = jnp.array([-69.0, 40.6])  # USNYS
         route = great_circle_route(src, dst, n_points=100)
         max_lat = jnp.max(route[:, 1])
-        # GC route from Santander to NYC curves north — max latitude > both endpoints
+        # GC route from Santander to USNYS curves north — max latitude > both endpoints
         assert max_lat > max(
-            43.6, 40.53
+            43.6, 40.6
         ), f"max_lat {max_lat} should exceed endpoint lats"
