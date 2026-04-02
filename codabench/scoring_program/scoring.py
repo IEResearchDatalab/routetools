@@ -922,17 +922,48 @@ def try_load_era5_scorer(ref_dir: Path):
         # Energy integration (per-segment dt)
         energy_mwh = float(np.sum(power_kw * seg_dt_h) / 1000.0)
 
-        # Violation counts
+        # RISE official wheel comparison (optional)
+        wheel_energy_mwh = None
+        try:
+            from swopp3_performance_model import predict_no_wps, predict_with_wps
+
+            predict_fn = predict_with_wps if case_def["wps"] else predict_no_wps
+            wheel_power = np.array(
+                [
+                    predict_fn(
+                        float(tws[i]),
+                        float(twa_deg[i]),
+                        float(swh[i]),
+                        float(mwa_deg[i]),
+                        float(v_mps[i]),
+                    )
+                    for i in range(len(tws))
+                ]
+            )
+            wheel_energy_mwh = float(np.sum(wheel_power * seg_dt_h) / 1000.0)
+        except ImportError:
+            pass
+
+        # Violation counts and percentages
+        n_segs = len(tws)
         wind_violation_segs = int(np.sum(tws > MAX_WIND_MPS))
         wave_violation_segs = int(np.sum(swh > MAX_HS_M))
+        wind_violation_pct = wind_violation_segs / n_segs * 100.0 if n_segs else 0.0
+        wave_violation_pct = wave_violation_segs / n_segs * 100.0 if n_segs else 0.0
 
-        return {
+        result = {
             "energy_mwh": energy_mwh,
             "max_tws": float(np.max(tws)) if len(tws) > 0 else 0.0,
             "max_hs": float(np.max(swh)) if len(swh) > 0 else 0.0,
             "wind_violation_segs": wind_violation_segs,
             "wave_violation_segs": wave_violation_segs,
+            "total_segs": n_segs,
+            "wind_violation_pct": round(wind_violation_pct, 3),
+            "wave_violation_pct": round(wave_violation_pct, 3),
         }
+        if wheel_energy_mwh is not None:
+            result["wheel_energy_mwh"] = wheel_energy_mwh
+        return result
 
     return evaluate_route
 
@@ -1248,13 +1279,25 @@ def _write_detailed_results(
     if case_violations:
         has_any = any(len(v) > 0 for v in case_violations.values())
         if has_any:
+            # Check if any departure has wheel energy data
+            has_wheel = any(
+                "wheel_energy_mwh" in d
+                for deps in case_violations.values()
+                for d in deps
+            )
             html_parts.append("<h2>Weather &amp; Land Violations</h2>")
-            html_parts.append(
+            header = (
                 "<table><tr><th>Case</th><th>Departures</th>"
                 "<th>Wind (&gt;20 m/s)</th>"
+                "<th>Avg Wind %</th>"
                 "<th>Wave (&gt;7 m)</th>"
-                "<th>Land</th></tr>"
+                "<th>Avg Wave %</th>"
+                "<th>Land</th>"
             )
+            if has_wheel:
+                header += "<th>Wheel Energy (MWh)</th>"
+            header += "</tr>"
+            html_parts.append(header)
             for case_key, deps in sorted(case_violations.items()):
                 if not deps:
                     continue
@@ -1262,16 +1305,35 @@ def _write_detailed_results(
                 wind_d = sum(1 for d in deps if d.get("wind_violation_segs", 0) > 0)
                 wave_d = sum(1 for d in deps if d.get("wave_violation_segs", 0) > 0)
                 land_d = sum(1 for d in deps if d.get("land_count", 0) > 0)
+                avg_wind_pct = (
+                    sum(d.get("wind_violation_pct", 0.0) for d in deps) / n_dep
+                )
+                avg_wave_pct = (
+                    sum(d.get("wave_violation_pct", 0.0) for d in deps) / n_dep
+                )
                 ek = html_mod.escape(case_key)
                 wind_cls = ' class="err"' if wind_d else ' class="ok"'
                 wave_cls = ' class="err"' if wave_d else ' class="ok"'
                 land_cls = ' class="err"' if land_d else ' class="ok"'
-                html_parts.append(
+                row = (
                     f"<tr><td>{ek}</td><td>{n_dep}</td>"
                     f"<td{wind_cls}>{wind_d}</td>"
+                    f"<td>{avg_wind_pct:.1f}%</td>"
                     f"<td{wave_cls}>{wave_d}</td>"
-                    f"<td{land_cls}>{land_d}</td></tr>"
+                    f"<td>{avg_wave_pct:.1f}%</td>"
+                    f"<td{land_cls}>{land_d}</td>"
                 )
+                if has_wheel:
+                    wheel_deps = [
+                        d["wheel_energy_mwh"] for d in deps if "wheel_energy_mwh" in d
+                    ]
+                    if wheel_deps:
+                        total_wheel = sum(wheel_deps)
+                        row += f"<td>{total_wheel:.1f}</td>"
+                    else:
+                        row += "<td>N/A</td>"
+                row += "</tr>"
+                html_parts.append(row)
             html_parts.append("</table>")
 
     # Plots
@@ -1403,17 +1465,23 @@ def score_submission() -> dict:
                         e = result["energy_mwh"]
                         re_eval_energy += e
                         case_energies[case].append((dep_dt, e))
-                        case_violations[case].append(
-                            {
-                                "departure": dep_dt,
-                                "energy_mwh": e,
-                                "max_tws": result["max_tws"],
-                                "max_hs": result["max_hs"],
-                                "wind_violation_segs": result["wind_violation_segs"],
-                                "wave_violation_segs": result["wave_violation_segs"],
-                                "land_count": fb_land_count,
-                            }
-                        )
+                        violation_entry = {
+                            "departure": dep_dt,
+                            "energy_mwh": e,
+                            "max_tws": result["max_tws"],
+                            "max_hs": result["max_hs"],
+                            "wind_violation_segs": result["wind_violation_segs"],
+                            "wave_violation_segs": result["wave_violation_segs"],
+                            "total_segs": result.get("total_segs", 0),
+                            "wind_violation_pct": result.get("wind_violation_pct", 0.0),
+                            "wave_violation_pct": result.get("wave_violation_pct", 0.0),
+                            "land_count": fb_land_count,
+                        }
+                        if "wheel_energy_mwh" in result:
+                            violation_entry["wheel_energy_mwh"] = result[
+                                "wheel_energy_mwh"
+                            ]
+                        case_violations[case].append(violation_entry)
                         # Collect route coords (subsample for memory)
                         lats = [wp[1] for wp in waypoints]
                         lons = [wp[2] for wp in waypoints]
@@ -1477,6 +1545,16 @@ def score_submission() -> dict:
             scores[f"{case}_wind_violation_departures"] = wind_deps
             scores[f"{case}_wave_violation_departures"] = wave_deps
             scores[f"{case}_land_violation_departures"] = land_deps
+            # Avg violation percentage across departures
+            n_cv = len(cv)
+            avg_wind_pct = sum(v.get("wind_violation_pct", 0.0) for v in cv) / n_cv
+            avg_wave_pct = sum(v.get("wave_violation_pct", 0.0) for v in cv) / n_cv
+            scores[f"{case}_avg_wind_violation_pct"] = round(avg_wind_pct, 2)
+            scores[f"{case}_avg_wave_violation_pct"] = round(avg_wave_pct, 2)
+            # Wheel energy total (if available)
+            wheel_vals = [v["wheel_energy_mwh"] for v in cv if "wheel_energy_mwh" in v]
+            if wheel_vals:
+                scores[f"{case}_wheel_energy_mwh"] = round(sum(wheel_vals), 4)
 
     # ── Cross-case consistency checks ──
     wps_pairs = [
