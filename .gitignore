@@ -180,3 +180,4 @@ codabench/test_submission/
 
 # Separate repo
 routingviz/
+*.whl
