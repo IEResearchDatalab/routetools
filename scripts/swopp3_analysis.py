@@ -39,9 +39,9 @@ Outputs
     fig01_energy_overview.pdf / .png
     fig02_optimization_gains.pdf / .png
     fig03_penalty_tradeoff.pdf / .png
-    fig04a_seasonality_no_penalty.pdf / .png
+    fig04a_seasonality_sweep_combined.pdf / .png
     fig04b_seasonality_penalty.pdf / .png
-    fig13a_relative_gain_no_penalty.pdf / .png
+    fig13a_relative_gain_sweep_combined.pdf / .png
     fig13b_relative_gain_penalty.pdf / .png
     fig05_wps_impact.pdf / .png
     fig06_fms_improvement.pdf / .png
@@ -55,10 +55,24 @@ Outputs
 
 Experimental conditions
 -----------------------
-    no_penalty       CMA-ES, no weather penalty, no FMS
-    no_penalty_fms   CMA-ES, no weather penalty, with FMS post-refinement
-    penalty          CMA-ES, wind/wave soft penalty in objective, no FMS
-    penalty_fms      CMA-ES, wind/wave soft penalty, with FMS post-refinement
+    The active experiments are driven by the ``EXPERIMENT_PAIRS`` constant near
+    the top of this file.  Each entry is a ``(base_key, fms_key)`` tuple that
+    maps a base CMA-ES run to its FMS post-refinement counterpart.
+
+    Built-in profiles (uncomment the desired one):
+
+    Two-experiment profile (default — sweep combined):
+        EXPERIMENT_PAIRS = [("sweep_combined", "sweep_combined_fms")]
+
+    Four-experiment profile (penalty vs no-penalty comparison):
+        EXPERIMENT_PAIRS = [
+            ("no_penalty", "no_penalty_fms"),
+            ("penalty", "penalty_fms"),
+        ]
+
+    All known experiment keys and their folder/colour/label metadata live in
+    ``EXPERIMENTS_REGISTRY``.  ``ACTIVE_EXPERIMENTS`` is derived automatically
+    from ``EXPERIMENT_PAIRS`` — do not edit it directly.
 
     Penalty thresholds: wind > 20 m/s, significant wave height > 7 m Hs.
 
@@ -209,7 +223,7 @@ def _experiment_folder(exp_key: str, paths: AnalysisPaths) -> str:
     defines a matching output directory. Keep the legacy folder names as a
     fallback so older result folders remain readable.
     """
-    metadata = EXPERIMENTS[exp_key]
+    metadata = EXPERIMENTS_REGISTRY[exp_key]
     configured_dirs = _configured_output_dirs(paths.config_path)
     candidates: list[str] = []
 
@@ -235,12 +249,12 @@ def _experiment_folder(exp_key: str, paths: AnalysisPaths) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Experiment metadata
+# Experiment registry — all known experiments across all profiles
 # ---------------------------------------------------------------------------
-EXPERIMENTS: dict[str, dict] = {
+EXPERIMENTS_REGISTRY: dict[str, dict] = {
+    # ── No-penalty profile (four-experiment) ────────────────────────────
     "no_penalty": {
         "folder": "swopp3_no_penalty",
-        "config_experiment": "no_penalty",
         "label": "CMA-ES",
         "short": "No Penalty",
         "color": "#F23333",  # IE law red — unconstrained
@@ -250,7 +264,6 @@ EXPERIMENTS: dict[str, dict] = {
     },
     "no_penalty_fms": {
         "folder": "swopp3_no_penalty_fms",
-        "config_parent": "no_penalty",
         "label": "CMA-ES + FMS",
         "short": "No Penalty + FMS",
         "color": "#007A3D",  # emerald green — high contrast with red
@@ -260,7 +273,6 @@ EXPERIMENTS: dict[str, dict] = {
     },
     "penalty": {
         "folder": "swopp3_penalty",
-        "config_experiment": "split_penalty",
         "label": "CMA-ES + Penalty",
         "short": "Penalty",
         "color": "#000066",  # IE primary ocean-blue — constrained
@@ -270,7 +282,6 @@ EXPERIMENTS: dict[str, dict] = {
     },
     "penalty_fms": {
         "folder": "swopp3_penalty_fms",
-        "config_parent": "split_penalty",
         "label": "CMA-ES + Penalty + FMS",
         "short": "Penalty + FMS",
         "color": "#E09400",  # amber — high contrast with dark navy
@@ -278,6 +289,46 @@ EXPERIMENTS: dict[str, dict] = {
         "hatch": "///",
         "order": 4,
     },
+    # ── Sweep-combined profile (two-experiment) ──────────────────────────
+    "sweep_combined": {
+        "folder": "sweep_combined",
+        "label": "CMA-ES",
+        "short": "Sweep Combined",
+        "color": "#F23333",  # IE law red — unconstrained
+        "color_light": "#FF9B9B",
+        "hatch": "",
+        "order": 1,
+    },
+    "sweep_combined_fms": {
+        "folder": "sweep_combined_fms",
+        "label": "CMA-ES + FMS",
+        "short": "Sweep Combined + FMS",
+        "color": "#007A3D",  # emerald green — high contrast with red
+        "color_light": "#5CC28A",
+        "hatch": "///",
+        "order": 2,
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Analysis profile — THE only place to change for a different comparison
+# ---------------------------------------------------------------------------
+# Each tuple is (base_experiment_key, fms_experiment_key).  All figures and
+# data loaders are derived from this list automatically.
+#
+# Two-experiment profile (sweep combined, no penalty distinction):
+EXPERIMENT_PAIRS: list[tuple[str, str]] = [
+    ("sweep_combined", "sweep_combined_fms"),
+]
+# Four-experiment profile (no-penalty vs penalty comparison); uncomment to use:
+# EXPERIMENT_PAIRS = [
+#     ("no_penalty", "no_penalty_fms"),
+#     ("penalty", "penalty_fms"),
+# ]
+
+# Active experiments for this run — derived from EXPERIMENT_PAIRS, do not edit
+ACTIVE_EXPERIMENTS: dict[str, dict] = {
+    k: EXPERIMENTS_REGISTRY[k] for pair in EXPERIMENT_PAIRS for k in pair
 }
 
 # Optimised cases (what we are comparing)
@@ -455,10 +506,14 @@ def load_summary_csv(
 
 
 def load_gc_baselines(paths: AnalysisPaths = DEFAULT_PATHS) -> dict[str, float]:
-    """Return mean energy for each GC case across both baseline folders."""
-    baselines: dict[str, dict[str, list]] = {}
-    for folder_key in ("no_penalty", "penalty"):
-        folder = _experiment_folder(folder_key, paths)
+    """Return mean energy per GC case, averaged across all base experiment folders.
+
+    Iterates over all pairs in ``EXPERIMENT_PAIRS`` and collects GC data from
+    each base experiment folder.
+    """
+    baselines: dict[str, list] = {}
+    for base_key, _fms_key in EXPERIMENT_PAIRS:
+        folder = _experiment_folder(base_key, paths)
         for gc_id in GC_CASES:
             path = _summary_csv_path(paths, folder, gc_id)
             if path is None or not path.exists():
@@ -471,7 +526,7 @@ def load_gc_baselines(paths: AnalysisPaths = DEFAULT_PATHS) -> dict[str, float]:
 def load_all_data(paths: AnalysisPaths = DEFAULT_PATHS) -> pd.DataFrame:
     """Load all optimised-case summary rows across all experiments."""
     frames = []
-    for exp_key in EXPERIMENTS:
+    for exp_key in ACTIVE_EXPERIMENTS:
         for case_id in OPT_CASES:
             df = load_summary_csv(exp_key, case_id, paths)
             if df is not None:
@@ -548,7 +603,7 @@ def fig_energy_overview(
     )
 
     GC_COLOR = "#878787"
-    exp_order = list(EXPERIMENTS.keys())
+    exp_order = list(ACTIVE_EXPERIMENTS.keys())
     # Position 1 = GC, positions 2..5 = experiments
     gc_pos = 1
     exp_positions = np.arange(2, len(exp_order) + 2)
@@ -600,7 +655,7 @@ def fig_energy_overview(
             if sub.empty:
                 continue
             _draw_violin(
-                ax, sub.values, exp_positions[i], EXPERIMENTS[exp_key]["color"]
+                ax, sub.values, exp_positions[i], ACTIVE_EXPERIMENTS[exp_key]["color"]
             )
 
             # % savings vs GC median
@@ -612,7 +667,7 @@ def fig_energy_overview(
                 ha="center",
                 va="top",
                 fontsize=7.5,
-                color=EXPERIMENTS[exp_key]["color"],
+                color=ACTIVE_EXPERIMENTS[exp_key]["color"],
                 fontweight="bold",
             )
 
@@ -621,7 +676,7 @@ def fig_energy_overview(
         )
         all_ticks = [gc_pos] + list(exp_positions)
         all_labels = ["GC"] + [
-            EXPERIMENTS[k]["short"].replace(" + ", "\n+\n") for k in exp_order
+            ACTIVE_EXPERIMENTS[k]["short"].replace(" + ", "\n+\n") for k in exp_order
         ]
         ax.set_xticks(all_ticks)
         ax.set_xticklabels(all_labels, fontsize=7.0)
@@ -634,7 +689,9 @@ def fig_energy_overview(
         mpatches.Patch(facecolor=GC_COLOR, alpha=0.65, label="Great-circle baseline"),
     ] + [
         mpatches.Patch(
-            facecolor=EXPERIMENTS[k]["color"], alpha=0.85, label=EXPERIMENTS[k]["label"]
+            facecolor=ACTIVE_EXPERIMENTS[k]["color"],
+            alpha=0.85,
+            label=ACTIVE_EXPERIMENTS[k]["label"],
         )
         for k in exp_order
     ]
@@ -679,7 +736,7 @@ def fig_optimization_gains(
     ]
 
     bar_w = 0.18
-    exp_order = list(EXPERIMENTS.keys())
+    exp_order = list(ACTIVE_EXPERIMENTS.keys())
 
     for ax, (_route, title, cases) in zip(axes, route_groups, strict=False):
         ax.set_title(title, fontsize=11, fontweight="bold")
@@ -710,9 +767,9 @@ def fig_optimization_gains(
                 xs,
                 savings,
                 width=bar_w * 0.92,
-                color=EXPERIMENTS[exp_key]["color"],
+                color=ACTIVE_EXPERIMENTS[exp_key]["color"],
                 alpha=0.88,
-                label=EXPERIMENTS[exp_key]["label"],
+                label=ACTIVE_EXPERIMENTS[exp_key]["label"],
                 zorder=3,
             )
             for bar, val in zip(bars, savings, strict=False):
@@ -724,7 +781,7 @@ def fig_optimization_gains(
                         ha="center",
                         va="bottom" if val >= 0 else "top",
                         fontsize=7,
-                        color=EXPERIMENTS[exp_key]["color"],
+                        color=ACTIVE_EXPERIMENTS[exp_key]["color"],
                         fontweight="bold",
                     )
 
@@ -738,7 +795,9 @@ def fig_optimization_gains(
     # Shared legend
     handles = [
         mpatches.Patch(
-            facecolor=EXPERIMENTS[k]["color"], alpha=0.85, label=EXPERIMENTS[k]["label"]
+            facecolor=ACTIVE_EXPERIMENTS[k]["color"],
+            alpha=0.85,
+            label=ACTIVE_EXPERIMENTS[k]["label"],
         )
         for k in exp_order
     ]
@@ -770,14 +829,14 @@ def fig_penalty_tradeoff(
     df: pd.DataFrame,
     paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> None:
-    """Side-by-side bars: violation rate reduction vs energy overhead from penalty."""
+    """Side-by-side bars: experiment comparison — violation rates and mean energy."""
     setup_style()
-    # Keep only no_penalty vs penalty pairs  (drop FMS variants for clarity)
-    sub = df[df["experiment"].isin(["no_penalty", "penalty"])].copy()
+    active_keys = list(ACTIVE_EXPERIMENTS.keys())
+    sub = df[df["experiment"].isin(active_keys)].copy()
 
     metrics = pd.DataFrame()
     for case_id in OPT_CASES:
-        for exp_key in ["no_penalty", "penalty"]:
+        for exp_key in active_keys:
             piece = sub[(sub["experiment"] == exp_key) & (sub["case_id"] == case_id)]
             if piece.empty:
                 continue
@@ -806,7 +865,7 @@ def fig_penalty_tradeoff(
 
     fig, axes = plt.subplots(1, 3, figsize=(13, 5))
     fig.suptitle(
-        "Weather penalties cut violation rates — and keep energy costs low",
+        "Experiment comparison — violation rates and energy consumption",
         fontsize=12,
         fontweight="bold",
         x=0.02,
@@ -815,12 +874,17 @@ def fig_penalty_tradeoff(
 
     cases_order = list(OPT_CASES.keys())
     x = np.arange(len(cases_order))
-    bw = 0.35
+    bw = 0.7 / max(len(active_keys), 1)
+    _offsets = np.linspace(
+        -(len(active_keys) - 1) / 2 * bw,
+        (len(active_keys) - 1) / 2 * bw,
+        len(active_keys),
+    )
 
     # Panel A — wind violation rate
     ax = axes[0]
     ax.set_title("Wind violations\n(% of departures above 20 m/s)", fontsize=9.5)
-    for i, exp_key in enumerate(["no_penalty", "penalty"]):
+    for i, exp_key in enumerate(active_keys):
         vals = [
             metrics.loc[
                 (metrics.case_id == c) & (metrics.experiment == exp_key),
@@ -829,14 +893,13 @@ def fig_penalty_tradeoff(
             for c in cases_order
         ]
         vals = [v[0] if len(v) > 0 else np.nan for v in vals]
-        offset = -bw / 2 if i == 0 else bw / 2
-        bars = ax.bar(
-            x + offset,
+        ax.bar(
+            x + _offsets[i],
             vals,
             width=bw * 0.92,
-            color=EXPERIMENTS[exp_key]["color"],
+            color=ACTIVE_EXPERIMENTS[exp_key]["color"],
             alpha=0.88,
-            label=EXPERIMENTS[exp_key]["label"],
+            label=ACTIVE_EXPERIMENTS[exp_key]["label"],
             zorder=3,
         )
     ax.set_xticks(x)
@@ -847,7 +910,7 @@ def fig_penalty_tradeoff(
     # Panel B — wave violation rate
     ax = axes[1]
     ax.set_title("Wave violations\n(% of departures above 7 m Hs)", fontsize=9.5)
-    for i, exp_key in enumerate(["no_penalty", "penalty"]):
+    for i, exp_key in enumerate(active_keys):
         vals = [
             metrics.loc[
                 (metrics.case_id == c) & (metrics.experiment == exp_key),
@@ -856,12 +919,11 @@ def fig_penalty_tradeoff(
             for c in cases_order
         ]
         vals = [v[0] if len(v) > 0 else np.nan for v in vals]
-        offset = -bw / 2 if i == 0 else bw / 2
         ax.bar(
-            x + offset,
+            x + _offsets[i],
             vals,
             width=bw * 0.92,
-            color=EXPERIMENTS[exp_key]["color"],
+            color=ACTIVE_EXPERIMENTS[exp_key]["color"],
             alpha=0.88,
             zorder=3,
         )
@@ -873,7 +935,7 @@ def fig_penalty_tradeoff(
     # Panel C — mean energy
     ax = axes[2]
     ax.set_title("Mean energy consumption\n(MWh per voyage)", fontsize=9.5)
-    for i, exp_key in enumerate(["no_penalty", "penalty"]):
+    for i, exp_key in enumerate(active_keys):
         vals = [
             metrics.loc[
                 (metrics.case_id == c) & (metrics.experiment == exp_key), "mean_energy"
@@ -881,12 +943,11 @@ def fig_penalty_tradeoff(
             for c in cases_order
         ]
         vals = [v[0] if len(v) > 0 else np.nan for v in vals]
-        offset = -bw / 2 if i == 0 else bw / 2
         bars = ax.bar(
-            x + offset,
+            x + _offsets[i],
             vals,
             width=bw * 0.92,
-            color=EXPERIMENTS[exp_key]["color"],
+            color=ACTIVE_EXPERIMENTS[exp_key]["color"],
             alpha=0.88,
             zorder=3,
         )
@@ -899,7 +960,7 @@ def fig_penalty_tradeoff(
                     ha="center",
                     va="bottom",
                     fontsize=7.5,
-                    color=EXPERIMENTS[exp_key]["color"],
+                    color=ACTIVE_EXPERIMENTS[exp_key]["color"],
                     fontweight="bold",
                 )
     ax.set_xticks(x)
@@ -917,20 +978,16 @@ def fig_penalty_tradeoff(
 
     handles = [
         mpatches.Patch(
-            facecolor=EXPERIMENTS["no_penalty"]["color"],
+            facecolor=ACTIVE_EXPERIMENTS[k]["color"],
             alpha=0.85,
-            label="CMA-ES (no penalty)",
-        ),
-        mpatches.Patch(
-            facecolor=EXPERIMENTS["penalty"]["color"],
-            alpha=0.85,
-            label="CMA-ES + Penalty",
-        ),
+            label=ACTIVE_EXPERIMENTS[k]["label"],
+        )
+        for k in active_keys
     ]
     fig.legend(
         handles=handles,
         loc="lower center",
-        ncol=2,
+        ncol=len(active_keys),
         bbox_to_anchor=(0.5, -0.04),
         fontsize=9,
     )
@@ -984,7 +1041,7 @@ def _fig_seasonality_panel(
         ax.set_title(panel_title, fontsize=10, fontweight="bold")
 
         for exp_key in exp_keys:
-            exp_meta = EXPERIMENTS[exp_key]
+            exp_meta = EXPERIMENTS_REGISTRY[exp_key]
             piece = df[
                 (df["experiment"] == exp_key) & (df["case_id"] == case_id)
             ].copy()
@@ -1037,10 +1094,10 @@ def _fig_seasonality_panel(
         mlines.Line2D(
             [],
             [],
-            color=EXPERIMENTS[k]["color"],
+            color=EXPERIMENTS_REGISTRY[k]["color"],
             linewidth=2.0,
             alpha=0.85,
-            label=EXPERIMENTS[k]["label"],
+            label=EXPERIMENTS_REGISTRY[k]["label"],
         )
         for k in exp_keys
     ]
@@ -1087,13 +1144,18 @@ def fig_seasonality_a(
     gc_full: pd.DataFrame,
     paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> None:
-    """fig04a — seasonal energy lines for non-penalized experiments (CMA-ES and FMS)."""
+    """fig04a — seasonal energy lines for the first experiment pair."""
+    _b, _f = EXPERIMENT_PAIRS[0]
     _fig_seasonality_panel(
         df,
         gc_full,
-        exp_keys=["no_penalty", "no_penalty_fms"],
-        title="Seasonal energy — non-penalized routing (GC · CMA-ES · CMA-ES + FMS)",
-        out_stem="fig04a_seasonality_no_penalty",
+        exp_keys=list(EXPERIMENT_PAIRS[0]),
+        title=(
+            f"Seasonal energy \u2014 {ACTIVE_EXPERIMENTS[_b]['short']}"
+            f" vs {ACTIVE_EXPERIMENTS[_f]['short']}"
+            f" (GC \u00b7 {ACTIVE_EXPERIMENTS[_b]['label']} \u00b7 {ACTIVE_EXPERIMENTS[_f]['label']})"  # noqa: E501
+        ),
+        out_stem="fig04a_seasonality_sweep_combined",
         paths=paths,
     )
 
@@ -1103,17 +1165,19 @@ def fig_seasonality_b(
     gc_full: pd.DataFrame,
     paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> None:
-    """fig04b — seasonal energy lines for penalized experiments.
+    """fig04b — seasonal energy lines for the last experiment pair.
 
-    Shows CMA-ES + Penalty and CMA-ES + Penalty + FMS, plus GC baseline.
+    Identical to fig04a when only one pair is active.
     """
+    _b, _f = EXPERIMENT_PAIRS[-1]
     _fig_seasonality_panel(
         df,
         gc_full,
-        exp_keys=["penalty", "penalty_fms"],
+        exp_keys=list(EXPERIMENT_PAIRS[-1]),
         title=(
-            "Seasonal energy — penalized routing"
-            " (GC · CMA-ES + Penalty · CMA-ES + Penalty + FMS)"
+            f"Seasonal energy \u2014 {ACTIVE_EXPERIMENTS[_b]['short']}"
+            f" vs {ACTIVE_EXPERIMENTS[_f]['short']}"
+            f" (GC \u00b7 {ACTIVE_EXPERIMENTS[_b]['label']} \u00b7 {ACTIVE_EXPERIMENTS[_f]['label']})"  # noqa: E501
         ),
         out_stem="fig04b_seasonality_penalty",
         paths=paths,
@@ -1163,7 +1227,7 @@ def _fig_relative_gain_panel(
         ].rename(columns={"energy_cons_mwh": "gc_energy"})
 
         for exp_key in exp_keys:
-            exp_meta = EXPERIMENTS[exp_key]
+            exp_meta = EXPERIMENTS_REGISTRY[exp_key]
             piece = df[(df["experiment"] == exp_key) & (df["case_id"] == case_id)][
                 ["departure_time_utc", "energy_cons_mwh"]
             ].copy()
@@ -1210,10 +1274,10 @@ def _fig_relative_gain_panel(
         mlines.Line2D(
             [],
             [],
-            color=EXPERIMENTS[k]["color"],
+            color=EXPERIMENTS_REGISTRY[k]["color"],
             linewidth=2.0,
             alpha=0.85,
-            label=EXPERIMENTS[k]["label"],
+            label=EXPERIMENTS_REGISTRY[k]["label"],
         )
         for k in exp_keys
     ]
@@ -1260,16 +1324,17 @@ def fig_relative_gain_a(
     gc_full: pd.DataFrame,
     paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> None:
-    """fig13a — relative energy gain vs GC for non-penalized experiments."""
+    """fig13a — relative energy gain vs GC for the first experiment pair."""
+    _b, _f = EXPERIMENT_PAIRS[0]
     _fig_relative_gain_panel(
         df,
         gc_full,
-        exp_keys=["no_penalty", "no_penalty_fms"],
+        exp_keys=list(EXPERIMENT_PAIRS[0]),
         title=(
-            "Relative energy saving vs GC"
-            " — non-penalized routing (CMA-ES · CMA-ES + FMS)"
+            f"Relative energy saving vs GC"
+            f" — {ACTIVE_EXPERIMENTS[_b]['short']} vs {ACTIVE_EXPERIMENTS[_f]['short']}"
         ),
-        out_stem="fig13a_relative_gain_no_penalty",
+        out_stem="fig13a_relative_gain_sweep_combined",
         paths=paths,
     )
 
@@ -1279,14 +1344,18 @@ def fig_relative_gain_b(
     gc_full: pd.DataFrame,
     paths: AnalysisPaths = DEFAULT_PATHS,
 ) -> None:
-    """fig13b — relative energy gain vs GC for penalized experiments."""
+    """fig13b — relative energy gain vs GC for the last experiment pair.
+
+    Identical to fig13a when only one pair is active.
+    """
+    _b, _f = EXPERIMENT_PAIRS[-1]
     _fig_relative_gain_panel(
         df,
         gc_full,
-        exp_keys=["penalty", "penalty_fms"],
+        exp_keys=list(EXPERIMENT_PAIRS[-1]),
         title=(
-            "Relative energy saving vs GC"
-            " — penalized routing (CMA-ES + Penalty · CMA-ES + Penalty + FMS)"
+            f"Relative energy saving vs GC"
+            f" — {ACTIVE_EXPERIMENTS[_b]['short']} vs {ACTIVE_EXPERIMENTS[_f]['short']}"
         ),
         out_stem="fig13b_relative_gain_penalty",
         paths=paths,
@@ -1321,7 +1390,8 @@ def fig_wps_impact(
     ):
         ax.set_title(title, fontsize=10.5, fontweight="bold")
 
-        exp_order = list(EXPERIMENTS.keys())
+        exp_order = list(ACTIVE_EXPERIMENTS.keys())
+
         x = np.arange(len(exp_order))
         bar_w = 0.55
 
@@ -1343,7 +1413,7 @@ def fig_wps_impact(
             abs_savings.append(savings)
             rel_savings.append(rel)
 
-        colors = [EXPERIMENTS[k]["color"] for k in exp_order]
+        colors = [ACTIVE_EXPERIMENTS[k]["color"] for k in exp_order]
         bars = ax.bar(x, abs_savings, width=bar_w, color=colors, alpha=0.88, zorder=3)
 
         # Annotate with % saving
@@ -1361,7 +1431,9 @@ def fig_wps_impact(
                 )
 
         ax.set_xticks(x)
-        ax.set_xticklabels([EXPERIMENTS[k]["short"] for k in exp_order], fontsize=8.5)
+        ax.set_xticklabels(
+            [ACTIVE_EXPERIMENTS[k]["short"] for k in exp_order], fontsize=8.5
+        )
         ax.set_ylabel("WPS energy saving (MWh)")
         ax.grid(axis="y", color="#E5E5E5", linewidth=0.7)
         ax.set_axisbelow(True)
@@ -1389,13 +1461,20 @@ def fig_fms_improvement(
     """Scatter plot: CMA-ES energy vs CMA-ES+FMS energy (each point = one departure)."""
     setup_style()
 
-    # Pairs: (base experiment, fms experiment)
+    # Pairs: (base experiment, fms experiment, title); derived from EXPERIMENT_PAIRS
     pairs = [
-        ("no_penalty", "no_penalty_fms", "Without penalty"),
-        ("penalty", "penalty_fms", "With penalty"),
+        (
+            p[0],
+            p[1],
+            f"{ACTIVE_EXPERIMENTS[p[0]]['short']}"
+            f" vs {ACTIVE_EXPERIMENTS[p[1]]['short']}",
+        )
+        for p in EXPERIMENT_PAIRS
     ]
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 5))
+    n_pairs = len(pairs)
+    fig, _axes_arr = plt.subplots(1, n_pairs, figsize=(7 * n_pairs, 5), squeeze=False)
+    axes = list(_axes_arr.flat)
     fig.suptitle(
         "FMS refinement consistently reduces energy — gains are largest for low-energy routes",  # noqa: E501
         fontsize=12,
@@ -1475,8 +1554,8 @@ def fig_fms_improvement(
 
         ax.set_xlim(lim_lo, lim_hi)
         ax.set_ylim(lim_lo, lim_hi)
-        ax.set_xlabel("CMA-ES energy (MWh)")
-        ax.set_ylabel("CMA-ES + FMS energy (MWh)")
+        ax.set_xlabel(f"{ACTIVE_EXPERIMENTS[base_exp]['label']} energy (MWh)")
+        ax.set_ylabel(f"{ACTIVE_EXPERIMENTS[fms_exp]['label']} energy (MWh)")
         ax.set_aspect("equal", adjustable="box")
         ax.legend(fontsize=8, loc="upper left", markerscale=1.5)
 
@@ -1497,8 +1576,8 @@ def load_gc_tracks(
     season_filter: str | None = None,
     n_sample: int = 5,
 ) -> list[pd.DataFrame]:
-    """Load sample GC track DataFrames from the penalty output folder."""
-    folder = _experiment_folder("penalty", paths)
+    """Load sample GC track DataFrames from the first base experiment folder."""
+    folder = _experiment_folder(EXPERIMENT_PAIRS[0][0], paths)
     tracks_dir = paths.output_dir / folder / "tracks"
     summary_path = _summary_csv_path(paths, folder, gc_case)
     if summary_path is None or not summary_path.exists():
@@ -1595,8 +1674,8 @@ def fig_route_maps(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
             gl.ylabel_style = {"size": 7}
             ax.set_title(cfg["title"], fontsize=10, fontweight="bold", pad=6)
 
-            for exp_key in ["no_penalty", "penalty"]:
-                exp_meta = EXPERIMENTS[exp_key]
+            for exp_key in ACTIVE_EXPERIMENTS:
+                exp_meta = ACTIVE_EXPERIMENTS[exp_key]
                 for case_id in cfg["cases"]:
                     for season in cfg["seasons"]:
                         tracks = load_tracks(
@@ -1641,50 +1720,51 @@ def fig_route_maps(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
                         )
 
         # Legend
-        legend_elements = [
+        exp_lines = [
             mlines.Line2D(
                 [],
                 [],
-                color="#111111",
-                linewidth=1.5,
-                linestyle="--",
-                label="Great-circle route",
-            ),
-            mlines.Line2D(
-                [],
-                [],
-                color=EXPERIMENTS["no_penalty"]["color"],
+                color=ACTIVE_EXPERIMENTS[k]["color"],
                 linewidth=2,
-                label="CMA-ES (no penalty)",
-            ),
-            mlines.Line2D(
-                [],
-                [],
-                color=EXPERIMENTS["penalty"]["color"],
-                linewidth=2,
-                label="CMA-ES + Penalty",
-            ),
-            mlines.Line2D(
-                [],
-                [],
-                color="#555",
-                linewidth=2,
-                alpha=0.75,
-                label="Winter departures (bold)",
-            ),
-            mlines.Line2D(
-                [],
-                [],
-                color="#555",
-                linewidth=2,
-                alpha=0.40,
-                label="Summer departures (faint)",
-            ),
+                label=ACTIVE_EXPERIMENTS[k]["label"],
+            )
+            for k in ACTIVE_EXPERIMENTS
         ]
+        legend_elements = (
+            [
+                mlines.Line2D(
+                    [],
+                    [],
+                    color="#111111",
+                    linewidth=1.5,
+                    linestyle="--",
+                    label="Great-circle route",
+                ),
+            ]
+            + exp_lines
+            + [
+                mlines.Line2D(
+                    [],
+                    [],
+                    color="#555",
+                    linewidth=2,
+                    alpha=0.75,
+                    label="Winter departures (bold)",
+                ),
+                mlines.Line2D(
+                    [],
+                    [],
+                    color="#555",
+                    linewidth=2,
+                    alpha=0.40,
+                    label="Summer departures (faint)",
+                ),
+            ]
+        )
         fig.legend(
             handles=legend_elements,
             loc="lower center",
-            ncol=5,
+            ncol=1 + len(ACTIVE_EXPERIMENTS) + 2,
             bbox_to_anchor=(0.5, -0.01),
             fontsize=8.5,
         )
@@ -1710,15 +1790,17 @@ def fig_risk_calendar(
 
     cases_order = list(OPT_CASES.keys())
     months = np.arange(1, 13)
+    n_exp = len(ACTIVE_EXPERIMENTS)
 
     fig, axes = plt.subplots(
         2,
-        2,
-        figsize=(13, 7),
+        n_exp,
+        figsize=(6.5 * n_exp, 7),
         gridspec_kw={"height_ratios": [1, 1]},
+        squeeze=False,
     )
     fig.suptitle(
-        "Weather-penalty optimisation substantially reduces high-risk departures, except in Pacific winter",  # noqa: E501
+        "Experiment comparison — monthly weather violation rates",  # noqa: E501
         fontsize=12,
         fontweight="bold",
         x=0.02,
@@ -1735,9 +1817,9 @@ def fig_risk_calendar(
     }
 
     for row_idx, viol_col in enumerate(["wind_viol", "wave_viol"]):
-        for col_idx, exp_key in enumerate(["no_penalty", "penalty"]):
+        for col_idx, exp_key in enumerate(ACTIVE_EXPERIMENTS):
             ax = axes[row_idx][col_idx]
-            exp_label = EXPERIMENTS[exp_key]["label"]
+            exp_label = ACTIVE_EXPERIMENTS[exp_key]["label"]
             ax.set_title(
                 f"{viol_titles[viol_col]}\n{exp_label}",
                 fontsize=9.5,
@@ -1813,7 +1895,7 @@ def generate_summary_table(
 ) -> pd.DataFrame:
     """Generate and save a summary statistics table."""
     rows = []
-    for exp_key in EXPERIMENTS:
+    for exp_key in ACTIVE_EXPERIMENTS:
         for case_id in OPT_CASES:
             piece = df[(df["experiment"] == exp_key) & (df["case_id"] == case_id)]
             if piece.empty:
@@ -1823,7 +1905,7 @@ def generate_summary_table(
             mean_e = piece["energy_cons_mwh"].mean()
             rows.append(
                 {
-                    "Experiment": EXPERIMENTS[exp_key]["label"],
+                    "Experiment": ACTIVE_EXPERIMENTS[exp_key]["label"],
                     "Case": OPT_CASES[case_id]["label"].replace("\n", " "),
                     "N departures": len(piece),
                     "Mean energy (MWh)": round(mean_e, 1),
@@ -1853,11 +1935,10 @@ def fig_fms_delta_byseason(
     """Bar chart: median FMS improvement (%) by season and by case."""
     setup_style()
 
-    pairs = [
-        ("no_penalty", "no_penalty_fms"),
-        ("penalty", "penalty_fms"),
-    ]
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    pairs = list(EXPERIMENT_PAIRS)
+    n_pairs = len(pairs)
+    fig, _axes_arr = plt.subplots(1, n_pairs, figsize=(8 * n_pairs, 5), squeeze=False)
+    axes = list(_axes_arr.flat)
     fig.suptitle(
         "FMS refinement is most effective in winter and for no-penalty runs",
         fontsize=12,
@@ -1872,7 +1953,8 @@ def fig_fms_delta_byseason(
 
     for ax, (base_exp, fms_exp) in zip(axes, pairs, strict=False):
         ax.set_title(
-            f"{EXPERIMENTS[base_exp]['label']} vs {EXPERIMENTS[fms_exp]['label']}",
+            f"{ACTIVE_EXPERIMENTS[base_exp]['label']}"
+            f" vs {ACTIVE_EXPERIMENTS[fms_exp]['label']}",
             fontsize=10.5,
             fontweight="bold",
         )
@@ -1957,11 +2039,10 @@ def fig_fms_delta_byseason(
         fontsize=9,
     )
 
-    # Equalise y-axis across both penalty-comparison panels
-    ymin = min(ax.get_ylim()[0] for ax in axes)
-    ymax = max(ax.get_ylim()[1] for ax in axes)
-    for ax in axes:
-        ax.set_ylim(ymin, ymax)
+    # Equalise y-axis (single panel)
+    ymin = axes[0].get_ylim()[0]
+    ymax = axes[0].get_ylim()[1]
+    axes[0].set_ylim(ymin, ymax)
 
     add_source_note(fig)
     out = paths.figs_dir / "fig09_fms_seasonal_delta.pdf"
@@ -1986,10 +2067,10 @@ _GC_TO_OPT = {
 def load_gc_full(paths: AnalysisPaths = DEFAULT_PATHS) -> pd.DataFrame:
     """Load per-departure GC rows and map them onto optimised-case ids.
 
-    GC summaries are read from the penalty output folder because that run
+    GC summaries are read from the first base experiment folder because that run
     contains the reference great-circle exports for all four cases.
     """
-    folder = _experiment_folder("penalty", paths)
+    folder = _experiment_folder(EXPERIMENT_PAIRS[0][0], paths)
     frames = []
     for gc_id, opt_id in _GC_TO_OPT.items():
         path = _summary_csv_path(paths, folder, gc_id)
@@ -2074,7 +2155,7 @@ def fig_gc_victory_rate(
             label="50% threshold",
         )
 
-        for exp_key in EXPERIMENTS:
+        for exp_key in ACTIVE_EXPERIMENTS:
             joined = _join_opt_to_gc(df, gc_full, exp_key, case_id)
             if joined.empty:
                 continue
@@ -2084,11 +2165,11 @@ def fig_gc_victory_rate(
             ax.plot(
                 monthly_rate.index,
                 monthly_rate.values,
-                color=EXPERIMENTS[exp_key]["color"],
+                color=ACTIVE_EXPERIMENTS[exp_key]["color"],
                 linewidth=2.0,
                 marker="o",
                 markersize=4,
-                label=EXPERIMENTS[exp_key]["label"],
+                label=ACTIVE_EXPERIMENTS[exp_key]["label"],
                 zorder=4,
                 alpha=0.92,
             )
@@ -2116,13 +2197,13 @@ def fig_gc_victory_rate(
         mlines.Line2D(
             [],
             [],
-            color=EXPERIMENTS[k]["color"],
+            color=ACTIVE_EXPERIMENTS[k]["color"],
             linewidth=2,
             marker="o",
             markersize=4,
-            label=EXPERIMENTS[k]["label"],
+            label=ACTIVE_EXPERIMENTS[k]["label"],
         )
-        for k in EXPERIMENTS
+        for k in ACTIVE_EXPERIMENTS
     ]
     season_handles = [
         mpatches.Patch(facecolor=SEASON_COLORS[s], alpha=0.5, label=s)
@@ -2186,7 +2267,7 @@ def fig_gc_margin_heatmap(
     # Collect all margin values — use 0 to 95th pct (positive range only)
     all_margins: list[float] = []
     for case_id, _ in cases_order:
-        for exp_key in EXPERIMENTS:
+        for exp_key in ACTIVE_EXPERIMENTS:
             joined = _join_opt_to_gc(df, gc_full, exp_key, case_id)
             if not joined.empty:
                 all_margins.extend(joined["margin_pct"].dropna().tolist())
@@ -2195,10 +2276,10 @@ def fig_gc_margin_heatmap(
     for ax, (case_id, panel_title) in zip(axes.flat, cases_order, strict=False):
         ax.set_title(panel_title, fontsize=10, fontweight="bold")
 
-        matrix = np.full((len(EXPERIMENTS), 12), np.nan)
+        matrix = np.full((len(ACTIVE_EXPERIMENTS), 12), np.nan)
         exp_labels = []
-        for i, exp_key in enumerate(EXPERIMENTS):
-            exp_labels.append(EXPERIMENTS[exp_key]["label"])
+        for i, exp_key in enumerate(ACTIVE_EXPERIMENTS):
+            exp_labels.append(ACTIVE_EXPERIMENTS[exp_key]["label"])
             joined = _join_opt_to_gc(df, gc_full, exp_key, case_id)
             if joined.empty:
                 continue
@@ -2217,7 +2298,7 @@ def fig_gc_margin_heatmap(
         )
 
         # Annotate cells
-        for i in range(len(EXPERIMENTS)):
+        for i in range(len(ACTIVE_EXPERIMENTS)):
             for j in range(12):
                 val = matrix[i, j]
                 if not np.isnan(val):
@@ -2235,7 +2316,7 @@ def fig_gc_margin_heatmap(
 
         ax.set_xticks(np.arange(12))
         ax.set_xticklabels(MONTH_ABBR, fontsize=8)
-        ax.set_yticks(np.arange(len(EXPERIMENTS)))
+        ax.set_yticks(np.arange(len(ACTIVE_EXPERIMENTS)))
         ax.set_yticklabels(exp_labels, fontsize=7.5)
 
         # Month-season separators
@@ -2268,9 +2349,9 @@ def fig_gc_violations(
 ) -> None:
     """Monthly 'any violation' rate — GC vs best optimised (Penalty + FMS)."""
     setup_style()
-    best_exp = "penalty_fms"
+    best_exp = EXPERIMENT_PAIRS[-1][1]
     GC_COLOR = "#878787"
-    OPT_COLOR = EXPERIMENTS[best_exp]["color"]
+    OPT_COLOR = ACTIVE_EXPERIMENTS[best_exp]["color"]
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 9))
     fig.suptitle(
@@ -2378,7 +2459,7 @@ def fig_gc_violations(
         mpatches.Patch(
             facecolor=OPT_COLOR,
             alpha=0.88,
-            label="CMA-ES + Penalty + FMS",
+            label=ACTIVE_EXPERIMENTS[best_exp]["label"],
         ),
     ]
     fig.legend(
