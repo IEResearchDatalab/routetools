@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from routetools.era5.loader import load_dataset_epoch
+from routetools.era5.loader import load_dataset_epoch, loadable_era5_paths
 
 
 def _write_dataset(
@@ -95,3 +95,37 @@ class TestLoadDatasetEpoch:
 
         with pytest.raises(KeyError, match="time"):
             load_dataset_epoch(nc)
+
+
+class TestLoadableEra5Paths:
+    def test_returns_only_base_when_no_continuation_file(self, tmp_path: Path):
+        base = tmp_path / "era5_wind_atlantic_2024.nc"
+        base.touch()
+
+        assert loadable_era5_paths(base) == [base]
+
+    def test_returns_base_plus_exact_next_year_when_present(self, tmp_path: Path):
+        base = tmp_path / "era5_wind_atlantic_2024.nc"
+        next_year = tmp_path / "era5_wind_atlantic_2025.nc"
+        base.touch()
+        next_year.touch()
+
+        assert loadable_era5_paths(base) == [base, next_year]
+
+    def test_returns_base_plus_monthly_glob_files(self, tmp_path: Path):
+        base = tmp_path / "era5_wind_pacific_2024.nc"
+        jan = tmp_path / "era5_wind_pacific_2025_01.nc"
+        feb = tmp_path / "era5_wind_pacific_2025_02.nc"
+        base.touch()
+        jan.touch()
+        feb.touch()
+
+        assert loadable_era5_paths(base) == [base, jan, feb]
+
+    def test_returns_only_base_when_filename_does_not_match_pattern(
+        self, tmp_path: Path
+    ):
+        base = tmp_path / "custom_weather_file.nc"
+        base.touch()
+
+        assert loadable_era5_paths(base) == [base]
