@@ -91,7 +91,6 @@ def test_count_summary_weather_violations(tmp_path: Path) -> None:
 
     wind_violations, wave_violations = count_summary_weather_violations(
         summary_path,
-        "AO_WPS",
     )
 
     assert wind_violations == 1

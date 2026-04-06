@@ -274,7 +274,7 @@ def count_land_violations(track_path: Path, land_checker: LandChecker) -> int:
 
 
 def count_summary_weather_violations(
-    summary_path: Path, case_id: str
+    summary_path: Path,
 ) -> tuple[int, int]:
     """Count wind and wave threshold violations from one File A CSV.
 
@@ -282,8 +282,6 @@ def count_summary_weather_violations(
     ----------
     summary_path : Path
         File A summary CSV.
-    case_id : str
-        SWOPP3 case identifier.
 
     Returns
     -------
@@ -347,7 +345,6 @@ def count_folder_violations(
 
         wind_violations, wave_violations = count_summary_weather_violations(
             summary_path,
-            case_id,
         )
 
         land_violations = 0
@@ -369,6 +366,11 @@ def count_folder_violations(
                         departure,
                         resources.dataset_epoch,
                     )
+                    # travel_time is in hours (passage_hours), matching
+                    # time_offset which is hours since the dataset epoch.
+                    # The wind_penalty_smooth/wave_penalty_smooth docstrings
+                    # say "seconds" but the implementation only requires
+                    # consistent units with time_offset; hours is correct here.
                     wind_penalty += float(
                         wind_penalty_smooth(
                             curve,
