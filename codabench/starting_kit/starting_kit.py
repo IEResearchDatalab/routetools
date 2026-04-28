@@ -37,25 +37,25 @@ N_WAYPOINTS = 100  # Number of waypoints in the route
 CASES = {
     "AO_WPS": {
         "src": (43.6, -4.0),
-        "dst": (40.53, -73.80),
+        "dst": (40.6, -69.0),
         "passage_h": 354,
         "wps": True,
     },
     "AO_noWPS": {
         "src": (43.6, -4.0),
-        "dst": (40.53, -73.80),
+        "dst": (40.6, -69.0),
         "passage_h": 354,
         "wps": False,
     },
     "AGC_WPS": {
         "src": (43.6, -4.0),
-        "dst": (40.53, -73.80),
+        "dst": (40.6, -69.0),
         "passage_h": 354,
         "wps": True,
     },
     "AGC_noWPS": {
         "src": (43.6, -4.0),
-        "dst": (40.53, -73.80),
+        "dst": (40.6, -69.0),
         "passage_h": 354,
         "wps": False,
     },
