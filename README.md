@@ -22,6 +22,10 @@ Tools:
 - [prettier](https://prettier.io/): format YAML and Markdown
 - [codespell](https://github.com/codespell-project/codespell): check spelling in source code
 
+## Documentation
+
+- [Parametric Performance Model](docs/parametric_model.md) — closed-form RISE model for ship power prediction (hull, wind, wave, and wingsail components).
+
 ## Installation
 
 ### Application
@@ -38,7 +42,18 @@ Install package and pinned dependencies with the [`uv`](https://docs.astral.sh/u
    uv sync
    ```
 
-4. Run any command or Python script with `uv run`, for instance:
+4. (Optional) Install the SWOPP3 performance model:
+
+   ```{bash}
+   uv sync --extra swopp3 --find-links release_package/wheels
+   ```
+
+   If the pre-built wheels are available locally in `release_package/wheels/`,
+   `uv` will resolve `swopp3-performance-model` from that directory. Wheels are
+   available for Python 3.10 – 3.13 on Linux (manylinux) and Windows
+   (win_amd64).
+
+5. Run any command or Python script with `uv run`, for instance:
 
    ```{bash}
    uv run routetools/cmaes.py
@@ -49,63 +64,6 @@ Install package and pinned dependencies with the [`uv`](https://docs.astral.sh/u
    ```{bash}
    source .venv/bin/activate
    ```
-
-### Git credentials for VCS dependencies
-
-When `uv` installs a package from a git repository (VCS dependency), Git may need credentials to fetch the remote. On non-interactive environments this commonly fails with:
-
-```bash
-fatal: could not read Username for 'https://github.com': terminal prompts disabled
-```
-
-Use one of the following approaches to make VCS fetches non-interactive.
-
-**Option A: SSH (preferred)**
-
-Generate an SSH key (WSL / Linux):
-
-```bash
-ssh-keygen -t ed25519 -C "your_email@example.com" -f ~/.ssh/id_ed25519 -N ""
-eval "$(ssh-agent -s)"
-ssh-add ~/.ssh/id_ed25519
-cat ~/.ssh/id_ed25519.pub
-```
-
-Add the printed public key to GitHub (Settings → SSH and GPG keys). Test access:
-
-```bash
-ssh -T git@github.com
-git ls-remote git@github.com:Weather-Routing-Research/weather-routing-benchmarks.git refs/heads/main
-```
-
-Then use an SSH pip URL when adding or declaring the dependency:
-
-```bash
-uv add 'git+ssh://git@github.com/Weather-Routing-Research/weather-routing-benchmarks.git@main#egg=wrr_bench'
-uv sync
-```
-
-If you run `uv` from PowerShell on Windows, ensure the Windows SSH agent is running and the key is loaded (Start-Service ssh-agent; ssh-add $env:USERPROFILE\\.ssh\\id_ed25519), or run `uv` from WSL where the key was created.
-
-**Option B: HTTPS with credentials (fallback)**
-
-Use Git Credential Manager or GitHub CLI to cache credentials so Git won't prompt:
-
-PowerShell (Windows):
-
-```powershell
-git config --global credential.helper manager-core
-gh auth login --hostname github.com --git-protocol https
-```
-
-WSL / Linux (use gh or configure a credential helper that works in your environment):
-
-```bash
-gh auth login --hostname github.com --git-protocol https
-# or configure `git config --global credential.helper cache` for short-term caching
-```
-
-After configuring credentials, retry the `uv add` / `uv sync` command.
 
 ### Library
 
@@ -156,6 +114,102 @@ If your computer does not have a GPU, you can force JAX to use the CPU with `JAX
 ```bash
 JAX_PLATFORMS=cpu uv run scripts/single_run.py
 ```
+
+### ERA5 weather data pipeline
+
+The `routetools.era5` module provides real-world ERA5 wind and wave fields
+for weather routing. Two download backends are available:
+
+- **GCS** (default) — Google Cloud archive, no API key required.
+- **CDS** — Copernicus Climate Data Store (requires `cdsapi` + API key).
+
+**1. Download ERA5 data** for the Atlantic corridor (USNYC ↔ DEHAM):
+
+```bash
+uv run scripts/download_era5.py --corridor atlantic --year 2023
+```
+
+This creates `data/era5/era5_wind_atlantic_2023.nc` and
+`data/era5/era5_waves_atlantic_2023.nc`.
+
+**2. Run the real-world benchmark** (New York → Hamburg, Jan 8 2023):
+
+```bash
+uv run scripts/era5_benchmark.py --departure 2023-01-08T00:00:00
+```
+
+See `scripts/download_era5.py --help` and `scripts/era5_benchmark.py --help`
+for all available options.
+
+### SWOPP3 ERA5 pipeline
+
+The default SWOPP3 competition pipeline is:
+
+```bash
+uv run scripts/download_era5.py
+uv run scripts/swopp3_run.py
+```
+
+These two commands line up without extra path flags. The downloader writes the
+four default 2024 files that `scripts/swopp3_run.py` expects:
+
+```text
+data/era5/era5_wind_atlantic_2024.nc
+data/era5/era5_waves_atlantic_2024.nc
+data/era5/era5_wind_pacific_2024.nc
+data/era5/era5_waves_pacific_2024.nc
+```
+
+`scripts/swopp3_run.py` validates these files before running any case. If one
+or more inputs are missing, it exits immediately with a precise error message
+instead of silently substituting a great-circle route or running without
+weather data. This is intentional:
+
+- GC cases still require wind and wave data for SWOPP3 energy evaluation.
+- Optimised cases require wind data for the CMA-ES vectorfield and wind/wave
+  data for the final SWOPP3 energy evaluation.
+
+If you download a different year or only one corridor, pass matching
+`--wind-path*` and `--wave-path*` options to `scripts/swopp3_run.py`.
+
+### Reproducible SWOPP3 experiment profiles
+
+`scripts/swopp3_run.py` supports named experiment profiles stored in
+`config.toml`.
+
+Run a named experiment:
+
+```bash
+uv run scripts/swopp3_run.py k15_p400_w1000
+```
+
+Use another TOML file if needed:
+
+```bash
+uv run scripts/swopp3_run.py k15_p400_w1000 --config-path path/to/experiments.toml
+```
+
+Relative paths inside a profile are resolved from the directory that contains
+the TOML file, not from your current working directory.
+
+Each profile can define shared defaults plus one or more runs.
+
+The runner writes a resolved manifest to:
+
+```text
+output/<experiment>/experiment_manifest.json
+```
+
+This records the experiment name, config file, source script, and resolved run
+parameters used for the launch.
+
+To add a new experiment:
+
+1. Add a new `[swopp3.experiments.<name>]` section to `config.toml`.
+2. Put shared parameters under `[swopp3.experiments.<name>.defaults]`.
+3. Add one or more `[[swopp3.experiments.<name>.runs]]` entries.
+4. Set `source_script` to the script or workflow the profile replaces.
+5. Run `uv run scripts/swopp3_run.py <name>`.
 
 ## Reproduce the results (paper)
 
