@@ -137,6 +137,7 @@ Data dependencies
 from __future__ import annotations
 
 import argparse
+import re
 import warnings
 from functools import cache
 from pathlib import Path
@@ -247,6 +248,13 @@ OPT_CASES: dict[str, dict] = {
         "gc": "PGC_noWPS",
         "color": "#47BFFF",  # IE sea-blue
     },
+}
+
+_CASE_FILE_SUFFIX = {
+    "AO_WPS": "atlantic_wps",
+    "AO_noWPS": "atlantic_no_wps",
+    "PO_WPS": "pacific_wps",
+    "PO_noWPS": "pacific_no_wps",
 }
 
 # Great-circle baselines (GC = fixed route, constant speed)
@@ -361,6 +369,56 @@ def _save_figure_outputs(
         artist.set_visible(was_visible)
 
     out.with_suffix(".tikz").unlink(missing_ok=True)
+
+
+def _slugify(value: str) -> str:
+    """Return a filesystem-safe lowercase suffix for subplot filenames."""
+    slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+    return slug or "panel"
+
+
+def _save_subplot_outputs(
+    fig: plt.Figure,
+    out: Path,
+    axes: list[plt.Axes],
+    panel_suffixes: list[str],
+    *,
+    pad_inches: float = 0.06,
+    **savefig_kwargs: object,
+) -> None:
+    """Save each axis as an individual cropped PNG file.
+
+    The output names use ``<figure_stem>_<panel_suffix>.png``.
+    """
+    if len(axes) != len(panel_suffixes):
+        raise ValueError("axes and panel_suffixes must have identical length")
+
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    fig_w, fig_h = fig.get_size_inches()
+    save_kwargs = {"transparent": True, **savefig_kwargs}
+    save_kwargs.pop("bbox_inches", None)
+
+    for ax, suffix in zip(axes, panel_suffixes, strict=False):
+        bbox_display = ax.get_tightbbox(renderer)
+        if bbox_display is None:
+            continue
+
+        bbox_inches = bbox_display.transformed(fig.dpi_scale_trans.inverted())
+        x0 = max(0.0, bbox_inches.x0 - pad_inches)
+        y0 = max(0.0, bbox_inches.y0 - pad_inches)
+        x1 = min(fig_w, bbox_inches.x1 + pad_inches)
+        y1 = min(fig_h, bbox_inches.y1 + pad_inches)
+        if x1 <= x0 or y1 <= y0:
+            continue
+
+        panel_bbox = mpl.transforms.Bbox.from_extents(x0, y0, x1, y1)
+        panel_out = out.with_name(f"{out.stem}_{_slugify(suffix)}{out.suffix}")
+        fig.savefig(
+            panel_out.with_suffix(".png"),
+            bbox_inches=panel_bbox,
+            **save_kwargs,
+        )
 
 
 def add_source_note(
@@ -619,6 +677,12 @@ def fig_energy_overview(
 
     add_source_note(fig)
     out = paths.figs_dir / "fig01_energy_overview.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes),
+        [_CASE_FILE_SUFFIX[case_id] for case_id in OPT_CASES],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -729,6 +793,12 @@ def fig_optimization_gains(
 
     add_source_note(fig)
     out = paths.figs_dir / "fig02_optimization_gains.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes),
+        [route for route, _title, _cases in route_groups],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -895,6 +965,12 @@ def fig_penalty_tradeoff(
 
     add_source_note(fig)
     out = paths.figs_dir / "fig03_penalty_tradeoff.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes),
+        ["wind_violations", "wave_violations", "mean_energy"],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -1033,6 +1109,13 @@ def _fig_seasonality_panel(
 
     add_source_note(fig)
     out = paths.figs_dir / f"{out_stem}.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes.flat),
+        [_CASE_FILE_SUFFIX[case_id] for case_id, _ in cases_order],
+        bbox_inches="tight",
+    )
     _save_figure_outputs(fig, out, bbox_inches="tight")
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -1212,6 +1295,13 @@ def _fig_relative_gain_panel(
 
     add_source_note(fig)
     out = paths.figs_dir / f"{out_stem}.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes.flat),
+        [_CASE_FILE_SUFFIX[case_id] for case_id, _ in cases_order],
+        bbox_inches="tight",
+    )
     _save_figure_outputs(fig, out, bbox_inches="tight")
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -1343,6 +1433,12 @@ def fig_wps_impact(
 
     add_source_note(fig)
     out = paths.figs_dir / "fig05_wps_impact.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes),
+        [route for route, _title, _wps_case, _nowps_case in route_groups],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -1458,6 +1554,12 @@ def fig_fms_improvement(
 
     add_source_note(fig)
     out = paths.figs_dir / "fig06_fms_improvement.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        axes,
+        [f"{base_exp}_vs_{fms_exp}" for base_exp, fms_exp, _title in pairs],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -1705,6 +1807,13 @@ def fig_route_maps(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
         add_source_note(fig)
         fig.tight_layout(rect=[0, 0.05, 1, 0.93])
         out = paths.figs_dir / "fig07_route_maps.pdf"
+        _save_subplot_outputs(
+            fig,
+            out,
+            [ax_atl, ax_pac],
+            ["atlantic", "pacific"],
+            bbox_inches="tight",
+        )
         _save_figure_outputs(fig, out, bbox_inches="tight")
         print(f"  Saved {out.name}")
         plt.close(fig)
@@ -1811,6 +1920,16 @@ def fig_risk_calendar(
 
     add_source_note(fig)
     out = paths.figs_dir / "fig08_risk_calendar.pdf"
+    exp_keys = list(ACTIVE_EXPERIMENTS.keys())
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes.flat),
+        [
+            *[f"wind_violations_{key}" for key in exp_keys],
+            *[f"wave_violations_{key}" for key in exp_keys],
+        ],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -1977,6 +2096,12 @@ def fig_fms_delta_byseason(
 
     add_source_note(fig)
     out = paths.figs_dir / "fig09_fms_seasonal_delta.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        axes,
+        [f"{base_exp}_vs_{fms_exp}" for base_exp, fms_exp in pairs],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -2148,6 +2273,12 @@ def fig_gc_victory_rate(
     )
     add_source_note(fig)
     out = paths.figs_dir / "fig10_gc_victory_rate.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes.flat),
+        [_CASE_FILE_SUFFIX[case_id] for case_id, _ in cases_order],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -2262,6 +2393,12 @@ def fig_gc_margin_heatmap(
 
     add_source_note(fig)
     out = paths.figs_dir / "fig11_gc_margin_heatmap.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes.flat),
+        [_CASE_FILE_SUFFIX[case_id] for case_id, _ in cases_order],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
@@ -2399,6 +2536,12 @@ def fig_gc_violations(
     )
     add_source_note(fig)
     out = paths.figs_dir / "fig12_gc_violations.pdf"
+    _save_subplot_outputs(
+        fig,
+        out,
+        list(axes.flat),
+        [_CASE_FILE_SUFFIX[case_id] for case_id, _ in cases_order],
+    )
     _save_figure_outputs(fig, out)
     print(f"  Saved {out.name}")
     plt.close(fig)
