@@ -31,11 +31,12 @@ Options
     --output-dir DIR    Directory where figures and tables are saved.
                         Default: <repo_root>/output/analysis
     --figures N [N...]  Space-separated list of figure numbers to generate
-                        (1–12). Generates all figures if omitted.
+                        (0–13). Generates all figures if omitted.
     --dpi DPI           Figure resolution in DPI. Default: 180
 
 Outputs
 -------
+    fig00_teaser_routes.pdf / .png
     fig01_energy_overview.pdf / .png
     fig02_optimization_gains.pdf / .png
     fig03_penalty_tradeoff.pdf / .png
@@ -87,6 +88,9 @@ Cases
 
 Figure descriptions
 -------------------
+    fig00 Compact teaser map (Atlantic + Pacific) with one representative
+          departure per corridor, overlaying GC (dashed grey), CMA-ES
+          (orange), and final BERS route (blue).
     fig01  Violin plots of energy consumption (MWh) per case × experiment,
            with great-circle baseline markers and median-savings annotations.
     fig02  Grouped bar chart of median % energy savings vs the great-circle
@@ -647,9 +651,14 @@ def fig_energy_overview(
             case_meta["label"].replace("\n", " "), fontsize=10, fontweight="bold"
         )
         all_ticks = [gc_pos] + list(exp_positions)
-        all_labels = ["GC"] + [
-            ACTIVE_EXPERIMENTS[k]["short"].replace(" + ", "\n+\n") for k in exp_order
-        ]
+        all_labels = ["GC"]
+        if exp_order == ["sweep_combined", "sweep_combined_fms_strict"]:
+            all_labels.extend(["CMA-ES", "BERS"])
+        else:
+            all_labels.extend(
+                ACTIVE_EXPERIMENTS[k]["short"].replace(" + ", "\n+\n")
+                for k in exp_order
+            )
         ax.set_xticks(all_ticks)
         ax.set_xticklabels(all_labels, fontsize=7.0)
         ax.set_ylabel("Energy (MWh)", fontsize=8)
@@ -674,6 +683,13 @@ def fig_energy_overview(
         bbox_to_anchor=(0.5, -0.04),
         fontsize=8.5,
     )
+
+    # Keep per-case panels directly comparable in both combined and per-panel exports.
+    all_ylims = [ax.get_ylim() for ax in axes]
+    ymin_all = min(y[0] for y in all_ylims)
+    ymax_all = max(y[1] for y in all_ylims)
+    for ax in axes:
+        ax.set_ylim(ymin_all, ymax_all)
 
     add_source_note(fig)
     out = paths.figs_dir / "fig01_energy_overview.pdf"
@@ -1598,12 +1614,728 @@ def load_gc_tracks(
     return result
 
 
+def _load_representative_route_triplet(
+    case_id: str,
+    gc_case: str,
+    base_exp: str,
+    final_exp: str,
+    paths: AnalysisPaths,
+) -> dict[str, object] | None:
+    """Return aligned (GC, CMA-ES, final) tracks for one representative departure.
+
+    Chooses the departure with the largest energy drop from base to final among
+    rows that have all three track files available.
+    """
+    base_summary = load_summary_csv(base_exp, case_id, paths)
+    final_summary = load_summary_csv(final_exp, case_id, paths)
+    if base_summary is None or final_summary is None:
+        return None
+
+    base_folder = _experiment_folder(base_exp, paths)
+    final_folder = _experiment_folder(final_exp, paths)
+    gc_path = _summary_csv_path(paths, base_folder, gc_case)
+    if gc_path is None or not gc_path.exists():
+        return None
+    gc_summary = pd.read_csv(gc_path, parse_dates=["departure_time_utc"])
+
+    cols = [
+        "departure_time_utc",
+        "details_filename",
+        "energy_cons_mwh",
+        "max_wind_mps",
+        "max_hs_m",
+    ]
+    base_cols = base_summary[cols].rename(
+        columns={
+            "details_filename": "base_details",
+            "energy_cons_mwh": "base_energy",
+            "max_wind_mps": "base_wind",
+            "max_hs_m": "base_wave",
+        }
+    )
+    final_cols = final_summary[cols].rename(
+        columns={
+            "details_filename": "final_details",
+            "energy_cons_mwh": "final_energy",
+            "max_wind_mps": "final_wind",
+            "max_hs_m": "final_wave",
+        }
+    )
+    gc_cols = gc_summary[cols].rename(
+        columns={
+            "details_filename": "gc_details",
+            "energy_cons_mwh": "gc_energy",
+            "max_wind_mps": "gc_wind",
+            "max_hs_m": "gc_wave",
+        }
+    )
+
+    merged = (
+        base_cols.merge(final_cols, on="departure_time_utc", how="inner")
+        .merge(gc_cols, on="departure_time_utc", how="inner")
+        .dropna(subset=["base_details", "final_details", "gc_details"])
+    )
+    if merged.empty:
+        return None
+
+    merged["delta_mwh"] = merged["base_energy"] - merged["final_energy"]
+    merged["gain_cma_vs_gc_pct"] = (
+        (merged["gc_energy"] - merged["base_energy"]) / merged["gc_energy"] * 100
+    )
+    merged["gain_bers_vs_gc_pct"] = (
+        (merged["gc_energy"] - merged["final_energy"]) / merged["gc_energy"] * 100
+    )
+    merged = merged.sort_values("delta_mwh", ascending=False)
+
+    base_tracks_dir = paths.output_dir / base_folder / "tracks"
+    final_tracks_dir = paths.output_dir / final_folder / "tracks"
+    for _, row in merged.iterrows():
+        gc_file = base_tracks_dir / row["gc_details"]
+        base_file = base_tracks_dir / row["base_details"]
+        final_file = final_tracks_dir / row["final_details"]
+        if not (gc_file.exists() and base_file.exists() and final_file.exists()):
+            continue
+
+        gc_track = pd.read_csv(gc_file, parse_dates=["time_utc"])
+        base_track = pd.read_csv(base_file, parse_dates=["time_utc"])
+        final_track = pd.read_csv(final_file, parse_dates=["time_utc"])
+        return {
+            "gc_track": gc_track,
+            "base_track": base_track,
+            "final_track": final_track,
+            "delta_mwh": float(row["delta_mwh"]),
+            "gain_cma_vs_gc_pct": float(row["gain_cma_vs_gc_pct"]),
+            "gain_bers_vs_gc_pct": float(row["gain_bers_vs_gc_pct"]),
+            "base_wind": float(row["base_wind"]),
+            "base_wave": float(row["base_wave"]),
+            "final_wind": float(row["final_wind"]),
+            "final_wave": float(row["final_wave"]),
+        }
+    return None
+
+
+def _load_best_route_triplets_by_season(
+    case_id: str,
+    gc_case: str,
+    base_exp: str,
+    final_exp: str,
+    paths: AnalysisPaths,
+    n_scenarios: int = 3,
+) -> list[dict[str, object]]:
+    """Return up to ``n_scenarios`` best seasonal route triplets vs GC.
+
+    Produces at most one representative departure per season, ranked by the
+    final-route gain over GC (highest first).
+    """
+    base_summary = load_summary_csv(base_exp, case_id, paths)
+    final_summary = load_summary_csv(final_exp, case_id, paths)
+    if base_summary is None or final_summary is None:
+        return []
+
+    base_folder = _experiment_folder(base_exp, paths)
+    final_folder = _experiment_folder(final_exp, paths)
+    gc_path = _summary_csv_path(paths, base_folder, gc_case)
+    if gc_path is None or not gc_path.exists():
+        return []
+    gc_summary = pd.read_csv(gc_path, parse_dates=["departure_time_utc"])
+
+    cols = [
+        "departure_time_utc",
+        "details_filename",
+        "energy_cons_mwh",
+        "max_wind_mps",
+        "max_hs_m",
+    ]
+    base_cols = base_summary[cols].rename(
+        columns={
+            "details_filename": "base_details",
+            "energy_cons_mwh": "base_energy",
+            "max_wind_mps": "base_wind",
+            "max_hs_m": "base_wave",
+        }
+    )
+    final_cols = final_summary[cols].rename(
+        columns={
+            "details_filename": "final_details",
+            "energy_cons_mwh": "final_energy",
+            "max_wind_mps": "final_wind",
+            "max_hs_m": "final_wave",
+        }
+    )
+    gc_cols = gc_summary[cols].rename(
+        columns={
+            "details_filename": "gc_details",
+            "energy_cons_mwh": "gc_energy",
+        }
+    )
+
+    merged = (
+        base_cols.merge(final_cols, on="departure_time_utc", how="inner")
+        .merge(gc_cols, on="departure_time_utc", how="inner")
+        .dropna(subset=["base_details", "final_details", "gc_details"])
+    )
+    if merged.empty:
+        return []
+
+    merged["season"] = merged["departure_time_utc"].dt.month.map(_MONTH_TO_SEASON)
+    merged["gain_cma_vs_gc_pct"] = (
+        (merged["gc_energy"] - merged["base_energy"]) / merged["gc_energy"] * 100
+    )
+    merged["gain_bers_vs_gc_pct"] = (
+        (merged["gc_energy"] - merged["final_energy"]) / merged["gc_energy"] * 100
+    )
+
+    base_tracks_dir = paths.output_dir / base_folder / "tracks"
+    final_tracks_dir = paths.output_dir / final_folder / "tracks"
+    seasonal_candidates: list[dict[str, object]] = []
+
+    for season in SEASON_ORDER:
+        season_rows = merged[merged["season"] == season].sort_values(
+            "gain_bers_vs_gc_pct", ascending=False
+        )
+        if season_rows.empty:
+            continue
+
+        for _, row in season_rows.iterrows():
+            gc_file = base_tracks_dir / row["gc_details"]
+            base_file = base_tracks_dir / row["base_details"]
+            final_file = final_tracks_dir / row["final_details"]
+            if not (gc_file.exists() and base_file.exists() and final_file.exists()):
+                continue
+
+            seasonal_candidates.append(
+                {
+                    "season": season,
+                    "gc_track": pd.read_csv(gc_file, parse_dates=["time_utc"]),
+                    "base_track": pd.read_csv(base_file, parse_dates=["time_utc"]),
+                    "final_track": pd.read_csv(
+                        final_file,
+                        parse_dates=["time_utc"],
+                    ),
+                    "gain_cma_vs_gc_pct": float(row["gain_cma_vs_gc_pct"]),
+                    "gain_bers_vs_gc_pct": float(row["gain_bers_vs_gc_pct"]),
+                    "base_wind": float(row["base_wind"]),
+                    "base_wave": float(row["base_wave"]),
+                    "final_wind": float(row["final_wind"]),
+                    "final_wave": float(row["final_wave"]),
+                }
+            )
+            break
+
+    seasonal_candidates.sort(key=lambda d: d["gain_bers_vs_gc_pct"], reverse=True)
+    return seasonal_candidates[:n_scenarios]
+
+
+def _fig_teaser_seasonal_scenarios_for_ocean(
+    cfg: dict[str, object],
+    paths: AnalysisPaths,
+    base_exp: str,
+    final_exp: str,
+    n_scenarios: int = 3,
+) -> None:
+    """Save a compact multi-panel teaser with the best seasonal scenarios."""
+    scenarios = _load_best_route_triplets_by_season(
+        case_id=str(cfg["case_id"]),
+        gc_case=str(cfg["gc_case"]),
+        base_exp=base_exp,
+        final_exp=final_exp,
+        paths=paths,
+        n_scenarios=n_scenarios,
+    )
+    if not scenarios:
+        print(f"  [!] Missing seasonal scenarios for {cfg['title']}; skipping")
+        return
+
+    def _plot_wrapped_track(
+        ax: plt.Axes,
+        lon_vals: np.ndarray,
+        lat_vals: np.ndarray,
+        *,
+        central_longitude: float,
+        **plot_kwargs: object,
+    ) -> None:
+        lon = np.asarray(lon_vals, dtype=float)
+        lat = np.asarray(lat_vals, dtype=float)
+        valid = np.isfinite(lon) & np.isfinite(lat)
+        if not valid.any():
+            return
+        lon = lon[valid]
+        lat = lat[valid]
+        lon = ((lon - central_longitude + 180.0) % 360.0) - 180.0 + central_longitude
+
+        split_idx = np.where(np.abs(np.diff(lon)) > 180.0)[0] + 1
+        lon_segments = np.split(lon, split_idx)
+        lat_segments = np.split(lat, split_idx)
+        for lon_seg, lat_seg in zip(lon_segments, lat_segments, strict=False):
+            if len(lon_seg) < 2:
+                continue
+            ax.plot(
+                lon_seg,
+                lat_seg,
+                transform=ccrs.PlateCarree(),
+                **plot_kwargs,
+            )
+
+    with mpl.rc_context({"figure.constrained_layout.use": False}):
+        ncols = len(scenarios)
+        fig = plt.figure(figsize=(4.4 * ncols, 4.2), facecolor="#FAFAF7")
+        fig.suptitle(
+            f"{cfg['title']}: best seasonal scenarios vs great-circle",
+            fontsize=11,
+            fontweight="bold",
+            x=0.02,
+            ha="left",
+        )
+
+        axes = []
+        for i in range(ncols):
+            ax = fig.add_subplot(1, ncols, i + 1, projection=cfg["projection"])
+            axes.append(ax)
+            ax.set_extent(cfg["extent"], crs=ccrs.PlateCarree())
+            ax.add_feature(cfeature.OCEAN, facecolor="#EFF5FF", zorder=0)
+            ax.add_feature(cfeature.LAND, facecolor="#D9D0C3", zorder=1)
+            ax.add_feature(
+                cfeature.COASTLINE,
+                linewidth=0.45,
+                edgecolor="#808080",
+                zorder=2,
+            )
+            ax.gridlines(
+                draw_labels=False,
+                linewidth=0.35,
+                color="#C8C8C8",
+                x_inline=False,
+                y_inline=False,
+            )
+
+        GC_COLOR = "#7A7A7A"
+        CMA_COLOR = "#FF8C42"
+        BERS_COLOR = "#1C5DAA"
+
+        for ax, scenario in zip(axes, scenarios, strict=False):
+            gc_trk = scenario["gc_track"]
+            base_trk = scenario["base_track"]
+            final_trk = scenario["final_track"]
+
+            _plot_wrapped_track(
+                ax,
+                gc_trk["lon_deg"].to_numpy(),
+                gc_trk["lat_deg"].to_numpy(),
+                central_longitude=float(cfg["central_longitude"]),
+                color=GC_COLOR,
+                linewidth=1.1,
+                linestyle="--",
+                alpha=0.95,
+                zorder=3,
+            )
+            _plot_wrapped_track(
+                ax,
+                base_trk["lon_deg"].to_numpy(),
+                base_trk["lat_deg"].to_numpy(),
+                central_longitude=float(cfg["central_longitude"]),
+                color=CMA_COLOR,
+                linewidth=1.4,
+                alpha=0.9,
+                zorder=4,
+            )
+            _plot_wrapped_track(
+                ax,
+                final_trk["lon_deg"].to_numpy(),
+                final_trk["lat_deg"].to_numpy(),
+                central_longitude=float(cfg["central_longitude"]),
+                color=BERS_COLOR,
+                linewidth=1.8,
+                alpha=0.95,
+                zorder=5,
+            )
+
+            ax.text(
+                0.02,
+                0.02,
+                (
+                    f"CMA-ES vs GC: {float(scenario['gain_cma_vs_gc_pct']):+.1f}%\n"
+                    f"BERS vs GC: {float(scenario['gain_bers_vs_gc_pct']):+.1f}%"
+                ),
+                transform=ax.transAxes,
+                fontsize=6.5,
+                color="#4D4D4D",
+                ha="left",
+                va="bottom",
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "fc": "white",
+                    "ec": "none",
+                    "alpha": 0.74,
+                },
+                zorder=6,
+            )
+            ax.text(
+                0.98,
+                0.02,
+                (
+                    "Max (CMAES / BERS)\n"
+                    "Wind (m/s): "
+                    f"{float(scenario['base_wind']):.1f}/{float(scenario['final_wind']):.1f}\n"
+                    "Wave Hs (m): "
+                    f"{float(scenario['base_wave']):.1f}/{float(scenario['final_wave']):.1f}"
+                ),
+                transform=ax.transAxes,
+                fontsize=6.0,
+                color="#4D4D4D",
+                ha="right",
+                va="bottom",
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "fc": "white",
+                    "ec": "none",
+                    "alpha": 0.74,
+                },
+                zorder=6,
+            )
+
+        legend_elements = [
+            mlines.Line2D(
+                [],
+                [],
+                color=GC_COLOR,
+                linestyle="--",
+                linewidth=1.2,
+                label="Great-circle",
+            ),
+            mlines.Line2D([], [], color=CMA_COLOR, linewidth=1.5, label="CMA-ES"),
+            mlines.Line2D([], [], color=BERS_COLOR, linewidth=1.9, label="BERS"),
+        ]
+        fig.legend(
+            handles=legend_elements,
+            loc="lower center",
+            ncol=3,
+            bbox_to_anchor=(0.5, -0.02),
+            fontsize=8,
+        )
+
+        add_source_note(fig)
+        fig.tight_layout(rect=[0, 0.08, 1, 0.9])
+        out = paths.figs_dir / f"fig00_{str(cfg['slug'])}_seasonal_scenarios.pdf"
+        _save_subplot_outputs(
+            fig,
+            out,
+            axes,
+            [str(s["season"]).lower() for s in scenarios],
+            bbox_inches="tight",
+        )
+        _save_figure_outputs(fig, out, bbox_inches="tight")
+        print(f"  Saved {out.name}")
+        plt.close(fig)
+
+
+def fig_teaser_seasonal_scenarios(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
+    """Generate 3 best-vs-GC seasonal scenarios for each ocean corridor."""
+    setup_style()
+    base_exp, final_exp = EXPERIMENT_PAIRS[0]
+    ocean_cfgs = [
+        {
+            "slug": "atlantic",
+            "title": "Trans-Atlantic",
+            "projection": ccrs.PlateCarree(central_longitude=-40),
+            "central_longitude": -40,
+            "extent": [-80, 15, 25, 65],
+            "case_id": "AO_WPS",
+            "gc_case": "AGC_WPS",
+        },
+        {
+            "slug": "pacific",
+            "title": "Trans-Pacific",
+            "projection": ccrs.PlateCarree(central_longitude=180),
+            "central_longitude": 180,
+            "extent": [115, 250, 20, 65],
+            "case_id": "PO_WPS",
+            "gc_case": "PGC_WPS",
+        },
+    ]
+
+    for cfg in ocean_cfgs:
+        _fig_teaser_seasonal_scenarios_for_ocean(
+            cfg=cfg,
+            paths=paths,
+            base_exp=base_exp,
+            final_exp=final_exp,
+            n_scenarios=3,
+        )
+
+
+# ==========================================================================
+# FIGURE 0 — Teaser route comparison
+# ==========================================================================
+def fig_teaser_routes(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
+    """Compact teaser map with one representative Atlantic and Pacific departure."""
+    setup_style()
+
+    def _plot_wrapped_track(
+        ax: plt.Axes,
+        lon_vals: np.ndarray,
+        lat_vals: np.ndarray,
+        *,
+        central_longitude: float,
+        **plot_kwargs: object,
+    ) -> None:
+        """Plot a track split at antimeridian crossings to avoid wrap artefacts."""
+        lon = np.asarray(lon_vals, dtype=float)
+        lat = np.asarray(lat_vals, dtype=float)
+        valid = np.isfinite(lon) & np.isfinite(lat)
+        if not valid.any():
+            return
+
+        lon = lon[valid]
+        lat = lat[valid]
+        lon = ((lon - central_longitude + 180.0) % 360.0) - 180.0 + central_longitude
+
+        split_idx = np.where(np.abs(np.diff(lon)) > 180.0)[0] + 1
+        lon_segments = np.split(lon, split_idx)
+        lat_segments = np.split(lat, split_idx)
+        for lon_seg, lat_seg in zip(lon_segments, lat_segments, strict=False):
+            if len(lon_seg) < 2:
+                continue
+            ax.plot(
+                lon_seg,
+                lat_seg,
+                transform=ccrs.PlateCarree(),
+                **plot_kwargs,
+            )
+
+    base_exp, final_exp = EXPERIMENT_PAIRS[0]
+    teaser_cfgs = [
+        {
+            "title": "Trans-Atlantic",
+            "projection": ccrs.PlateCarree(central_longitude=-40),
+            "central_longitude": -40,
+            "extent": [-80, 15, 25, 65],
+            "case_id": "AO_WPS",
+            "gc_case": "AGC_WPS",
+        },
+        {
+            "title": "Trans-Pacific",
+            "projection": ccrs.PlateCarree(central_longitude=180),
+            "central_longitude": 180,
+            "extent": [115, 250, 20, 65],
+            "case_id": "PO_WPS",
+            "gc_case": "PGC_WPS",
+        },
+    ]
+
+    route_triplets: list[dict[str, object]] = []
+    for cfg in teaser_cfgs:
+        triplet = _load_representative_route_triplet(
+            cfg["case_id"], cfg["gc_case"], base_exp, final_exp, paths
+        )
+        if triplet is None:
+            print(
+                f"  [!] Missing representative tracks for {cfg['title']}; "
+                "skipping fig00"
+            )
+            return
+        route_triplets.append(triplet)
+
+    with mpl.rc_context({"figure.constrained_layout.use": False}):
+        fig = plt.figure(figsize=(11, 4.5), facecolor="#FAFAF7")
+        fig.suptitle(
+            "Two-stage weather routing: from coarse search to refined optimal tracks",
+            fontsize=11.5,
+            fontweight="bold",
+            x=0.02,
+            ha="left",
+        )
+
+        axes = []
+        for i, cfg in enumerate(teaser_cfgs, start=1):
+            ax = fig.add_subplot(1, 2, i, projection=cfg["projection"])
+            axes.append(ax)
+            ax.set_extent(cfg["extent"], crs=ccrs.PlateCarree())
+            ax.add_feature(cfeature.OCEAN, facecolor="#EFF5FF", zorder=0)
+            ax.add_feature(cfeature.LAND, facecolor="#D9D0C3", zorder=1)
+            ax.add_feature(
+                cfeature.COASTLINE,
+                linewidth=0.45,
+                edgecolor="#808080",
+                zorder=2,
+            )
+            ax.gridlines(
+                draw_labels=False,
+                linewidth=0.35,
+                color="#C8C8C8",
+                x_inline=False,
+                y_inline=False,
+            )
+            ax.set_title(cfg["title"], fontsize=10.5, fontweight="bold", pad=6)
+
+        GC_COLOR = "#7A7A7A"
+        CMA_COLOR = "#FF8C42"
+        BERS_COLOR = "#1C5DAA"
+
+        for ax, cfg, route_data in zip(axes, teaser_cfgs, route_triplets, strict=False):
+            gc_trk = route_data["gc_track"]
+            base_trk = route_data["base_track"]
+            final_trk = route_data["final_track"]
+            gain_cma_vs_gc_pct = route_data["gain_cma_vs_gc_pct"]
+            gain_bers_vs_gc_pct = route_data["gain_bers_vs_gc_pct"]
+            base_wind = route_data["base_wind"]
+            base_wave = route_data["base_wave"]
+            final_wind = route_data["final_wind"]
+            final_wave = route_data["final_wave"]
+
+            _plot_wrapped_track(
+                ax,
+                gc_trk["lon_deg"].to_numpy(),
+                gc_trk["lat_deg"].to_numpy(),
+                central_longitude=cfg["central_longitude"],
+                color=GC_COLOR,
+                linewidth=1.3,
+                linestyle="--",
+                alpha=0.95,
+                zorder=3,
+            )
+            _plot_wrapped_track(
+                ax,
+                base_trk["lon_deg"].to_numpy(),
+                base_trk["lat_deg"].to_numpy(),
+                central_longitude=cfg["central_longitude"],
+                color=CMA_COLOR,
+                linewidth=1.7,
+                alpha=0.9,
+                zorder=4,
+            )
+            _plot_wrapped_track(
+                ax,
+                final_trk["lon_deg"].to_numpy(),
+                final_trk["lat_deg"].to_numpy(),
+                central_longitude=cfg["central_longitude"],
+                color=BERS_COLOR,
+                linewidth=2.1,
+                alpha=0.95,
+                zorder=5,
+            )
+
+            ax.text(
+                0.02,
+                0.03,
+                (
+                    f"CMA-ES gain vs GC: {gain_cma_vs_gc_pct:+.1f}%\n"
+                    f"BERS gain vs GC: {gain_bers_vs_gc_pct:+.1f}%"
+                ),
+                transform=ax.transAxes,
+                fontsize=7.0,
+                color="#555555",
+                ha="left",
+                va="bottom",
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "fc": "white",
+                    "ec": "none",
+                    "alpha": 0.7,
+                },
+                zorder=6,
+            )
+            ax.text(
+                0.98,
+                0.03,
+                (
+                    "Max met-ocean along route\n"
+                    "Wind speed (m/s): "
+                    f"CMA-ES {base_wind:.1f} | BERS {final_wind:.1f}\n"
+                    "Wave height Hs (m): "
+                    f"CMA-ES {base_wave:.1f} | BERS {final_wave:.1f}"
+                ),
+                transform=ax.transAxes,
+                fontsize=6.6,
+                color="#4D4D4D",
+                ha="right",
+                va="bottom",
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "fc": "white",
+                    "ec": "none",
+                    "alpha": 0.75,
+                },
+                zorder=6,
+            )
+
+        flow_note = (
+            "CMA-ES coarse search  \\N{RIGHTWARDS ARROW}  "
+            "FMS refinement  \\N{RIGHTWARDS ARROW}  final route"
+        )
+        fig.text(
+            0.5,
+            0.03,
+            flow_note,
+            ha="center",
+            va="center",
+            fontsize=8.2,
+            color="#4D4D4D",
+            bbox={
+                "boxstyle": "round,pad=0.3",
+                "fc": "white",
+                "ec": "#D4D4D4",
+                "alpha": 0.85,
+            },
+        )
+
+        legend_elements = [
+            mlines.Line2D(
+                [],
+                [],
+                color=GC_COLOR,
+                linestyle="--",
+                linewidth=1.4,
+                label="Great-circle",
+            ),
+            mlines.Line2D([], [], color=CMA_COLOR, linewidth=1.8, label="CMA-ES"),
+            mlines.Line2D(
+                [],
+                [],
+                color=BERS_COLOR,
+                linewidth=2.2,
+                label="BERS (final)",
+            ),
+        ]
+        fig.legend(
+            handles=legend_elements,
+            loc="lower center",
+            ncol=3,
+            bbox_to_anchor=(0.5, -0.035),
+            fontsize=8.2,
+        )
+
+        add_source_note(fig)
+        fig.tight_layout(rect=[0, 0.08, 1, 0.9])
+        out = paths.figs_dir / "fig00_teaser_routes.pdf"
+        _save_subplot_outputs(
+            fig,
+            out,
+            axes,
+            ["atlantic", "pacific"],
+            bbox_inches="tight",
+        )
+        _save_figure_outputs(fig, out, bbox_inches="tight")
+        print(f"  Saved {out.name}")
+        plt.close(fig)
+
+    # Also export seasonal teaser scenarios: 3 best-vs-GC examples per ocean.
+    fig_teaser_seasonal_scenarios(paths)
+
+
 # ===========================================================================
 # FIGURE 7 — Route maps
 # ===========================================================================
 def fig_route_maps(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
-    """Geographic maps showing representative routes for Atlantic and Pacific."""
+    """Geographic maps showing all BERS routes and seasonal mean corridors."""
     setup_style()
+
+    def _wrap_longitudes(
+        lon_vals: np.ndarray,
+        central_longitude: float,
+    ) -> np.ndarray:
+        """Wrap longitudes to the plotting frame centred on *central_longitude*."""
+        lon = np.asarray(lon_vals, dtype=float)
+        return ((lon - central_longitude + 180.0) % 360.0) - 180.0 + central_longitude
 
     def _plot_wrapped_track(
         ax: plt.Axes,
@@ -1622,7 +2354,7 @@ def fig_route_maps(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
 
         lon = lon[valid]
         lat = lat[valid]
-        lon = ((lon - central_longitude + 180.0) % 360.0) - 180.0 + central_longitude
+        lon = _wrap_longitudes(lon, central_longitude)
 
         split_idx = np.where(np.abs(np.diff(lon)) > 180.0)[0] + 1
         lon_segments = np.split(lon, split_idx)
@@ -1638,185 +2370,433 @@ def fig_route_maps(paths: AnalysisPaths = DEFAULT_PATHS) -> None:
                 **plot_kwargs,
             )
 
+    def _load_all_bers_tracks(
+        case_id: str,
+        central_longitude: float,
+    ) -> list[dict[str, object]]:
+        """Load all available final-route tracks for one optimised case."""
+        final_exp = EXPERIMENT_PAIRS[0][1]
+        summary = load_summary_csv(final_exp, case_id, paths)
+        if summary is None:
+            return []
+
+        tracks_dir = paths.output_dir / _experiment_folder(final_exp, paths) / "tracks"
+        routes: list[dict[str, object]] = []
+        for _, row in summary.sort_values("departure_time_utc").iterrows():
+            fpath = tracks_dir / row["details_filename"]
+            if not fpath.exists():
+                continue
+            trk = pd.read_csv(fpath, parse_dates=["time_utc"])
+            routes.append(
+                {
+                    "season": row["season"],
+                    "lon": _wrap_longitudes(
+                        trk["lon_deg"].to_numpy(),
+                        central_longitude,
+                    ),
+                    "lat": trk["lat_deg"].to_numpy(dtype=float),
+                }
+            )
+        return routes
+
+    def _load_best_bers_routes_by_month(
+        case_id: str,
+        gc_case: str,
+        central_longitude: float,
+    ) -> list[dict[str, object]]:
+        """Load the best BERS route for each month, ranked by saving vs GC."""
+        base_exp, final_exp = EXPERIMENT_PAIRS[0]
+        summary = load_summary_csv(final_exp, case_id, paths)
+        if summary is None:
+            return []
+
+        gc_path = _summary_csv_path(paths, _experiment_folder(base_exp, paths), gc_case)
+        if gc_path is None or not gc_path.exists():
+            return []
+        gc_summary = pd.read_csv(gc_path, parse_dates=["departure_time_utc"])
+
+        merged = summary.merge(
+            gc_summary[["departure_time_utc", "energy_cons_mwh"]].rename(
+                columns={"energy_cons_mwh": "gc_energy_cons_mwh"}
+            ),
+            on="departure_time_utc",
+            how="inner",
+        )
+        if merged.empty:
+            return []
+
+        merged["gain_bers_vs_gc_pct"] = (
+            (merged["gc_energy_cons_mwh"] - merged["energy_cons_mwh"])
+            / merged["gc_energy_cons_mwh"]
+            * 100
+        )
+
+        tracks_dir = paths.output_dir / _experiment_folder(final_exp, paths) / "tracks"
+        routes: list[dict[str, object]] = []
+        for month in range(1, 13):
+            month_rows = merged[merged["month"] == month].sort_values(
+                "gain_bers_vs_gc_pct",
+                ascending=False,
+            )
+            if month_rows.empty:
+                continue
+            row = month_rows.iloc[0]
+            fpath = tracks_dir / row["details_filename"]
+            if not fpath.exists():
+                continue
+            trk = pd.read_csv(fpath, parse_dates=["time_utc"])
+            routes.append(
+                {
+                    "month": int(month),
+                    "season": row["season"],
+                    "gain_bers_vs_gc_pct": float(row["gain_bers_vs_gc_pct"]),
+                    "lon": _wrap_longitudes(
+                        trk["lon_deg"].to_numpy(),
+                        central_longitude,
+                    ),
+                    "lat": trk["lat_deg"].to_numpy(dtype=float),
+                }
+            )
+        return routes
+
+    def _load_gc_reference_track(
+        gc_case: str,
+        central_longitude: float,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Load one great-circle track to use as the route baseline."""
+        base_exp = EXPERIMENT_PAIRS[0][0]
+        summary_path = _summary_csv_path(
+            paths,
+            _experiment_folder(base_exp, paths),
+            gc_case,
+        )
+        if summary_path is None or not summary_path.exists():
+            return None
+
+        summary = pd.read_csv(summary_path, parse_dates=["departure_time_utc"])
+        if summary.empty:
+            return None
+
+        tracks_dir = paths.output_dir / _experiment_folder(base_exp, paths) / "tracks"
+        details_name = summary.sort_values("departure_time_utc").iloc[0][
+            "details_filename"
+        ]
+        fpath = tracks_dir / details_name
+        if not fpath.exists():
+            return None
+
+        trk = pd.read_csv(fpath, parse_dates=["time_utc"])
+        return (
+            _wrap_longitudes(trk["lon_deg"].to_numpy(), central_longitude),
+            trk["lat_deg"].to_numpy(dtype=float),
+        )
+
+    def _resample_track(
+        lon_vals: np.ndarray,
+        lat_vals: np.ndarray,
+        n_points: int = 240,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Resample one route to a fixed number of points along cumulative length."""
+        lon = np.asarray(lon_vals, dtype=float)
+        lat = np.asarray(lat_vals, dtype=float)
+        valid = np.isfinite(lon) & np.isfinite(lat)
+        lon = lon[valid]
+        lat = lat[valid]
+        if len(lon) == 0:
+            return np.array([]), np.array([])
+        if len(lon) == 1:
+            return np.full(n_points, lon[0]), np.full(n_points, lat[0])
+
+        seg = np.hypot(np.diff(lon), np.diff(lat))
+        dist = np.concatenate([[0.0], np.cumsum(seg)])
+        if dist[-1] <= 0:
+            return np.full(n_points, lon[0]), np.full(n_points, lat[0])
+
+        target = np.linspace(0.0, dist[-1], n_points)
+        return np.interp(target, dist, lon), np.interp(target, dist, lat)
+
+    def _seasonal_route_stats(
+        routes: list[dict[str, object]],
+        season: str,
+        n_points: int = 240,
+    ) -> dict[str, object] | None:
+        """Return mean route and percentile envelope for one season."""
+        seasonal = [route for route in routes if route["season"] == season]
+        if not seasonal:
+            return None
+
+        lon_stack = []
+        lat_stack = []
+        for route in seasonal:
+            lon_res, lat_res = _resample_track(route["lon"], route["lat"], n_points)
+            if len(lon_res) == 0:
+                continue
+            lon_stack.append(lon_res)
+            lat_stack.append(lat_res)
+        if not lon_stack:
+            return None
+
+        lon_arr = np.vstack(lon_stack)
+        lat_arr = np.vstack(lat_stack)
+        return {
+            "season": season,
+            "lon_mean": lon_arr.mean(axis=0),
+            "lat_mean": lat_arr.mean(axis=0),
+            "lat_p10": np.percentile(lat_arr, 10, axis=0),
+            "lat_p90": np.percentile(lat_arr, 90, axis=0),
+            "count": len(lon_stack),
+        }
+
+    def _setup_map(ax: plt.Axes, cfg: dict[str, object]) -> None:
+        """Apply shared cartographic styling."""
+        ax.set_extent(cfg["extent"], crs=ccrs.PlateCarree())
+        ax.add_feature(cfeature.LAND, facecolor="#D9D0C3", zorder=1)
+        ax.add_feature(cfeature.OCEAN, facecolor="#EFF5FF", zorder=0)
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.5, edgecolor="#7D7D7D", zorder=2)
+        ax.add_feature(cfeature.BORDERS, linewidth=0.3, edgecolor="#BBBBBB", zorder=2)
+        gl = ax.gridlines(
+            draw_labels=True,
+            linewidth=0.4,
+            color="#CCCCCC",
+            x_inline=False,
+            y_inline=False,
+        )
+        gl.xlabel_style = {"size": 7}
+        gl.ylabel_style = {"size": 7}
+        ax.set_title(cfg["title"], fontsize=10, fontweight="bold", pad=6)
+
+    route_configs = [
+        {
+            "title": "Trans-Atlantic (Santander → New York)",
+            "case_id": "AO_WPS",
+            "gc_case": "AGC_WPS",
+            "central_longitude": -40.0,
+            "extent": [-80, 15, 25, 65],
+            "projection": ccrs.PlateCarree(central_longitude=-40),
+        },
+        {
+            "title": "Trans-Pacific (Tokyo → Los Angeles)",
+            "case_id": "PO_WPS",
+            "gc_case": "PGC_WPS",
+            "central_longitude": 180.0,
+            "extent": [115, 250, 20, 65],
+            "projection": ccrs.PlateCarree(central_longitude=180),
+        },
+    ]
+    season_colors = {
+        "Winter": "#1C5DAA",
+        "Spring": "#6DC201",
+        "Summer": "#F23333",
+        "Autumn": "#FF8C42",
+    }
+
+    route_data = {
+        cfg["case_id"]: _load_all_bers_tracks(
+            str(cfg["case_id"]),
+            float(cfg["central_longitude"]),
+        )
+        for cfg in route_configs
+    }
+
     # Cartopy/constrained_layout are incompatible — disable for this figure
     with mpl.rc_context({"figure.constrained_layout.use": False}):
-        fig = plt.figure(figsize=(14, 6), facecolor="#FAFAF7")
-        fig.suptitle(
-            "Optimised routes diverge from great circles to exploit prevailing winds and avoid storms",  # noqa: E501
+        fig_all = plt.figure(figsize=(14, 6), facecolor="#FAFAF7")
+        fig_all.suptitle(
+            "Best BERS route of each month, coloured by departure season",
             fontsize=12,
             fontweight="bold",
             x=0.02,
             ha="left",
         )
-
-        # Atlantic map
-        ax_atl = fig.add_subplot(
-            1,
-            2,
-            1,
-            projection=ccrs.PlateCarree(central_longitude=-40),
-        )
-        # Pacific map (centred at 180° to avoid antimeridian split)
-        ax_pac = fig.add_subplot(
-            1,
-            2,
-            2,
-            projection=ccrs.PlateCarree(central_longitude=180),
-        )
-
-        route_configs = [
-            {
-                "ax": ax_atl,
-                "title": "Trans-Atlantic (Santander → New York)",
-                "central_longitude": -40,
-                "extent": [-80, 15, 25, 65],
-                "cases": ["AO_WPS", "AO_noWPS"],
-                "gc_case": "AGC_WPS",
-                "seasons": ["Winter", "Summer"],
-            },
-            {
-                "ax": ax_pac,
-                "title": "Trans-Pacific (Tokyo → Los Angeles)",
-                "central_longitude": 180,
-                "extent": [115, 250, 20, 65],
-                "cases": ["PO_WPS", "PO_noWPS"],
-                "gc_case": "PGC_WPS",
-                "seasons": ["Winter", "Summer"],
-            },
+        axes_all = [
+            fig_all.add_subplot(1, 2, 1, projection=route_configs[0]["projection"]),
+            fig_all.add_subplot(1, 2, 2, projection=route_configs[1]["projection"]),
         ]
 
-        for cfg in route_configs:
-            ax = cfg["ax"]
-            ax.set_extent(cfg["extent"], crs=ccrs.PlateCarree())
-            ax.add_feature(cfeature.LAND, facecolor="#D9D0C3", zorder=1)
-            ax.add_feature(cfeature.OCEAN, facecolor="#EFF5FF", zorder=0)
-            ax.add_feature(
-                cfeature.COASTLINE, linewidth=0.5, edgecolor="#7D7D7D", zorder=2
+        for ax, cfg in zip(axes_all, route_configs, strict=False):
+            _setup_map(ax, cfg)
+            gc_track = _load_gc_reference_track(
+                str(cfg["gc_case"]),
+                float(cfg["central_longitude"]),
             )
-            ax.add_feature(
-                cfeature.BORDERS, linewidth=0.3, edgecolor="#BBBBBB", zorder=2
+            if gc_track is not None:
+                _plot_wrapped_track(
+                    ax,
+                    gc_track[0],
+                    gc_track[1],
+                    central_longitude=float(cfg["central_longitude"]),
+                    color="#555555",
+                    linewidth=1.6,
+                    linestyle="--",
+                    alpha=0.95,
+                    zorder=2,
+                )
+            routes = _load_best_bers_routes_by_month(
+                str(cfg["case_id"]),
+                str(cfg["gc_case"]),
+                float(cfg["central_longitude"]),
             )
-            gl = ax.gridlines(
-                draw_labels=True,
-                linewidth=0.4,
-                color="#CCCCCC",
-                x_inline=False,
-                y_inline=False,
+            for route in routes:
+                season = str(route["season"])
+                _plot_wrapped_track(
+                    ax,
+                    route["lon"],
+                    route["lat"],
+                    central_longitude=float(cfg["central_longitude"]),
+                    color=season_colors[season],
+                    linewidth=1.2,
+                    linestyle="-",
+                    alpha=0.9,
+                    zorder=3,
+                )
+            ax.text(
+                0.02,
+                0.02,
+                f"{len(routes)} monthly best routes",
+                transform=ax.transAxes,
+                fontsize=7.5,
+                color="#4D4D4D",
+                ha="left",
+                va="bottom",
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "fc": "white",
+                    "ec": "none",
+                    "alpha": 0.72,
+                },
             )
-            gl.xlabel_style = {"size": 7}
-            gl.ylabel_style = {"size": 7}
-            ax.set_title(cfg["title"], fontsize=10, fontweight="bold", pad=6)
 
-            for exp_key in ACTIVE_EXPERIMENTS:
-                exp_meta = ACTIVE_EXPERIMENTS[exp_key]
-                for case_id in cfg["cases"]:
-                    for season in cfg["seasons"]:
-                        tracks = load_tracks(
-                            exp_key,
-                            case_id,
-                            paths,
-                            season_filter=season,
-                            n_sample=4,
-                        )
-                        alpha = 0.55 if season == "Winter" else 0.35
-                        for trk in tracks:
-                            _plot_wrapped_track(
-                                ax,
-                                trk["lon_deg"].values,
-                                trk["lat_deg"].values,
-                                central_longitude=cfg["central_longitude"],
-                                color=exp_meta["color"],
-                                linewidth=0.85,
-                                alpha=alpha,
-                                zorder=3,
-                            )
-
-            # Great-circle reference routes — dashed dark grey
-            gc_case = cfg.get("gc_case")
-            if gc_case:
-                for season in cfg["seasons"]:
-                    alpha_gc = 0.80 if season == "Winter" else 0.45
-                    for trk in load_gc_tracks(
-                        gc_case,
-                        paths,
-                        season_filter=season,
-                        n_sample=4,
-                    ):
-                        _plot_wrapped_track(
-                            ax,
-                            trk["lon_deg"].values,
-                            trk["lat_deg"].values,
-                            central_longitude=cfg["central_longitude"],
-                            color="#111111",
-                            linewidth=1.5,
-                            linestyle="--",
-                            alpha=alpha_gc,
-                            zorder=5,
-                        )
-
-        # Legend
-        exp_lines = [
+        season_handles = [
             mlines.Line2D(
                 [],
                 [],
-                color=ACTIVE_EXPERIMENTS[k]["color"],
-                linewidth=2,
-                label=ACTIVE_EXPERIMENTS[k]["label"],
-            )
-            for k in ACTIVE_EXPERIMENTS
+                color="#555555",
+                linewidth=1.6,
+                linestyle="--",
+                label="Great-circle",
+            ),
+        ] + [
+            mlines.Line2D([], [], color=season_colors[s], linewidth=2, label=s)
+            for s in SEASON_ORDER
         ]
-        legend_elements = (
-            [
-                mlines.Line2D(
-                    [],
-                    [],
-                    color="#111111",
-                    linewidth=1.5,
-                    linestyle="--",
-                    label="Great-circle route",
-                ),
-            ]
-            + exp_lines
-            + [
-                mlines.Line2D(
-                    [],
-                    [],
-                    color="#555",
-                    linewidth=2,
-                    alpha=0.75,
-                    label="Winter departures (bold)",
-                ),
-                mlines.Line2D(
-                    [],
-                    [],
-                    color="#555",
-                    linewidth=2,
-                    alpha=0.40,
-                    label="Summer departures (faint)",
-                ),
-            ]
-        )
-        fig.legend(
-            handles=legend_elements,
+        fig_all.legend(
+            handles=season_handles,
             loc="lower center",
-            ncol=1 + len(ACTIVE_EXPERIMENTS) + 2,
+            ncol=5,
             bbox_to_anchor=(0.5, -0.01),
             fontsize=8.5,
         )
-
-        add_source_note(fig)
-        fig.tight_layout(rect=[0, 0.05, 1, 0.93])
-        out = paths.figs_dir / "fig07_route_maps.pdf"
+        add_source_note(fig_all)
+        fig_all.tight_layout(rect=[0, 0.05, 1, 0.93])
+        out_all = paths.figs_dir / "fig07a_bers_routes_monthly_best.pdf"
         _save_subplot_outputs(
-            fig,
-            out,
-            [ax_atl, ax_pac],
+            fig_all,
+            out_all,
+            axes_all,
             ["atlantic", "pacific"],
             bbox_inches="tight",
         )
-        _save_figure_outputs(fig, out, bbox_inches="tight")
-        print(f"  Saved {out.name}")
-        plt.close(fig)
+        _save_figure_outputs(fig_all, out_all, bbox_inches="tight")
+        print(f"  Saved {out_all.name}")
+        plt.close(fig_all)
+
+        fig_avg = plt.figure(figsize=(14, 6), facecolor="#FAFAF7")
+        fig_avg.suptitle(
+            "Seasonal mean BERS routes with 10–90 percentile corridor",
+            fontsize=12,
+            fontweight="bold",
+            x=0.02,
+            ha="left",
+        )
+        axes_avg = [
+            fig_avg.add_subplot(1, 2, 1, projection=route_configs[0]["projection"]),
+            fig_avg.add_subplot(1, 2, 2, projection=route_configs[1]["projection"]),
+        ]
+
+        for ax, cfg in zip(axes_avg, route_configs, strict=False):
+            _setup_map(ax, cfg)
+            gc_track = _load_gc_reference_track(
+                str(cfg["gc_case"]),
+                float(cfg["central_longitude"]),
+            )
+            if gc_track is not None:
+                _plot_wrapped_track(
+                    ax,
+                    gc_track[0],
+                    gc_track[1],
+                    central_longitude=float(cfg["central_longitude"]),
+                    color="#555555",
+                    linewidth=1.6,
+                    linestyle="--",
+                    alpha=0.95,
+                    zorder=2,
+                )
+            routes = route_data[str(cfg["case_id"])]
+            for season in SEASON_ORDER:
+                stats = _seasonal_route_stats(routes, season)
+                if stats is None:
+                    continue
+                ax.fill_between(
+                    stats["lon_mean"],
+                    stats["lat_p10"],
+                    stats["lat_p90"],
+                    transform=ccrs.PlateCarree(),
+                    color=season_colors[season],
+                    alpha=0.14,
+                    zorder=3,
+                )
+                _plot_wrapped_track(
+                    ax,
+                    stats["lon_mean"],
+                    stats["lat_mean"],
+                    central_longitude=float(cfg["central_longitude"]),
+                    color=season_colors[season],
+                    linewidth=2.2,
+                    linestyle="-",
+                    alpha=0.95,
+                    zorder=4,
+                )
+
+        mean_handles = [
+            mlines.Line2D(
+                [],
+                [],
+                color="#555555",
+                linewidth=1.6,
+                linestyle="--",
+                label="Great-circle",
+            ),
+        ] + [
+            mlines.Line2D([], [], color=season_colors[s], linewidth=2.2, label=s)
+            for s in SEASON_ORDER
+        ]
+        mean_handles.append(
+            mpatches.Patch(
+                facecolor="#888888",
+                alpha=0.14,
+                label="10-90 percentile band",
+            )
+        )
+        fig_avg.legend(
+            handles=mean_handles,
+            loc="lower center",
+            ncol=5,
+            bbox_to_anchor=(0.5, -0.01),
+            fontsize=8.5,
+        )
+        add_source_note(fig_avg)
+        fig_avg.tight_layout(rect=[0, 0.05, 1, 0.93])
+        out_avg = paths.figs_dir / "fig07b_bers_routes_average.pdf"
+        _save_subplot_outputs(
+            fig_avg,
+            out_avg,
+            axes_avg,
+            ["atlantic", "pacific"],
+            bbox_inches="tight",
+        )
+        _save_figure_outputs(fig_avg, out_avg, bbox_inches="tight")
+        print(f"  Saved {out_avg.name}")
+        plt.close(fig_avg)
 
 
 # ===========================================================================
@@ -2582,7 +3562,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         metavar="N",
         default=None,
-        help="Figure numbers to generate, e.g. --figures 1 5 10. Generates all if omitted.",  # noqa: E501
+        help="Figure numbers to generate, e.g. --figures 0 1 5 10. Generates all if omitted.",  # noqa: E501
     )
     return p.parse_args()
 
@@ -2628,6 +3608,8 @@ def main() -> None:
     )
 
     print("\nGenerating figures…")
+    if _want(0):
+        fig_teaser_routes(paths)
     if _want(1):
         fig_energy_overview(df, gc_baselines, gc_full, paths)
     if _want(2):
