@@ -30,6 +30,9 @@ Usage
 from __future__ import annotations
 
 import argparse
+import re
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -168,11 +171,66 @@ def _is_2024_departure_series(series: pd.Series) -> bool:
     return bool((series.dt.year == 2024).all())
 
 
+def _participant_name_from_submission_id(raw_name: str) -> str:
+    """Convert official submission id to a participant display name.
+
+    Expected pattern resembles ``XXXXXX_participant_name_PhaseId...``.
+    Falls back to the original stem when no match is found.
+    """
+    stem = Path(raw_name).stem
+    match = re.match(r"^\d+_(.+?)_PhaseId.*$", stem, flags=re.IGNORECASE)
+    participant = match.group(1) if match else stem
+    return participant.replace("_", " ").strip() or stem
+
+
+def _find_submission_root(candidate_root: Path) -> Path:
+    """Return the folder that directly contains submission CSVs and tracks/."""
+    if (candidate_root / "tracks").is_dir():
+        return candidate_root
+
+    track_dirs = [p for p in candidate_root.rglob("tracks") if p.is_dir()]
+    roots = sorted({p.parent for p in track_dirs})
+    if not roots:
+        raise ValueError("missing tracks/ directory")
+    if len(roots) > 1:
+        raise ValueError("multiple candidate submission folders found after extraction")
+    return roots[0]
+
+
+def _discover_submission_candidates(
+    root: Path,
+    extraction_root: Path,
+) -> list[tuple[str, str, Path]]:
+    """Discover folder/zip submission candidates.
+
+    Returns tuples ``(display_name, source_label, submission_path)``.
+    """
+    candidates: list[tuple[str, str, Path]] = []
+
+    for entry in sorted(root.iterdir()):
+        if entry.is_dir():
+            display_name = _participant_name_from_submission_id(entry.name)
+            candidates.append((display_name, entry.name, entry))
+            continue
+
+        if entry.is_file() and entry.suffix.lower() == ".zip":
+            extracted_dir = extraction_root / entry.stem
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(entry) as zf:
+                zf.extractall(extracted_dir)
+            submission_path = _find_submission_root(extracted_dir)
+            display_name = _participant_name_from_submission_id(entry.stem)
+            candidates.append((display_name, entry.name, submission_path))
+
+    return candidates
+
+
 def scan_submissions(
     root: Path,
     *,
     required_cases: list[str],
     expected_departures: int,
+    extraction_root: Path,
 ) -> tuple[list[SubmissionData], list[CandidateIssue]]:
     """Scan root folder and return valid submissions and rejected candidates."""
     submissions: list[SubmissionData] = []
@@ -181,11 +239,20 @@ def scan_submissions(
     if not root.exists():
         raise FileNotFoundError(f"Input root does not exist: {root}")
 
-    for candidate in sorted(p for p in root.iterdir() if p.is_dir()):
+    used_names: dict[str, int] = {}
+    discovered = _discover_submission_candidates(root, extraction_root)
+
+    for display_name, source_label, candidate in discovered:
         try:
             tracks_dir = candidate / "tracks"
             if not tracks_dir.exists() or not tracks_dir.is_dir():
                 raise ValueError("missing tracks/ directory")
+
+            # Ensure legend/cache keys remain unique when two archives share names.
+            occurrence = used_names.get(display_name, 0) + 1
+            used_names[display_name] = occurrence
+            if occurrence > 1:
+                display_name = f"{display_name} ({occurrence})"
 
             team_prefix = find_team_prefix(candidate)
             summaries: dict[str, pd.DataFrame] = {}
@@ -221,7 +288,7 @@ def scan_submissions(
 
             submissions.append(
                 SubmissionData(
-                    name=candidate.name,
+                    name=display_name,
                     path=candidate,
                     team_prefix=team_prefix,
                     tracks_dir=tracks_dir,
@@ -230,7 +297,7 @@ def scan_submissions(
             )
 
         except Exception as exc:  # noqa: BLE001
-            issues.append(CandidateIssue(folder=candidate.name, reason=str(exc)))
+            issues.append(CandidateIssue(folder=source_label, reason=str(exc)))
 
     return submissions, issues
 
@@ -894,8 +961,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=Path("output"),
-        help="Folder containing one subfolder per submission.",
+        default=Path("output/swopp3_submissions"),
+        help="Folder containing participant submission zip files or directories.",
     )
     parser.add_argument(
         "--output-dir",
@@ -977,90 +1044,93 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    submissions, issues = scan_submissions(
-        args.input_root,
-        required_cases=REQUIRED_CASES,
-        expected_departures=args.expected_departures,
-    )
-
-    print(f"Scanned {args.input_root}")
-    print(f"Valid submissions: {len(submissions)}")
-    if submissions:
-        for sub in submissions:
-            print(f"  - {sub.name}")
-    print(f"Rejected folders: {len(issues)}")
-    if issues:
-        for issue in issues:
-            print(f"  - {issue.folder}: {issue.reason}")
-
-    if len(submissions) < 2:
-        raise RuntimeError(
-            "At least two valid submissions are required for comparison plots."
+    with tempfile.TemporaryDirectory(prefix="swopp3_submissions_") as tmpdir:
+        extraction_root = Path(tmpdir)
+        submissions, issues = scan_submissions(
+            args.input_root,
+            required_cases=REQUIRED_CASES,
+            expected_departures=args.expected_departures,
+            extraction_root=extraction_root,
         )
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Scanned {args.input_root}")
+        print(f"Valid submissions: {len(submissions)}")
+        if submissions:
+            for sub in submissions:
+                print(f"  - {sub.name}")
+        print(f"Rejected folders: {len(issues)}")
+        if issues:
+            for issue in issues:
+                print(f"  - {issue.folder}: {issue.reason}")
 
-    sample_hours_by_case: dict[str, np.ndarray] = {}
-    sampled_cache: dict[tuple[str, str], tuple[pd.DatetimeIndex, np.ndarray]] = {}
-    if args.sample_count != SPREAD_SAMPLE_COUNT:
-        print(
-            "Ignoring --sample-count="
-            f"{args.sample_count}; using fixed "
-            f"{SPREAD_SAMPLE_COUNT} samples for spread plots."
-        )
-    for case in REQUIRED_CASES:
-        case_hours = float(SWOPP3_CASES[case]["passage_hours"])
-        sample_hours = np.linspace(0.0, case_hours, SPREAD_SAMPLE_COUNT)
-        sample_hours_by_case[case] = sample_hours
-        for sub in submissions:
-            sampled_cache[(sub.name, case)] = _sample_waypoints_for_case(
-                sub, case, sample_hours
+        if len(submissions) < 2:
+            raise RuntimeError(
+                "At least two valid submissions are required for comparison plots."
             )
 
-    plot_consumption(submissions, out_dir=args.output_dir, dpi=args.dpi)
+        args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    for case in REQUIRED_CASES:
-        plot_participant_spread(
-            submissions,
-            case=case,
-            sampled_cache=sampled_cache,
-            sample_hours=sample_hours_by_case[case],
-            out_dir=args.output_dir,
-            dpi=args.dpi,
-        )
+        sample_hours_by_case: dict[str, np.ndarray] = {}
+        sampled_cache: dict[tuple[str, str], tuple[pd.DatetimeIndex, np.ndarray]] = {}
+        if args.sample_count != SPREAD_SAMPLE_COUNT:
+            print(
+                "Ignoring --sample-count="
+                f"{args.sample_count}; using fixed "
+                f"{SPREAD_SAMPLE_COUNT} samples for spread plots."
+            )
+        for case in REQUIRED_CASES:
+            case_hours = float(SWOPP3_CASES[case]["passage_hours"])
+            sample_hours = np.linspace(0.0, case_hours, SPREAD_SAMPLE_COUNT)
+            sample_hours_by_case[case] = sample_hours
+            for sub in submissions:
+                sampled_cache[(sub.name, case)] = _sample_waypoints_for_case(
+                    sub, case, sample_hours
+                )
 
-    for case in REQUIRED_CASES:
-        plot_month_spread(
-            submissions,
-            case=case,
-            sampled_cache=sampled_cache,
-            sample_hours=sample_hours_by_case[case],
-            out_dir=args.output_dir,
-            dpi=args.dpi,
-        )
+        plot_consumption(submissions, out_dir=args.output_dir, dpi=args.dpi)
 
-    if not args.skip_animation:
-        departure = _parse_departure_argument(args.animation_departure)
-        for animation_case in args.animation_cases:
-            corridor = _corridor_from_case(animation_case)
-            if corridor == "atlantic":
-                wind_path = args.wind_path_atlantic
-                wave_path = args.wave_path_atlantic
-            else:
-                wind_path = args.wind_path_pacific
-                wave_path = args.wave_path_pacific
-
-            print(f"Rendering animation for {animation_case}...")
-            animate_departure(
+        for case in REQUIRED_CASES:
+            plot_participant_spread(
                 submissions,
-                case=animation_case,
-                departure=departure,
-                output_path=args.output_dir
-                / f"animation_{animation_case}_{args.animation_departure}",
-                wave_path=wave_path,
-                wind_path=wind_path,
+                case=case,
+                sampled_cache=sampled_cache,
+                sample_hours=sample_hours_by_case[case],
+                out_dir=args.output_dir,
                 dpi=args.dpi,
             )
+
+        for case in REQUIRED_CASES:
+            plot_month_spread(
+                submissions,
+                case=case,
+                sampled_cache=sampled_cache,
+                sample_hours=sample_hours_by_case[case],
+                out_dir=args.output_dir,
+                dpi=args.dpi,
+            )
+
+        if not args.skip_animation:
+            departure = _parse_departure_argument(args.animation_departure)
+            for animation_case in args.animation_cases:
+                corridor = _corridor_from_case(animation_case)
+                if corridor == "atlantic":
+                    wind_path = args.wind_path_atlantic
+                    wave_path = args.wave_path_atlantic
+                else:
+                    wind_path = args.wind_path_pacific
+                    wave_path = args.wave_path_pacific
+
+                print(f"Rendering animation for {animation_case}...")
+                animate_departure(
+                    submissions,
+                    case=animation_case,
+                    departure=departure,
+                    output_path=args.output_dir
+                    / f"animation_{animation_case}_{args.animation_departure}",
+                    wave_path=wave_path,
+                    wind_path=wind_path,
+                    dpi=args.dpi,
+                )
 
 
 if __name__ == "__main__":
