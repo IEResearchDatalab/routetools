@@ -23,6 +23,7 @@ def _load_swopp3_run_module():
 _swopp3_run = _load_swopp3_run_module()
 _loadable_era5_paths = _swopp3_run._loadable_era5_paths
 _load_experiment_profile = _swopp3_run._load_experiment_profile
+_departure_batches = _swopp3_run._departure_batches
 _resolve_case_ids = _swopp3_run._resolve_case_ids
 _resolve_config_value_path = _swopp3_run._resolve_config_value_path
 _validate_required_data_paths = _swopp3_run._validate_required_data_paths
@@ -186,6 +187,53 @@ def test_resolve_case_ids_raises_for_empty_strategy_match():
         _resolve_case_ids(None, "missing")
 
 
+def test_departure_batches_zero_limit_uses_full_timeline():
+    """dataload_limit=0 should keep a single full-timeline load batch."""
+    departures = [
+        datetime(2024, 1, 15),
+        datetime(2024, 2, 1),
+    ]
+
+    batches = _departure_batches(departures, dataload_limit=0)
+
+    assert batches == [(None, None, departures)]
+
+
+def test_departure_batches_use_x_month_work_chunks_plus_safety_month():
+    """dataload_limit=X should process X months and load one extra month."""
+    departures = [
+        datetime(2024, 1, 15),
+        datetime(2024, 3, 31),
+        datetime(2024, 4, 1),
+        datetime(2024, 12, 24),
+    ]
+
+    batches = _departure_batches(departures, dataload_limit=3)
+
+    assert len(batches) == 3
+    jan_start, jan_end, jan_deps = batches[0]
+    apr_start, apr_end, apr_deps = batches[1]
+    dec_start, dec_end, dec_deps = batches[2]
+
+    assert jan_start == datetime(2024, 1, 1)
+    assert jan_end == datetime(2024, 5, 1)
+    assert jan_deps == [datetime(2024, 1, 15), datetime(2024, 3, 31)]
+
+    assert apr_start == datetime(2024, 4, 1)
+    assert apr_end == datetime(2024, 8, 1)
+    assert apr_deps == [datetime(2024, 4, 1)]
+
+    assert dec_start == datetime(2024, 12, 1)
+    assert dec_end == datetime(2025, 4, 1)
+    assert dec_deps == [datetime(2024, 12, 24)]
+
+
+def test_departure_batches_raise_for_negative_limit():
+    """Negative dataload_limit should fail fast with a clear error."""
+    with pytest.raises(ValueError, match="dataload_limit must be >= 0"):
+        _departure_batches([datetime(2024, 1, 1)], dataload_limit=-1)
+
+
 def test_run_configuration_raises_for_mismatched_weather_epochs(
     tmp_path: Path,
     monkeypatch,
@@ -203,16 +251,26 @@ def test_run_configuration_raises_for_mismatched_weather_epochs(
     monkeypatch.setattr(
         loader,
         "load_dataset_epoch",
-        lambda target: datetime(2024, 1, 1)
+        lambda target, **kwargs: datetime(2024, 1, 1)
         if "wind" in str(target)
         else datetime(2024, 1, 2),
     )
-    monkeypatch.setattr(loader, "load_era5_windfield", lambda target: object())
-    monkeypatch.setattr(loader, "load_era5_wavefield", lambda target: object())
+    monkeypatch.setattr(
+        loader,
+        "load_era5_windfield",
+        lambda target, **kwargs: object(),
+    )
+    monkeypatch.setattr(
+        loader,
+        "load_era5_wavefield",
+        lambda target, **kwargs: object(),
+    )
     monkeypatch.setattr(
         loader,
         "load_era5_vectorfield",
-        lambda target: pytest.fail("vectorfield should not load when epochs differ"),
+        lambda target, **kwargs: pytest.fail(
+            "vectorfield should not load when epochs differ"
+        ),
     )
     monkeypatch.setattr(
         loader,
@@ -253,6 +311,7 @@ def test_run_configuration_raises_for_mismatched_weather_epochs(
             sigma0=0.1,
             popsize=200,
             maxfevals=25000,
+            dataload_limit=0,
             cmaes_verbose=False,
             quiet=True,
         )
