@@ -46,7 +46,11 @@ import xarray as xr
 from PIL import Image, ImageSequence
 
 from routetools.swopp3 import SWOPP3_CASES
-from routetools.violations import find_team_prefix
+from routetools.violations import (
+    count_land_violations,
+    find_team_prefix,
+    load_default_land_checker,
+)
 
 REQUIRED_CASES = ["AO_WPS", "AO_noWPS", "PO_WPS", "PO_noWPS"]
 
@@ -512,6 +516,201 @@ def plot_month_spread(
     ax.legend(loc="best", ncols=4, fontsize=8)
 
     out = out_dir / f"spread_months_{case}.pdf"
+    _save_figure(fig, out, dpi=dpi)
+    plt.close(fig)
+
+
+def _mean_haversine_km_between_curves(
+    a_lonlat: np.ndarray,
+    b_lonlat: np.ndarray,
+) -> float:
+    """Return mean haversine distance (km) between paired lon/lat points."""
+    if a_lonlat.shape != b_lonlat.shape:
+        raise ValueError("Mismatched curve shapes for distance comparison")
+    if a_lonlat.size == 0:
+        return 0.0
+
+    lon1 = np.radians(a_lonlat[:, 0])
+    lat1 = np.radians(a_lonlat[:, 1])
+    lon2 = np.radians(b_lonlat[:, 0])
+    lat2 = np.radians(b_lonlat[:, 1])
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    h = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
+    c = 2.0 * np.arcsin(np.minimum(1.0, np.sqrt(h)))
+    return float(np.mean(6371.0 * c))
+
+
+def plot_wps_vs_nowps_spread(
+    submissions: list[SubmissionData],
+    *,
+    sampled_cache: dict[tuple[str, str], tuple[pd.DatetimeIndex, np.ndarray]],
+    sample_hours_by_case: dict[str, np.ndarray],
+    out_dir: Path,
+    dpi: int,
+) -> None:
+    """Plot WPS vs no-WPS route spread per ocean and participant."""
+    case_pairs = [
+        ("AO_WPS", "AO_noWPS", "atlantic"),
+        ("PO_WPS", "PO_noWPS", "pacific"),
+    ]
+
+    for wps_case, nowps_case, corridor in case_pairs:
+        sample_hours = sample_hours_by_case[wps_case]
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        for submission in submissions:
+            dep_wps, points_wps = sampled_cache[(submission.name, wps_case)]
+            dep_nowps, points_nowps = sampled_cache[(submission.name, nowps_case)]
+
+            common_dates = sorted(set(dep_wps).intersection(set(dep_nowps)))
+            if not common_dates:
+                continue
+
+            wps_row = {dt: idx for idx, dt in enumerate(dep_wps)}
+            nowps_row = {dt: idx for idx, dt in enumerate(dep_nowps)}
+
+            mean_distances: list[float] = []
+            for sample_idx in range(len(sample_hours)):
+                curve_wps = np.array(
+                    [points_wps[wps_row[date], sample_idx, :] for date in common_dates],
+                    dtype=float,
+                )
+                curve_nowps = np.array(
+                    [
+                        points_nowps[nowps_row[date], sample_idx, :]
+                        for date in common_dates
+                    ],
+                    dtype=float,
+                )
+                mean_distances.append(
+                    _mean_haversine_km_between_curves(curve_wps, curve_nowps)
+                )
+
+            ax.plot(sample_hours, mean_distances, marker="o", label=submission.name)
+
+        ax.set_title(f"WPS vs no-WPS Spread - {corridor.title()}")
+        ax.set_xlabel("Elapsed time (hours)")
+        ax.set_ylabel("Mean waypoint distance between WPS and no-WPS (km)")
+        ax.grid(alpha=0.3)
+        ax.legend(loc="best", ncols=2, fontsize=9)
+
+        out = out_dir / f"spread_wps_vs_nowps_{corridor}.pdf"
+        _save_figure(fig, out, dpi=dpi)
+        plt.close(fig)
+
+
+def build_departure_wins_table(
+    submissions: list[SubmissionData],
+) -> pd.DataFrame:
+    """Build per-scenario departure-win counts, excluding land-violating routes."""
+    participants = sorted(sub.name for sub in submissions)
+    wins = {
+        participant: {case: 0 for case in REQUIRED_CASES}
+        for participant in participants
+    }
+
+    land_checker = load_default_land_checker()
+    land_violation_cache: dict[Path, bool] = {}
+
+    by_case_by_sub: dict[str, dict[str, pd.DataFrame]] = {
+        case: {
+            sub.name: sub.summaries[case]
+            .sort_values("departure_time_utc")
+            .reset_index(drop=True)
+            for sub in submissions
+        }
+        for case in REQUIRED_CASES
+    }
+
+    rows_by_case_by_sub: dict[str, dict[str, dict[pd.Timestamp, pd.Series]]] = {
+        case: {
+            sub.name: {
+                row["departure_time_utc"]: row
+                for _, row in by_case_by_sub[case][sub.name].iterrows()
+            }
+            for sub in submissions
+        }
+        for case in REQUIRED_CASES
+    }
+
+    for case in REQUIRED_CASES:
+        common_departures = set(rows_by_case_by_sub[case][participants[0]].keys())
+        for participant in participants[1:]:
+            common_departures &= set(rows_by_case_by_sub[case][participant].keys())
+
+        for departure in sorted(common_departures):
+            valid_candidates: list[tuple[str, float]] = []
+            for sub in submissions:
+                row = rows_by_case_by_sub[case][sub.name][departure]
+                track_path = sub.tracks_dir / str(row["details_filename"])
+
+                if track_path not in land_violation_cache:
+                    land_violation_cache[track_path] = (
+                        count_land_violations(track_path, land_checker) > 0
+                    )
+
+                if land_violation_cache[track_path]:
+                    continue
+
+                energy = float(row["energy_cons_mwh"])
+                valid_candidates.append((sub.name, energy))
+
+            if not valid_candidates:
+                continue
+
+            winner_name, _ = min(valid_candidates, key=lambda item: (item[1], item[0]))
+            wins[winner_name][case] += 1
+
+    table = pd.DataFrame.from_dict(wins, orient="index")[REQUIRED_CASES]
+    table.index.name = "participant"
+    table.columns = pd.MultiIndex.from_tuples(
+        [
+            ("atlantic", "WPS")
+            if case == "AO_WPS"
+            else ("atlantic", "no WPS")
+            if case == "AO_noWPS"
+            else ("pacific", "WPS")
+            if case == "PO_WPS"
+            else ("pacific", "no WPS")
+            for case in table.columns
+        ],
+        names=["ocean", "wps"],
+    )
+    return table.sort_index()
+
+
+def save_departure_wins_table(table: pd.DataFrame, *, out_dir: Path, dpi: int) -> None:
+    """Save departure-win table as CSV and table figure."""
+    out_csv = out_dir / "departure_wins_by_scenario.csv"
+    table.to_csv(out_csv)
+
+    fig_height = max(3.2, 0.45 * len(table) + 1.6)
+    fig, ax = plt.subplots(figsize=(8.5, fig_height))
+    ax.axis("off")
+    ax.set_title(
+        "Departures Won by Participant (land-violation-free routes only)",
+        fontsize=11,
+        pad=12,
+    )
+
+    col_labels = [f"{ocean}\n{wps}" for ocean, wps in table.columns.to_flat_index()]
+    cell_text = table.astype(int).values.tolist()
+    row_labels = list(table.index)
+
+    tab = ax.table(
+        cellText=cell_text,
+        rowLabels=row_labels,
+        colLabels=col_labels,
+        cellLoc="center",
+        loc="center",
+    )
+    tab.auto_set_font_size(False)
+    tab.set_fontsize(9)
+    tab.scale(1.0, 1.3)
+
+    out = out_dir / "departure_wins_by_scenario.pdf"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
 
@@ -1140,6 +1339,17 @@ def main() -> None:
                 out_dir=args.output_dir,
                 dpi=args.dpi,
             )
+
+        wins_table = build_departure_wins_table(submissions)
+        save_departure_wins_table(wins_table, out_dir=args.output_dir, dpi=args.dpi)
+
+        plot_wps_vs_nowps_spread(
+            submissions,
+            sampled_cache=sampled_cache,
+            sample_hours_by_case=sample_hours_by_case,
+            out_dir=args.output_dir,
+            dpi=args.dpi,
+        )
 
         if not args.skip_animation:
             departure = _parse_departure_argument(args.animation_departure)
