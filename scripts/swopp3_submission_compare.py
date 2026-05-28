@@ -548,6 +548,20 @@ def _normalize_longitude(ds: xr.Dataset, lon_name: str) -> xr.Dataset:
     return ds
 
 
+def _normalize_longitude_360(ds: xr.Dataset, lon_name: str) -> xr.Dataset:
+    """Normalize longitude axis to [0, 360) and sort coordinates."""
+    lon = ds[lon_name]
+    lon_shift = lon % 360.0
+    return ds.assign_coords({lon_name: lon_shift}).sortby(lon_name)
+
+
+def _track_to_360(track: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of track data with longitudes wrapped to [0, 360)."""
+    normalized = track.copy()
+    normalized["lon_deg"] = np.mod(normalized["lon_deg"], 360.0)
+    return normalized
+
+
 def _slice_2d_region(
     ds: xr.Dataset,
     *,
@@ -620,13 +634,17 @@ def animate_departure(
 
     tracks_by_submission: dict[str, pd.DataFrame] = {}
     total_energy: dict[str, float] = {}
+    is_pacific_case = _corridor_from_case(case) == "pacific"
     for sub in submissions:
         summary = sub.summaries[case]
         row = summary.loc[summary["departure_time_utc"] == departure_utc]
         if row.empty:
             continue
         details = str(row.iloc[0]["details_filename"])
-        tracks_by_submission[sub.name] = _read_track(sub.tracks_dir / details)
+        track = _read_track(sub.tracks_dir / details)
+        if is_pacific_case:
+            track = _track_to_360(track)
+        tracks_by_submission[sub.name] = track
         total_energy[sub.name] = float(row.iloc[0]["energy_cons_mwh"])
 
     if not tracks_by_submission:
@@ -675,8 +693,12 @@ def animate_departure(
         wave_lat = _pick_coord(wave_ds, ["latitude", "lat"])
         wave_lon = _pick_coord(wave_ds, ["longitude", "lon"])
 
-        wind_ds = _normalize_longitude(wind_ds, wind_lon)
-        wave_ds = _normalize_longitude(wave_ds, wave_lon)
+        if is_pacific_case:
+            wind_ds = _normalize_longitude_360(wind_ds, wind_lon)
+            wave_ds = _normalize_longitude_360(wave_ds, wave_lon)
+        else:
+            wind_ds = _normalize_longitude(wind_ds, wind_lon)
+            wave_ds = _normalize_longitude(wave_ds, wave_lon)
 
         wind_region = _slice_2d_region(
             wind_ds,
@@ -698,10 +720,10 @@ def animate_departure(
         )
 
         fig = plt.figure(figsize=(14, 8))
-        grid = fig.add_gridspec(2, 1, height_ratios=[5.8, 1.2], hspace=0.06)
+        grid = fig.add_gridspec(2, 1, height_ratios=[6.2, 1.15], hspace=0.08)
         ax_map = fig.add_subplot(grid[0, 0])
-        ax_legend = fig.add_subplot(grid[1, 0])
-        ax_legend.axis("off")
+        ax_bar = fig.add_subplot(grid[1, 0])
+        ax_bar.set_facecolor("#f7f9fc")
 
         ax_map.set_xlim(lon_min, lon_max)
         ax_map.set_ylim(lat_min, lat_max)
@@ -710,8 +732,9 @@ def animate_departure(
         ax_map.set_ylabel("Latitude (deg)")
         ax_map.grid(alpha=0.25, color="#9cb4c3", linestyle="--", linewidth=0.5)
 
-        sub_names = list(tracks_by_submission)
-        colors = plt.cm.tab10(np.linspace(0, 1, len(sub_names)))
+        sub_names = sorted(tracks_by_submission)
+        colors = plt.get_cmap("tab20", len(sub_names))(np.arange(len(sub_names)))
+        color_by_name = {name: colors[idx] for idx, name in enumerate(sub_names)}
         line_handles: dict[str, plt.Line2D] = {}
         vessel_handles: dict[str, plt.Line2D] = {}
         vessel_shadow_handles: dict[str, plt.Line2D] = {}
@@ -753,23 +776,10 @@ def animate_departure(
 
         wave_mesh = None
         wind_quiver = None
-        info_text = ax_legend.text(
-            0.01,
-            0.95,
-            "",
-            va="top",
-            ha="left",
-            fontsize=10.5,
-            family="monospace",
-            bbox={
-                "boxstyle": "round,pad=0.4",
-                "facecolor": "#f4f7fb",
-                "edgecolor": "#d0d7de",
-                "alpha": 0.9,
-            },
-        )
 
         best_name = min(total_energy, key=total_energy.get)
+        max_gap = max(total_energy.values()) - min(total_energy.values())
+        x_max = max(1.0, max_gap * 1.05)
 
         def _frame(abs_hour: int):
             nonlocal wave_mesh, wind_quiver
@@ -856,22 +866,9 @@ def animate_departure(
                 ranking_rows.append((name, cumulative, total_energy[name]))
 
             ranking_rows.sort(key=lambda row: row[1])
-            top_five = ranking_rows[:5]
-            lines = [
-                "Live Fuel Leaderboard (Top 5)",
-                "Rank  Participant                 Cum(MWh)   Total(MWh)",
-                "----  --------------------------  --------   ----------",
-            ]
-            for rank, (name, cumulative, total) in enumerate(top_five, start=1):
-                lines.append(
-                    f"{rank:>4}  {name:<26}  {cumulative:8.2f}   {total:10.2f}"
-                )
+            ranking_rows.sort(key=lambda row: row[1])
 
             if abs_hour >= case_hours:
-                lines.append("")
-                lines.append(
-                    f"WINNER: {best_name} ({total_energy[best_name]:.2f} MWh total)"
-                )
                 ax_map.set_title(
                     f"{CASE_LABELS[case]} - {departure_utc.date()} - "
                     f"Final (winner: {best_name})"
@@ -881,13 +878,48 @@ def animate_departure(
                     f"{CASE_LABELS[case]} - {departure_utc.date()} - +{abs_hour:03d}h"
                 )
 
-            info_text.set_text("\n".join(lines))
+            ax_bar.clear()
+            ax_bar.set_facecolor("#f7f9fc")
+            ax_bar.set_title("Fuel Gap vs Current Leader", fontsize=10, pad=8)
+            ax_bar.set_xlabel("Delta cumulative fuel (MWh)")
+
+            names = [name for name, _, _ in ranking_rows]
+            cumulatives = [cumulative for _, cumulative, _ in ranking_rows]
+            leader = cumulatives[0] if cumulatives else 0.0
+            deltas = [value - leader for value in cumulatives]
+            positions = np.arange(len(names))
+
+            bar_colors = [color_by_name[name] for name in names]
+            bars = ax_bar.barh(
+                positions,
+                deltas,
+                color=bar_colors,
+                alpha=0.88,
+                edgecolor="#1f2933",
+                linewidth=0.4,
+            )
+            ax_bar.set_yticks(positions, names)
+            ax_bar.invert_yaxis()
+            ax_bar.grid(axis="x", alpha=0.25, linestyle="--")
+            ax_bar.set_xlim(0.0, x_max)
+
+            for idx, (bar, cumulative) in enumerate(
+                zip(bars, cumulatives, strict=False)
+            ):
+                ax_bar.text(
+                    bar.get_width() + x_max * 0.015,
+                    idx,
+                    f"{cumulative:.1f}",
+                    va="center",
+                    ha="left",
+                    fontsize=9,
+                    color="#1f2933",
+                )
 
             return [
                 *line_handles.values(),
                 *vessel_shadow_handles.values(),
                 *vessel_handles.values(),
-                info_text,
             ]
 
         anim = animation.FuncAnimation(
