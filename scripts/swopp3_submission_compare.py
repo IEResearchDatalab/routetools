@@ -1540,12 +1540,78 @@ def _track_state_at_hour(
     return lon_i, lat_i, lon1 - lon0, lat1 - lat0
 
 
+def _load_scored_route_timeseries(
+    score_archive: Path,
+    *,
+    case: str,
+    departure_utc: pd.Timestamp,
+) -> pd.DataFrame:
+    """Load scored per-step energy for one case/departure from a score archive."""
+    departure_date = _normalize_departure_key(departure_utc).strftime("%Y%m%d")
+    score_zip = _load_resampled_tracks_zip(score_archive)
+    try:
+        route_members = _index_scored_route_members(score_zip)
+        score_name = route_members[case].get(departure_date)
+        if score_name is None:
+            raise FileNotFoundError(
+                f"Missing scored route for {case} on {departure_date} in "
+                f"{score_archive.name}"
+            )
+        with score_zip.open(score_name) as score_file:
+            return pd.read_csv(score_file, usecols=["timestamp", "E"])
+    finally:
+        score_zip.close()
+
+
+def _build_cumulative_energy_profile(
+    scored_route: pd.DataFrame,
+    *,
+    departure_utc: pd.Timestamp,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return elapsed hours and cumulative energy from scored route samples."""
+    route = scored_route.copy()
+    route["timestamp"] = pd.to_datetime(route["timestamp"], utc=True, errors="coerce")
+    route["E"] = pd.to_numeric(route["E"], errors="coerce")
+    route = route.dropna(subset=["timestamp", "E"]).sort_values("timestamp")
+    if route.empty:
+        return np.array([0.0]), np.array([0.0])
+
+    elapsed_hours = (
+        route["timestamp"] - _normalize_departure_key(departure_utc)
+    ).dt.total_seconds().to_numpy(dtype=float) / 3600.0
+    valid = elapsed_hours >= 0.0
+    if not np.any(valid):
+        return np.array([0.0]), np.array([0.0])
+
+    elapsed_hours = elapsed_hours[valid]
+    incremental_energy = route.loc[valid, "E"].to_numpy(dtype=float)
+    cumulative_energy = np.cumsum(incremental_energy)
+
+    if elapsed_hours[0] > 0.0:
+        elapsed_hours = np.insert(elapsed_hours, 0, 0.0)
+        cumulative_energy = np.insert(cumulative_energy, 0, 0.0)
+    else:
+        elapsed_hours[0] = 0.0
+
+    return elapsed_hours, cumulative_energy
+
+
+def _cumulative_energy_at_hour(
+    profile: tuple[np.ndarray, np.ndarray],
+    hour: float,
+) -> float:
+    """Interpolate cumulative energy profile at the requested absolute hour."""
+    elapsed_hours, cumulative_energy = profile
+    return float(np.interp(hour, elapsed_hours, cumulative_energy))
+
+
 def animate_departure(
     submissions: list[SubmissionData],
     *,
     case: str,
     departure: datetime,
     energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
+    score_archives_by_name: dict[str, Path],
     alias_by_name: dict[str, str],
     color_by_alias: dict[str, str],
     output_path: Path,
@@ -1560,6 +1626,7 @@ def animate_departure(
 
     tracks_by_submission: dict[str, pd.DataFrame] = {}
     total_energy: dict[str, float] = {}
+    cumulative_profiles: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for sub in submissions:
         summary = sub.summaries[case]
         row = summary.loc[summary["departure_time_utc"] == departure_utc]
@@ -1568,7 +1635,23 @@ def animate_departure(
         details = str(row.iloc[0]["details_filename"])
         track = _read_track(sub.tracks_dir / details)
         tracks_by_submission[sub.name] = track
-        total_energy[sub.name] = energy_lookup[case][sub.name][departure_utc]
+
+        score_archive = score_archives_by_name.get(sub.name)
+        if score_archive is None:
+            raise FileNotFoundError(
+                f"Missing scored archive for participant {sub.name}"
+            )
+        scored_route = _load_scored_route_timeseries(
+            score_archive,
+            case=case,
+            departure_utc=departure_utc,
+        )
+        profile = _build_cumulative_energy_profile(
+            scored_route,
+            departure_utc=departure_utc,
+        )
+        cumulative_profiles[sub.name] = profile
+        total_energy[sub.name] = float(profile[1][-1])
 
     if not tracks_by_submission:
         raise ValueError(
@@ -1786,10 +1869,12 @@ def animate_departure(
                 vessel_shadow_handles[name].set_data([lon_i], [lat_i])
                 vessel_handles[name].set_data([lon_i], [lat_i])
 
-                cumulative = total_energy[name] * min(abs_hour / case_hours, 1.0)
+                cumulative = _cumulative_energy_at_hour(
+                    cumulative_profiles[name],
+                    float(abs_hour),
+                )
                 ranking_rows.append((name, cumulative, total_energy[name]))
 
-            ranking_rows.sort(key=lambda row: row[1])
             ranking_rows.sort(key=lambda row: row[1])
 
             if abs_hour >= case_hours:
@@ -2207,6 +2292,7 @@ def main() -> None:
                     case=animation_case,
                     departure=departure,
                     energy_lookup=energy_lookup,
+                    score_archives_by_name=score_archives_by_name,
                     alias_by_name=alias_by_name,
                     color_by_alias=color_by_alias,
                     output_path=args.output_dir
