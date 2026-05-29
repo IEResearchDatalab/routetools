@@ -628,6 +628,7 @@ def _read_track(path: Path) -> pd.DataFrame:
     track["lat_deg"] = pd.to_numeric(track["lat_deg"], errors="coerce")
     track["lon_deg"] = pd.to_numeric(track["lon_deg"], errors="coerce")
     track = track.dropna(subset=["time_utc", "lat_deg", "lon_deg"])
+    track["lon_deg"] = np.mod(track["lon_deg"], 360.0)
 
     return track.sort_values("time_utc").reset_index(drop=True)
 
@@ -871,10 +872,11 @@ def _interp_track_lonlat(
     t0 = track["time_utc"].iloc[0]
     elapsed = (track["time_utc"] - t0).dt.total_seconds().to_numpy() / 3600.0
     lon = track["lon_deg"].to_numpy(dtype=float)
+    lon_unwrapped = np.degrees(np.unwrap(np.radians(lon)))
     lat = track["lat_deg"].to_numpy(dtype=float)
 
     elapsed_target = float(np.clip(elapsed_hours, elapsed.min(), elapsed.max()))
-    lon_i = float(np.interp(elapsed_target, elapsed, lon))
+    lon_i = float(np.mod(np.interp(elapsed_target, elapsed, lon_unwrapped), 360.0))
     lat_i = float(np.interp(elapsed_target, elapsed, lat))
     return lon_i, lat_i
 
@@ -919,6 +921,7 @@ def _mean_pairwise_haversine_km(points_lonlat: np.ndarray) -> float:
     lon = np.radians(points_lonlat[:, 0][:, None])
     lat = np.radians(points_lonlat[:, 1][:, None])
     dlon = lon - lon.T
+    dlon = (dlon + np.pi) % (2.0 * np.pi) - np.pi
     dlat = lat - lat.T
 
     a = np.sin(dlat / 2.0) ** 2 + np.cos(lat) * np.cos(lat.T) * np.sin(dlon / 2.0) ** 2
@@ -1113,6 +1116,7 @@ def _mean_haversine_km_between_curves(
     lat2 = np.radians(b_lonlat[:, 1])
 
     dlon = lon2 - lon1
+    dlon = (dlon + np.pi) % (2.0 * np.pi) - np.pi
     dlat = lat2 - lat1
     h = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
     c = 2.0 * np.arcsin(np.minimum(1.0, np.sqrt(h)))
@@ -1192,6 +1196,99 @@ def plot_wps_vs_nowps_spread(
         out = out_dir / f"spread_wps_vs_nowps_{corridor}{output_suffix}.pdf"
         _save_figure(fig, out, dpi=dpi)
         plt.close(fig)
+
+
+def _average_exploration_by_participant(
+    submissions: list[SubmissionData],
+    *,
+    sampled_cache: dict[tuple[str, str], tuple[pd.DatetimeIndex, np.ndarray]],
+    selected_names: set[str] | None = None,
+) -> dict[str, float]:
+    """Return average exploration spread per participant across all cases/times."""
+    averages: dict[str, float] = {}
+    for submission in submissions:
+        if selected_names is not None and submission.name not in selected_names:
+            continue
+
+        spread_samples: list[float] = []
+        for case in REQUIRED_CASES:
+            _, points = sampled_cache[(submission.name, case)]
+            spread_samples.extend(
+                _mean_pairwise_haversine_km(points[:, sample_idx, :])
+                for sample_idx in range(points.shape[1])
+            )
+
+        averages[submission.name] = (
+            float(np.mean(spread_samples)) if spread_samples else np.nan
+        )
+    return averages
+
+
+def plot_consumption_vs_exploration_scatter(
+    submissions: list[SubmissionData],
+    *,
+    sampled_cache: dict[tuple[str, str], tuple[pd.DatetimeIndex, np.ndarray]],
+    average_consumption_by_name: dict[str, float],
+    alias_by_name: dict[str, str],
+    color_by_alias: dict[str, str],
+    out_dir: Path,
+    dpi: int,
+    selected_names: set[str] | None = None,
+    output_suffix: str = "",
+) -> None:
+    """Plot participant average consumption against average exploration spread."""
+    avg_exploration = _average_exploration_by_participant(
+        submissions,
+        sampled_cache=sampled_cache,
+        selected_names=selected_names,
+    )
+
+    ordered_names = _ordered_submission_names(
+        submissions,
+        alias_by_name=alias_by_name,
+        selected_names=selected_names,
+    )
+    points = [
+        (
+            name,
+            avg_exploration.get(name, np.nan),
+            average_consumption_by_name.get(name, np.nan),
+        )
+        for name in ordered_names
+    ]
+    points = [p for p in points if np.isfinite(p[1]) and np.isfinite(p[2])]
+    if not points:
+        return
+
+    fig, ax = plt.subplots(figsize=(8.5, 6))
+    for name, exploration, consumption in points:
+        alias = alias_by_name[name]
+        ax.scatter(
+            exploration,
+            consumption,
+            s=70,
+            color=color_by_alias[alias],
+            edgecolor="#1f2933",
+            linewidth=0.5,
+            alpha=0.9,
+        )
+        ax.text(
+            exploration,
+            consumption,
+            f" {alias}",
+            va="center",
+            ha="left",
+            fontsize=9,
+        )
+
+    ax.set_title("Average Consumption vs Average Exploration")
+    ax.set_xlabel("Average exploration spread (km)")
+    ax.set_ylabel("Average consumption (MWh)")
+    ax.grid(alpha=0.3)
+
+    out = out_dir / f"consumption_vs_exploration{output_suffix}.pdf"
+    _save_figure(fig, out, dpi=dpi)
+    plt.close(fig)
 
 
 def _scenario_columns_index() -> pd.MultiIndex:
@@ -1462,26 +1559,21 @@ def _pick_coord(dataset: xr.Dataset, candidates: list[str]) -> str:
 
 
 def _normalize_longitude(ds: xr.Dataset, lon_name: str) -> xr.Dataset:
-    """Normalize longitude axis to [-180, 180) when needed."""
-    lon = ds[lon_name]
-    lon_vals = lon.values
-    if np.nanmax(lon_vals) > 180.0:
-        lon_shift = ((lon + 180.0) % 360.0) - 180.0
-        ds = ds.assign_coords({lon_name: lon_shift}).sortby(lon_name)
-    return ds
-
-
-def _normalize_longitude_360(ds: xr.Dataset, lon_name: str) -> xr.Dataset:
     """Normalize longitude axis to [0, 360) and sort coordinates."""
     lon = ds[lon_name]
     lon_shift = lon % 360.0
     return ds.assign_coords({lon_name: lon_shift}).sortby(lon_name)
 
 
+def _normalize_longitude_360(ds: xr.Dataset, lon_name: str) -> xr.Dataset:
+    """Normalize longitude axis to [0, 360) and sort coordinates."""
+    return _normalize_longitude(ds, lon_name)
+
+
 def _track_to_360(track: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of track data with longitudes wrapped to [-180, 180]."""
+    """Return a copy of track data with longitudes wrapped to [0, 360)."""
     normalized = track.copy()
-    normalized["lon_deg"] = ((normalized["lon_deg"] + 180.0) % 360.0) - 180.0
+    normalized["lon_deg"] = np.mod(normalized["lon_deg"], 360.0)
     return normalized
 
 
@@ -1523,18 +1615,19 @@ def _track_state_at_hour(
     t0 = track["time_utc"].iloc[0]
     elapsed = (track["time_utc"] - t0).dt.total_seconds().to_numpy() / 3600.0
     lon = track["lon_deg"].to_numpy(dtype=float)
+    lon_unwrapped = np.degrees(np.unwrap(np.radians(lon)))
     lat = track["lat_deg"].to_numpy(dtype=float)
 
     hour = float(np.clip(hour, elapsed.min(), elapsed.max()))
-    lon_i = float(np.interp(hour, elapsed, lon))
+    lon_i = float(np.mod(np.interp(hour, elapsed, lon_unwrapped), 360.0))
     lat_i = float(np.interp(hour, elapsed, lat))
 
     delta = 0.5
     h0 = float(np.clip(hour - delta, elapsed.min(), elapsed.max()))
     h1 = float(np.clip(hour + delta, elapsed.min(), elapsed.max()))
-    lon0 = float(np.interp(h0, elapsed, lon))
+    lon0 = float(np.interp(h0, elapsed, lon_unwrapped))
     lat0 = float(np.interp(h0, elapsed, lat))
-    lon1 = float(np.interp(h1, elapsed, lon))
+    lon1 = float(np.interp(h1, elapsed, lon_unwrapped))
     lat1 = float(np.interp(h1, elapsed, lat))
 
     return lon_i, lat_i, lon1 - lon0, lat1 - lat0
@@ -1785,8 +1878,8 @@ def animate_departure(
         wind_quiver = None
 
         best_name = min(total_energy, key=total_energy.get)
-        max_gap = max(total_energy.values()) - min(total_energy.values())
-        x_max = max(1.0, max_gap * 1.05)
+        x_max = max(1.0, max(total_energy.values()) * 1.05)
+        bar_names = list(sub_names)
 
         def _frame(abs_hour: int):
             nonlocal wave_mesh, wind_quiver
@@ -1846,7 +1939,6 @@ def animate_departure(
                 scale=350,
             )
 
-            ranking_rows: list[tuple[str, float, float]] = []
             for name in sub_names:
                 track = tracks_by_submission[name]
                 lon_i, lat_i, dlon, dlat = _track_state_at_hour(track, abs_hour)
@@ -1869,14 +1961,6 @@ def animate_departure(
                 vessel_shadow_handles[name].set_data([lon_i], [lat_i])
                 vessel_handles[name].set_data([lon_i], [lat_i])
 
-                cumulative = _cumulative_energy_at_hour(
-                    cumulative_profiles[name],
-                    float(abs_hour),
-                )
-                ranking_rows.append((name, cumulative, total_energy[name]))
-
-            ranking_rows.sort(key=lambda row: row[1])
-
             if abs_hour >= case_hours:
                 ax_map.set_title(
                     f"{CASE_LABELS[case]} - {departure_utc.date()} - "
@@ -1889,19 +1973,20 @@ def animate_departure(
 
             ax_bar.clear()
             ax_bar.set_facecolor("#f7f9fc")
-            ax_bar.set_title("Fuel Gap vs Current Leader", fontsize=10, pad=8)
-            ax_bar.set_xlabel("Delta cumulative fuel (MWh)")
+            ax_bar.set_title("Cumulative Fuel Consumption", fontsize=10, pad=8)
+            ax_bar.set_xlabel("Cumulative fuel (MWh)")
 
-            names = [alias_by_name[name] for name, _, _ in ranking_rows]
-            cumulatives = [cumulative for _, cumulative, _ in ranking_rows]
-            leader = cumulatives[0] if cumulatives else 0.0
-            deltas = [value - leader for value in cumulatives]
+            names = [alias_by_name[name] for name in bar_names]
+            cumulatives = [
+                _cumulative_energy_at_hour(cumulative_profiles[name], float(abs_hour))
+                for name in bar_names
+            ]
             positions = np.arange(len(names))
 
             bar_colors = [color_by_alias[alias] for alias in names]
             bars = ax_bar.barh(
                 positions,
-                deltas,
+                cumulatives,
                 color=bar_colors,
                 alpha=0.88,
                 edgecolor="#1f2933",
@@ -1915,12 +2000,21 @@ def animate_departure(
             for idx, (bar, cumulative) in enumerate(
                 zip(bars, cumulatives, strict=False)
             ):
+                if cumulative <= 0.0:
+                    continue
+
+                label_x = bar.get_width() + x_max * 0.015
+                label_ha = "left"
+                if label_x > x_max * 0.98:
+                    label_x = max(bar.get_width() - x_max * 0.015, 0.0)
+                    label_ha = "right"
+
                 ax_bar.text(
-                    bar.get_width() + x_max * 0.015,
+                    label_x,
                     idx,
                     f"{cumulative:.1f}",
                     va="center",
-                    ha="left",
+                    ha=label_ha,
                     fontsize=9,
                     color="#1f2933",
                 )
@@ -2251,6 +2345,29 @@ def main() -> None:
             energy_lookup=energy_lookup,
             violation_lookup=violation_lookup,
         )
+
+        avg_consumption_by_name = avg_table[("all", "total")].to_dict()
+        plot_consumption_vs_exploration_scatter(
+            submissions,
+            sampled_cache=sampled_cache,
+            average_consumption_by_name=avg_consumption_by_name,
+            alias_by_name=alias_by_name,
+            color_by_alias=color_by_alias,
+            out_dir=args.output_dir,
+            dpi=args.dpi,
+        )
+        plot_consumption_vs_exploration_scatter(
+            submissions,
+            sampled_cache=sampled_cache,
+            average_consumption_by_name=avg_consumption_by_name,
+            alias_by_name=alias_by_name,
+            color_by_alias=color_by_alias,
+            out_dir=args.output_dir,
+            dpi=args.dpi,
+            selected_names=set(top5_participants),
+            output_suffix="_top5",
+        )
+
         avg_table = avg_table.rename(index=alias_by_name)
         save_average_consumption_table(avg_table, out_dir=args.output_dir, dpi=args.dpi)
 
