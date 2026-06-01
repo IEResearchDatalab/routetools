@@ -51,6 +51,8 @@ import jax
 
 jax.config.update("jax_platform_name", "cpu")
 
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 import matplotlib.animation as animation
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -932,6 +934,150 @@ def _mean_pairwise_haversine_km(points_lonlat: np.ndarray) -> float:
     return float(np.mean(dist_km[tri]))
 
 
+def _great_circle_path(
+    lon1: float, lat1: float, lon2: float, lat2: float, num_points: int = 100
+) -> tuple[np.ndarray, np.ndarray]:
+    """Generate great circle path between two points.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        Arrays of longitudes and latitudes along the great circle.
+    """
+    # Simple linear interpolation in lat/lon (approximation for visualization).
+    # For better accuracy, would use geodesic calculations.
+    lons = np.linspace(lon1, lon2, num_points)
+    lats = np.linspace(lat1, lat2, num_points)
+
+    return lons, lats
+
+
+def _find_representative_cases(
+    submissions: list[SubmissionData],
+    energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
+    top5_participants: list[str],
+) -> tuple[str, pd.Timestamp, str, pd.Timestamp]:
+    """Find representative summer (low variance) and winter (high variance) cases.
+
+    Returns
+    -------
+    tuple[str, pd.Timestamp, str, pd.Timestamp]
+        (summer_case, summer_departure, winter_case, winter_departure)
+    """
+    case_variances: dict[str, float] = {}
+    case_cv_profiles: dict[str, np.ndarray] = {}
+    case_departures: dict[str, pd.DatetimeIndex] = {}
+
+    for case in REQUIRED_CASES:
+        departures = None
+        top5_energies: list[list[float]] = []
+
+        for name in top5_participants:
+            submission = next((s for s in submissions if s.name == name), None)
+            if submission is None:
+                continue
+
+            summary = submission.summaries[case].sort_values("departure_time_utc")
+            if departures is None:
+                departures = pd.DatetimeIndex(summary["departure_time_utc"])
+
+            energies = [
+                energy_lookup[case][name][_normalize_departure_key(dep)]
+                for dep in departures
+            ]
+            top5_energies.append(energies)
+
+        if len(top5_energies) >= 2:
+            energies_array = np.array(top5_energies)
+            cv = np.std(energies_array, axis=0) / np.mean(energies_array, axis=0)
+            case_variances[case] = float(np.mean(cv))
+            case_cv_profiles[case] = cv
+        else:
+            case_variances[case] = 0.0
+            case_cv_profiles[case] = np.zeros(1)
+
+        if departures is not None:
+            case_departures[case] = departures
+
+    summer_case = min(
+        REQUIRED_CASES,
+        key=lambda c: case_variances.get(c, float("inf")),
+    )
+    winter_candidates = [c for c in REQUIRED_CASES if c != summer_case]
+    winter_case = max(winter_candidates, key=lambda c: case_variances.get(c, 0.0))
+
+    def _pick_dep(case_name: str, *, maximize: bool) -> pd.Timestamp:
+        deps = case_departures.get(case_name)
+        cv = case_cv_profiles.get(case_name, np.zeros(1))
+        if deps is None or len(deps) == 0 or len(cv) == 0:
+            month = 1 if maximize else 6
+            return pd.Timestamp(f"2024-{month:02d}-15T12:00:00", tz="UTC")
+        idx = int(np.argmax(cv)) if maximize else int(np.argmin(cv))
+        ts = deps[idx]
+        return ts if ts.tzinfo is not None else ts.tz_localize("UTC")
+
+    summer_departure = _pick_dep(summer_case, maximize=False)
+    winter_departure = _pick_dep(winter_case, maximize=True)
+
+    return summer_case, summer_departure, winter_case, winter_departure
+
+
+def _find_departure_with_wps_impact(
+    submissions: list[SubmissionData],
+    energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
+    reference_participant: str,
+    ocean: str = "atlantic",
+) -> datetime:
+    """Find a departure where WPS has significant impact for the reference participant.
+
+    Parameters
+    ----------
+    ocean : str
+        Either "atlantic" or "pacific"
+
+    Returns
+    -------
+    datetime
+        A departure date with significant WPS impact difference.
+    """
+    wps_case = f"{ocean[0].upper()}O_WPS" if ocean == "atlantic" else "PO_WPS"
+    nowps_case = f"{ocean[0].upper()}O_noWPS" if ocean == "atlantic" else "PO_noWPS"
+
+    submission = next((s for s in submissions if s.name == reference_participant), None)
+    if submission is None:
+        raise ValueError(f"Reference participant {reference_participant} not found")
+
+    wps_summary = submission.summaries[wps_case].sort_values("departure_time_utc")
+
+    # Find departure with maximum WPS benefit
+    max_benefit = 0.0
+    best_departure = None
+
+    for _, wps_row in wps_summary.iterrows():
+        dep_time = _normalize_departure_key(wps_row["departure_time_utc"])
+        wps_energy = energy_lookup[wps_case][reference_participant].get(
+            dep_time, np.nan
+        )
+        nowps_energy = energy_lookup[nowps_case][reference_participant].get(
+            dep_time, np.nan
+        )
+
+        if np.isfinite(wps_energy) and np.isfinite(nowps_energy):
+            benefit = nowps_energy - wps_energy
+            if benefit > max_benefit:
+                max_benefit = benefit
+                best_departure = wps_row["departure_time_utc"]
+
+    if best_departure is None:
+        # Fallback to first departure
+        ts = pd.Timestamp(wps_summary.iloc[0]["departure_time_utc"])
+    else:
+        ts = pd.Timestamp(best_departure)
+
+    # Strip tz so animate_departure can safely attach "UTC".
+    return ts.tz_localize(None) if ts.tzinfo is not None else ts
+
+
 def plot_consumption(
     submissions: list[SubmissionData],
     *,
@@ -972,6 +1118,7 @@ def plot_consumption(
         ax.set_title(f"Consumption Across 2024 Departures - {CASE_LABELS[case]}")
         ax.set_xlabel("Departure date")
         ax.set_ylabel("Energy consumption (MWh)")
+        ax.set_ylim(bottom=0.0)
         ax.grid(alpha=0.3)
         ax.legend(loc="best", ncols=2, fontsize=9)
         ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
@@ -1021,6 +1168,7 @@ def plot_participant_spread(
     ax.set_title(f"Participant Spread Comparison - {CASE_LABELS[case]}")
     ax.set_xlabel("Elapsed time (hours)")
     ax.set_ylabel("Mean pairwise waypoint distance (km)")
+    ax.set_ylim(bottom=0.0)
     ax.grid(alpha=0.3)
     ax.legend(loc="best", ncols=2, fontsize=9)
 
@@ -1092,6 +1240,7 @@ def plot_month_spread(
     ax.set_title(f"Month Spread Comparison - {CASE_LABELS[case]}")
     ax.set_xlabel("Elapsed time (hours)")
     ax.set_ylabel("Mean cross-participant distance (km)")
+    ax.set_ylim(bottom=0.0)
     ax.grid(alpha=0.3)
     ax.legend(loc="best", ncols=4, fontsize=8)
 
@@ -1284,6 +1433,8 @@ def plot_consumption_vs_exploration_scatter(
     ax.set_title("Average Consumption vs Average Exploration")
     ax.set_xlabel("Average exploration spread (km)")
     ax.set_ylabel("Average consumption (MWh)")
+    ax.set_ylim(bottom=0.0)
+    ax.set_xlim(left=0.0)
     ax.grid(alpha=0.3)
 
     out = out_dir / f"consumption_vs_exploration{output_suffix}.pdf"
@@ -1558,6 +1709,151 @@ def _pick_coord(dataset: xr.Dataset, candidates: list[str]) -> str:
     )
 
 
+def _add_coastline_to_axes(
+    ax: plt.Axes,
+    lon_min: float,
+    lon_max: float,
+    lat_min: float,
+    lat_max: float,
+) -> None:
+    """Draw Natural Earth coastline as black lines on a plain matplotlib Axes.
+
+    Longitudes are converted to [0, 360) to match the animation coordinate
+    convention used throughout the script.  Lines are placed above the wave
+    mesh (zorder=3) but below wind arrows (zorder=4).
+    """
+    from matplotlib.collections import LineCollection
+
+    coastline = cfeature.NaturalEarthFeature("physical", "coastline", "110m")
+    segments = []
+    pad_lon = 20.0
+    pad_lat = 10.0
+
+    for geom in coastline.geometries():
+        lines = list(geom.geoms) if hasattr(geom, "geoms") else [geom]
+        for line in lines:
+            coords = np.array(line.coords)
+            # Convert to [0, 360) to match track/weather convention.
+            coords[:, 0] = np.mod(coords[:, 0], 360.0)
+            # Split segments that jump across the antimeridian (|Δlon| > 180°).
+            split_indices = np.where(np.abs(np.diff(coords[:, 0])) > 180.0)[0] + 1
+            sub_segs = np.split(coords, split_indices)
+            for sub in sub_segs:
+                if len(sub) < 2:
+                    continue
+                if (
+                    sub[:, 0].max() < lon_min - pad_lon
+                    or sub[:, 0].min() > lon_max + pad_lon
+                    or sub[:, 1].max() < lat_min - pad_lat
+                    or sub[:, 1].min() > lat_max + pad_lat
+                ):
+                    continue
+                segments.append(sub[:, :2])
+
+    if segments:
+        ax.add_collection(
+            LineCollection(
+                segments,
+                colors="black",
+                linewidths=0.8,
+                zorder=3,
+            )
+        )
+
+
+def _haversine_deg(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    """Great-circle angular distance in degrees between two (lon, lat) points."""
+    lat1r, lat2r = np.radians(lat1), np.radians(lat2)
+    dlat = np.radians(lat2 - lat1)
+    dlon = np.radians(lon2 - lon1)
+    a = (
+        np.sin(dlat / 2.0) ** 2
+        + np.cos(lat1r) * np.cos(lat2r) * np.sin(dlon / 2.0) ** 2
+    )
+    return float(np.degrees(2.0 * np.arcsin(np.clip(np.sqrt(a), 0.0, 1.0))))
+
+
+def _build_map_axes(
+    fig: plt.Figure,
+    subplot_spec,
+    lon_min_360: float,
+    lon_max_360: float,
+    lat_min: float,
+    lat_max: float,
+):
+    """Create a GeoAxes with NearsidePerspective projection for route visualization.
+
+    The satellite height is computed so the full route bounding box fits inside
+    the visible hemisphere with ~15° margin, giving a genuine globe-curvature
+    effect.  Longitudes follow the [0, 360) convention used throughout this
+    script.  Pass ERA5/track data to the returned axes with
+    ``transform=ccrs.PlateCarree(central_longitude=180)`` and shift longitudes
+    as ``lon_360 - 180.0``.
+    """
+    # Midpoint in 0-360, then convert to -180/180 for cartopy
+    center_lon_360 = (lon_min_360 + lon_max_360) / 2.0
+    center_lon_180 = float(((center_lon_360 + 180.0) % 360.0) - 180.0)
+    center_lat = (lat_min + lat_max) / 2.0
+
+    # Angular radius from centre to each corner
+    corners = [
+        (lon_min_360, lat_min),
+        (lon_min_360, lat_max),
+        (lon_max_360, lat_min),
+        (lon_max_360, lat_max),
+    ]
+    max_angle = 0.0
+    for clon_360, clat in corners:
+        clon_180 = float(((clon_360 + 180.0) % 360.0) - 180.0)
+        d = _haversine_deg(center_lon_180, center_lat, clon_180, clat)
+        max_angle = max(max_angle, d)
+
+    # Satellite height so the visible radius covers max_angle + 15° margin
+    _R_EARTH = 6_371_000.0
+    target_angle = min(max_angle + 15.0, 88.0)
+    h = _R_EARTH * (1.0 / np.cos(np.radians(target_angle)) - 1.0)
+    satellite_height = max(float(h), 3_000_000.0)
+
+    projection = ccrs.NearsidePerspective(
+        central_longitude=center_lon_180,
+        central_latitude=center_lat,
+        satellite_height=satellite_height,
+    )
+    ax = fig.add_subplot(subplot_spec, projection=projection)
+    ax.set_facecolor("#0a1929")  # colour outside the visible hemisphere
+
+    # Filled ocean and land
+    ax.add_feature(
+        cfeature.NaturalEarthFeature("physical", "ocean", "50m"),
+        facecolor="#0d2538",
+        zorder=1,
+    )
+    ax.add_feature(
+        cfeature.NaturalEarthFeature("physical", "land", "50m"),
+        facecolor="#2d5a27",
+        edgecolor="#1a3b18",
+        linewidth=0.4,
+        zorder=2,
+    )
+    ax.add_feature(
+        cfeature.NaturalEarthFeature("physical", "coastline", "50m"),
+        edgecolor="#5a8f54",
+        facecolor="none",
+        linewidth=0.7,
+        zorder=3,
+    )
+    ax.gridlines(
+        crs=ccrs.PlateCarree(),
+        draw_labels=False,
+        linewidth=0.4,
+        color="gray",
+        alpha=0.35,
+        linestyle="--",
+        zorder=0,
+    )
+    return ax
+
+
 def _normalize_longitude(ds: xr.Dataset, lon_name: str) -> xr.Dataset:
     """Normalize longitude axis to [0, 360) and sort coordinates."""
     lon = ds[lon_name]
@@ -1698,6 +1994,394 @@ def _cumulative_energy_at_hour(
     return float(np.interp(hour, elapsed_hours, cumulative_energy))
 
 
+def animate_wps_comparison(
+    submission: SubmissionData,
+    *,
+    wps_case: str,
+    nowps_case: str,
+    departure: datetime,
+    energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
+    score_archives_by_name: dict[str, Path],
+    alias_by_name: dict[str, str],
+    output_path: Path,
+    wave_path: Path,
+    wind_path: Path,
+    dpi: int,
+) -> None:
+    """Single animation showing WPS vs no-WPS route for one participant/departure.
+
+    Both routes are overlaid on the same map: the WPS-routed track in teal
+    (solid line) and the no-WPS track in orange (dashed line), each with its
+    own vessel marker.  A horizontal bar chart below tracks cumulative fuel
+    consumption for both cases simultaneously.
+    """
+    _ts = pd.Timestamp(departure)
+    departure_utc = (
+        _ts.tz_localize("UTC") if _ts.tzinfo is None else _ts.tz_convert("UTC")
+    )
+
+    def _load_case(
+        case: str,
+    ) -> tuple[pd.DataFrame, tuple[np.ndarray, np.ndarray]]:
+        summary = submission.summaries[case]
+        row = summary.loc[summary["departure_time_utc"] == departure_utc]
+        if row.empty:
+            raise ValueError(
+                f"No data for {submission.name} / {case} / {departure_utc}"
+            )
+        details = str(row.iloc[0]["details_filename"])
+        track = _read_track(submission.tracks_dir / details)
+        score_archive = score_archives_by_name[submission.name]
+        scored_route = _load_scored_route_timeseries(
+            score_archive, case=case, departure_utc=departure_utc
+        )
+        profile = _build_cumulative_energy_profile(
+            scored_route, departure_utc=departure_utc
+        )
+        return track, profile
+
+    wps_track, wps_profile = _load_case(wps_case)
+    nowps_track, nowps_profile = _load_case(nowps_case)
+
+    case_hours = max(
+        int(SWOPP3_CASES[wps_case]["passage_hours"]),
+        int(SWOPP3_CASES[nowps_case]["passage_hours"]),
+    )
+    frame_hours = np.arange(0, case_hours + 1, 1, dtype=int)
+
+    all_lons = np.concatenate(
+        [
+            wps_track["lon_deg"].to_numpy(dtype=float),
+            nowps_track["lon_deg"].to_numpy(dtype=float),
+        ]
+    )
+    all_lats = np.concatenate(
+        [
+            wps_track["lat_deg"].to_numpy(dtype=float),
+            nowps_track["lat_deg"].to_numpy(dtype=float),
+        ]
+    )
+    lon_min = float(np.min(all_lons) - 5.0)
+    lon_max = float(np.max(all_lons) + 5.0)
+    lat_min = float(np.min(all_lats) - 5.0)
+    lat_max = float(np.max(all_lats) + 5.0)
+
+    _WPS_COLOR = "#4dd0e1"  # teal  – weather-routing on
+    _NOWPS_COLOR = "#ff9800"  # orange – weather-routing off
+
+    wind_ds = xr.open_dataset(wind_path)
+    wave_ds = xr.open_dataset(wave_path)
+    try:
+        wind_u = _pick_data_var(wind_ds, ["u10", "10m_u_component_of_wind", "U10"])
+        wind_v = _pick_data_var(wind_ds, ["v10", "10m_v_component_of_wind", "V10"])
+        wave_h = _pick_data_var(
+            wave_ds,
+            [
+                "swh",
+                "significant_height_of_combined_wind_waves_and_swell",
+                "hs",
+                "Hs",
+            ],
+        )
+        wind_time = _pick_coord(wind_ds, ["valid_time", "time"])
+        wind_lat = _pick_coord(wind_ds, ["latitude", "lat"])
+        wind_lon = _pick_coord(wind_ds, ["longitude", "lon"])
+        wave_time = _pick_coord(wave_ds, ["valid_time", "time"])
+        wave_lat = _pick_coord(wave_ds, ["latitude", "lat"])
+        wave_lon = _pick_coord(wave_ds, ["longitude", "lon"])
+
+        wind_ds = _normalize_longitude(wind_ds, wind_lon)
+        wave_ds = _normalize_longitude(wave_ds, wave_lon)
+
+        wind_region = _slice_2d_region(
+            wind_ds,
+            lat_name=wind_lat,
+            lon_name=wind_lon,
+            lat_min=lat_min,
+            lat_max=lat_max,
+            lon_min=lon_min,
+            lon_max=lon_max,
+        )
+        wave_region = _slice_2d_region(
+            wave_ds,
+            lat_name=wave_lat,
+            lon_name=wave_lon,
+            lat_min=lat_min,
+            lat_max=lat_max,
+            lon_min=lon_min,
+            lon_max=lon_max,
+        )
+
+        fig = plt.figure(figsize=(14, 8))
+        grid = fig.add_gridspec(2, 1, height_ratios=[6.2, 1.15], hspace=0.08)
+        _TC = ccrs.PlateCarree(central_longitude=180)
+        ax_map = _build_map_axes(fig, grid[0, 0], lon_min, lon_max, lat_min, lat_max)
+        ax_bar = fig.add_subplot(grid[1, 0])
+        ax_bar.set_facecolor("#f7f9fc")
+
+        # Route trail lines
+        (wps_line,) = ax_map.plot(
+            [],
+            [],
+            color=_WPS_COLOR,
+            linewidth=2.0,
+            alpha=0.92,
+            solid_capstyle="round",
+            label="With WPS",
+            zorder=5,
+            transform=_TC,
+        )
+        (nowps_line,) = ax_map.plot(
+            [],
+            [],
+            color=_NOWPS_COLOR,
+            linewidth=2.0,
+            alpha=0.92,
+            linestyle="--",
+            solid_capstyle="round",
+            label="No WPS",
+            zorder=5,
+            transform=_TC,
+        )
+        # Vessel shadows
+        (wps_shadow,) = ax_map.plot(
+            [],
+            [],
+            linestyle="None",
+            marker=(3, 0, 0),
+            markersize=13,
+            markerfacecolor="black",
+            markeredgecolor="none",
+            alpha=0.35,
+            zorder=8,
+            transform=_TC,
+        )
+        (nowps_shadow,) = ax_map.plot(
+            [],
+            [],
+            linestyle="None",
+            marker=(3, 0, 0),
+            markersize=13,
+            markerfacecolor="black",
+            markeredgecolor="none",
+            alpha=0.35,
+            zorder=8,
+            transform=_TC,
+        )
+        # Vessel markers
+        (wps_vessel,) = ax_map.plot(
+            [],
+            [],
+            linestyle="None",
+            marker=(3, 0, 0),
+            markersize=10,
+            markerfacecolor=_WPS_COLOR,
+            markeredgecolor="white",
+            markeredgewidth=1.2,
+            zorder=9,
+            transform=_TC,
+        )
+        (nowps_vessel,) = ax_map.plot(
+            [],
+            [],
+            linestyle="None",
+            marker=(3, 0, 0),
+            markersize=10,
+            markerfacecolor=_NOWPS_COLOR,
+            markeredgecolor="white",
+            markeredgewidth=1.2,
+            zorder=9,
+            transform=_TC,
+        )
+        ax_map.legend(loc="upper right", fontsize=9, framealpha=0.75)
+
+        wave_mesh = None
+        wind_quiver = None
+
+        wps_total = float(wps_profile[1][-1])
+        nowps_total = float(nowps_profile[1][-1])
+        x_max = max(1.0, max(wps_total, nowps_total) * 1.05)
+
+        def _frame(abs_hour: int):  # noqa: ANN202
+            nonlocal wave_mesh, wind_quiver
+            current_time = departure_utc + pd.Timedelta(hours=int(abs_hour))
+            current_time_naive = current_time.tz_localize(None)
+
+            wave_slice = wave_region.sel(
+                {wave_time: current_time_naive}, method="nearest"
+            )
+            wind_slice = wind_region.sel(
+                {wind_time: current_time_naive}, method="nearest"
+            )
+
+            lon_w = wave_slice[wave_lon].values
+            lat_w = wave_slice[wave_lat].values
+            hs = wave_slice[wave_h].values
+            hs = np.nan_to_num(hs, nan=0.0)
+
+            if wave_mesh is not None:
+                wave_mesh.remove()
+            wave_mesh = ax_map.pcolormesh(
+                lon_w - 180.0,
+                lat_w,
+                hs,
+                shading="auto",
+                cmap="viridis",
+                alpha=0.55,
+                vmin=0.0,
+                vmax=max(1.0, float(np.nanpercentile(hs, 95))),
+                transform=_TC,
+                zorder=1.5,
+            )
+
+            lon_c = wind_slice[wind_lon].values
+            lat_c = wind_slice[wind_lat].values
+            u = wind_slice[wind_u].values
+            v = wind_slice[wind_v].values
+            step_lat = max(1, int(len(lat_c) / 20))
+            step_lon = max(1, int(len(lon_c) / 25))
+            lon_q = lon_c[::step_lon]
+            lat_q = lat_c[::step_lat]
+            u_q = u[::step_lat, ::step_lon]
+            v_q = v[::step_lat, ::step_lon]
+            lon_qq, lat_qq = np.meshgrid(lon_q, lat_q)
+            if wind_quiver is not None:
+                wind_quiver.remove()
+            wind_quiver = ax_map.quiver(
+                lon_qq - 180.0,
+                lat_qq,
+                u_q,
+                v_q,
+                color="white",
+                alpha=0.8,
+                width=0.0012,
+                scale=500,
+                zorder=4,
+                transform=_TC,
+            )
+
+            # WPS track
+            lon_i, lat_i, dlon, dlat = _track_state_at_hour(wps_track, abs_hour)
+            t0 = wps_track["time_utc"].iloc[0]
+            elapsed = (
+                wps_track["time_utc"] - t0
+            ).dt.total_seconds().to_numpy() / 3600.0
+            cutoff = np.searchsorted(elapsed, abs_hour, side="right")
+            trail = wps_track.iloc[: max(cutoff, 2)]
+            wps_line.set_data(
+                trail["lon_deg"].to_numpy(float) - 180.0,
+                trail["lat_deg"].to_numpy(float),
+            )
+            heading = float(np.degrees(np.arctan2(dlat, dlon)))
+            wps_shadow.set_marker((3, 0, heading - 90.0))
+            wps_vessel.set_marker((3, 0, heading - 90.0))
+            wps_shadow.set_data([lon_i - 180.0], [lat_i])
+            wps_vessel.set_data([lon_i - 180.0], [lat_i])
+
+            # no-WPS track
+            lon_i2, lat_i2, dlon2, dlat2 = _track_state_at_hour(nowps_track, abs_hour)
+            t0_2 = nowps_track["time_utc"].iloc[0]
+            elapsed2 = (
+                nowps_track["time_utc"] - t0_2
+            ).dt.total_seconds().to_numpy() / 3600.0
+            cutoff2 = np.searchsorted(elapsed2, abs_hour, side="right")
+            trail2 = nowps_track.iloc[: max(cutoff2, 2)]
+            nowps_line.set_data(
+                trail2["lon_deg"].to_numpy(float) - 180.0,
+                trail2["lat_deg"].to_numpy(float),
+            )
+            heading2 = float(np.degrees(np.arctan2(dlat2, dlon2)))
+            nowps_shadow.set_marker((3, 0, heading2 - 90.0))
+            nowps_vessel.set_marker((3, 0, heading2 - 90.0))
+            nowps_shadow.set_data([lon_i2 - 180.0], [lat_i2])
+            nowps_vessel.set_data([lon_i2 - 180.0], [lat_i2])
+
+            if abs_hour >= case_hours:
+                ax_map.set_title(
+                    f"WPS vs no-WPS \u2013 {departure_utc.date()} \u2013 Final"
+                )
+            else:
+                ax_map.set_title(
+                    f"WPS vs no-WPS \u2013 {departure_utc.date()} "
+                    f"\u2013 +{abs_hour:03d}h"
+                )
+
+            ax_bar.clear()
+            ax_bar.set_facecolor("#f7f9fc")
+            ax_bar.set_title("Cumulative Fuel Consumption", fontsize=10, pad=8)
+            ax_bar.set_xlabel("Cumulative fuel (MWh)")
+            wps_cum = _cumulative_energy_at_hour(wps_profile, float(abs_hour))
+            nowps_cum = _cumulative_energy_at_hour(nowps_profile, float(abs_hour))
+            bars = ax_bar.barh(
+                [0, 1],
+                [wps_cum, nowps_cum],
+                color=[_WPS_COLOR, _NOWPS_COLOR],
+                alpha=0.88,
+                edgecolor="#1f2933",
+                linewidth=0.4,
+            )
+            ax_bar.set_yticks([0, 1], ["With WPS", "No WPS"])
+            ax_bar.invert_yaxis()
+            ax_bar.grid(axis="x", alpha=0.25, linestyle="--")
+            ax_bar.set_xlim(0.0, x_max)
+            for idx, (bar, cum) in enumerate(
+                zip(bars, [wps_cum, nowps_cum], strict=False)
+            ):
+                if cum <= 0.0:
+                    continue
+                label_x = bar.get_width() + x_max * 0.015
+                label_ha = "left"
+                if label_x > x_max * 0.98:
+                    label_x = max(bar.get_width() - x_max * 0.015, 0.0)
+                    label_ha = "right"
+                ax_bar.text(
+                    label_x,
+                    idx,
+                    f"{cum:.1f}",
+                    va="center",
+                    ha=label_ha,
+                    fontsize=9,
+                    color="#1f2933",
+                )
+
+            return [
+                wps_line,
+                wps_shadow,
+                wps_vessel,
+                nowps_line,
+                nowps_shadow,
+                nowps_vessel,
+            ]
+
+        anim = animation.FuncAnimation(
+            fig,
+            _frame,
+            frames=frame_hours,
+            interval=15,
+            blit=False,
+            repeat=False,
+        )
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fps = ANIMATION_FPS
+        mp4_path = output_path.with_suffix(".mp4")
+        gif_path = output_path.with_suffix(".gif")
+
+        gif_writer = animation.PillowWriter(fps=fps)
+        anim.save(gif_path, writer=gif_writer, dpi=dpi)
+
+        if animation.writers.is_available("ffmpeg"):
+            mp4_writer = animation.FFMpegWriter(fps=fps)
+            anim.save(mp4_path, writer=mp4_writer, dpi=dpi)
+        else:
+            _gif_to_mp4(gif_path, mp4_path, fps=fps)
+
+        plt.close(fig)
+    finally:
+        wind_ds.close()
+        wave_ds.close()
+
+
 def animate_departure(
     submissions: list[SubmissionData],
     *,
@@ -1713,7 +2397,10 @@ def animate_departure(
     dpi: int,
 ) -> None:
     """Generate the requested hourly animation for one case/departure."""
-    departure_utc = pd.Timestamp(departure, tz="UTC")
+    _ts = pd.Timestamp(departure)
+    departure_utc = (
+        _ts.tz_localize("UTC") if _ts.tzinfo is None else _ts.tz_convert("UTC")
+    )
     case_hours = int(SWOPP3_CASES[case]["passage_hours"])
     frame_hours = np.arange(0, case_hours + 1, 1, dtype=int)
 
@@ -1814,18 +2501,12 @@ def animate_departure(
             lon_max=lon_max,
         )
 
+        _TC = ccrs.PlateCarree(central_longitude=180)
         fig = plt.figure(figsize=(14, 8))
         grid = fig.add_gridspec(2, 1, height_ratios=[6.2, 1.15], hspace=0.08)
-        ax_map = fig.add_subplot(grid[0, 0])
+        ax_map = _build_map_axes(fig, grid[0, 0], lon_min, lon_max, lat_min, lat_max)
         ax_bar = fig.add_subplot(grid[1, 0])
         ax_bar.set_facecolor("#f7f9fc")
-
-        ax_map.set_xlim(lon_min, lon_max)
-        ax_map.set_ylim(lat_min, lat_max)
-        ax_map.set_facecolor("#0d2538")
-        ax_map.set_xlabel("Longitude (deg)")
-        ax_map.set_ylabel("Latitude (deg)")
-        ax_map.grid(alpha=0.25, color="#9cb4c3", linestyle="--", linewidth=0.5)
 
         sub_names = _ordered_submission_names(
             submissions,
@@ -1847,6 +2528,7 @@ def animate_departure(
                 alpha=0.92,
                 solid_capstyle="round",
                 label=alias_by_name[name],
+                transform=_TC,
             )
             line_handles[name] = line
             (shadow,) = ax_map.plot(
@@ -1859,6 +2541,7 @@ def animate_departure(
                 markeredgecolor="none",
                 alpha=0.35,
                 zorder=8,
+                transform=_TC,
             )
             vessel_shadow_handles[name] = shadow
             (vessel,) = ax_map.plot(
@@ -1871,6 +2554,7 @@ def animate_departure(
                 markeredgecolor="white",
                 markeredgewidth=1.2,
                 zorder=9,
+                transform=_TC,
             )
             vessel_handles[name] = vessel
 
@@ -1903,7 +2587,7 @@ def animate_departure(
             if wave_mesh is not None:
                 wave_mesh.remove()
             wave_mesh = ax_map.pcolormesh(
-                lon_w,
+                lon_w - 180.0,
                 lat_w,
                 hs,
                 shading="auto",
@@ -1911,6 +2595,8 @@ def animate_departure(
                 alpha=0.55,
                 vmin=0.0,
                 vmax=max(1.0, float(np.nanpercentile(hs, 95))),
+                transform=_TC,
+                zorder=1.5,
             )
 
             lon_c = wind_slice[wind_lon].values
@@ -1929,14 +2615,16 @@ def animate_departure(
             if wind_quiver is not None:
                 wind_quiver.remove()
             wind_quiver = ax_map.quiver(
-                lon_qq,
+                lon_qq - 180.0,
                 lat_qq,
                 u_q,
                 v_q,
                 color="white",
                 alpha=0.8,
-                width=0.0018,
-                scale=350,
+                width=0.0012,
+                scale=500,
+                zorder=4,
+                transform=_TC,
             )
 
             for name in sub_names:
@@ -1950,7 +2638,7 @@ def animate_departure(
                 cutoff = np.searchsorted(elapsed, abs_hour, side="right")
                 trail = track.iloc[: max(cutoff, 2)]
                 line_handles[name].set_data(
-                    trail["lon_deg"].to_numpy(dtype=float),
+                    trail["lon_deg"].to_numpy(dtype=float) - 180.0,
                     trail["lat_deg"].to_numpy(dtype=float),
                 )
 
@@ -1958,8 +2646,8 @@ def animate_departure(
                 marker_style = (3, 0, heading_deg - 90.0)
                 vessel_shadow_handles[name].set_marker(marker_style)
                 vessel_handles[name].set_marker(marker_style)
-                vessel_shadow_handles[name].set_data([lon_i], [lat_i])
-                vessel_handles[name].set_data([lon_i], [lat_i])
+                vessel_shadow_handles[name].set_data([lon_i - 180.0], [lat_i])
+                vessel_handles[name].set_data([lon_i - 180.0], [lat_i])
 
             if abs_hour >= case_hours:
                 ax_map.set_title(
@@ -2183,6 +2871,196 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _forward_bearing_deg_vec(
+    lat1: np.ndarray,
+    lon1: np.ndarray,
+    lat2: np.ndarray,
+    lon2: np.ndarray,
+) -> np.ndarray:
+    """Vectorised forward bearing in [0, 360) between consecutive points."""
+    lat1r, lat2r = np.radians(lat1), np.radians(lat2)
+    dlon = np.radians(lon2 - lon1)
+    x = np.sin(dlon) * np.cos(lat2r)
+    y = np.cos(lat1r) * np.sin(lat2r) - np.sin(lat1r) * np.cos(lat2r) * np.cos(dlon)
+    return np.mod(np.degrees(np.arctan2(x, y)), 360.0)
+
+
+def _rescore_route_counterfactual(df: pd.DataFrame, *, wps: bool) -> float:
+    """Re-score a resampled route CSV with the opposite WPS performance model.
+
+    Replicates the official scorer logic:
+      1. Compute per-segment ship bearing from consecutive lat/lon.
+      2. Derive TWA and MWA relative to that bearing.
+      3. Run :func:`~routetools.performance.predict_power` with *wps* flag.
+      4. Integrate power over each segment's Δt.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Resampled route CSV loaded into a DataFrame (columns: timestamp,
+        lat, lon, wind, wind_u, wind_v, wave_h, wave_a, velocity, …).
+    wps : bool
+        WPS flag to apply (True = wingsails deployed, False = retracted).
+
+    Returns
+    -------
+    float
+        Total energy in MWh.
+    """
+    from routetools.performance import predict_power
+
+    df = df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp").reset_index(drop=True)
+
+    n = len(df)
+    if n < 2:
+        return 0.0
+
+    lats = df["lat"].to_numpy(dtype=float)
+    lons = df["lon"].to_numpy(dtype=float)
+    # Segments: 0..N-2 → 1..N-1
+    bearing = _forward_bearing_deg_vec(lats[:-1], lons[:-1], lats[1:], lons[1:])
+
+    # Per-segment dt in hours (from timestamps)
+    times = df["timestamp"].values
+    dt_h = times[1:].astype("datetime64[s]") - times[:-1].astype("datetime64[s]")
+    dt_h = dt_h.astype(float) / 3600.0
+    dt_h = np.maximum(dt_h, 1e-6)
+
+    # Weather at each segment (stored at the start-of-segment row)
+    wu = df["wind_u"].to_numpy(dtype=float)[:-1]
+    wv = df["wind_v"].to_numpy(dtype=float)[:-1]
+    tws = np.sqrt(wu**2 + wv**2)
+    wind_from_deg = np.mod(180.0 + np.degrees(np.arctan2(wu, wv)), 360.0)
+    twa_deg = np.mod(wind_from_deg - bearing, 360.0)
+
+    wave_h = df["wave_h"].to_numpy(dtype=float)[:-1]
+    mwd = df["wave_a"].to_numpy(dtype=float)[:-1]
+    mwa_deg = np.mod(mwd - bearing, 360.0)
+
+    v_mps = df["velocity"].to_numpy(dtype=float)[:-1]
+
+    power_kw = np.array(
+        [
+            predict_power(
+                float(tws[i]),
+                float(twa_deg[i]),
+                float(wave_h[i]),
+                float(mwa_deg[i]),
+                float(v_mps[i]),
+                wps=wps,
+            )
+            for i in range(len(tws))
+        ]
+    )
+    return float(np.sum(power_kw * dt_h) / 1000.0)
+
+
+def plot_drprecious_counterfactual_table(
+    submission: SubmissionData,
+    *,
+    score_archive: Path,
+    out_dir: Path,
+    dpi: int,
+) -> None:
+    """Generate the 4×4 counterfactual re-scoring table for drprecious.
+
+    For each of the 4 cases (AO_WPS, AO_noWPS, PO_WPS, PO_noWPS) the
+    participant's routes are re-scored with the *opposite* WPS model.
+    The table has 4 rows (one per case) and 4 columns:
+
+    * **Original (MWh)** — mean total energy under the submitted WPS setting
+    * **Counterfactual (MWh)** — mean total energy under the opposite setting
+    * **Δ (MWh)** — counterfactual − original
+    * **Δ (%)** — relative change
+    """
+    score_zip = _load_resampled_tracks_zip(score_archive)
+    route_members = _index_scored_route_members(score_zip)
+
+    rows = []
+    for case in REQUIRED_CASES:
+        wps_flag: bool = bool(SWOPP3_CASES[case]["wps"])
+        original_energies: list[float] = []
+        counterfactual_energies: list[float] = []
+
+        summary = submission.summaries[case].sort_values("departure_time_utc")
+        for _, row in summary.iterrows():
+            departure_key = _normalize_departure_key(row["departure_time_utc"])
+            departure_date = departure_key.strftime("%Y%m%d")
+            score_name = route_members[case].get(departure_date)
+            if score_name is None:
+                continue
+            with score_zip.open(score_name) as fh:
+                df_route = pd.read_csv(fh)
+
+            original_energies.append(float(df_route["E"].sum()))
+            counterfactual_energies.append(
+                _rescore_route_counterfactual(df_route, wps=not wps_flag)
+            )
+
+        if not original_energies:
+            continue
+
+        orig_mean = float(np.mean(original_energies))
+        cf_mean = float(np.mean(counterfactual_energies))
+        delta = cf_mean - orig_mean
+        delta_pct = delta / orig_mean * 100.0 if orig_mean > 0 else float("nan")
+        rows.append(
+            {
+                "Case": CASE_LABELS.get(case, case),
+                "Original (MWh)": round(orig_mean, 2),
+                "Counterfactual (MWh)": round(cf_mean, 2),
+                "Δ (MWh)": round(delta, 2),
+                "Δ (%)": round(delta_pct, 1),
+            }
+        )
+
+    score_zip.close()
+
+    if not rows:
+        print("Warning: No counterfactual data available for drprecious.")
+        return
+
+    table_df = pd.DataFrame(rows)
+
+    fig, ax = plt.subplots(figsize=(10, 2.4 + 0.5 * len(rows)))
+    ax.axis("off")
+    tbl = ax.table(
+        cellText=table_df.values,
+        colLabels=table_df.columns,
+        cellLoc="center",
+        loc="center",
+    )
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(11)
+    tbl.scale(1.2, 1.8)
+
+    # Colour header
+    for j in range(len(table_df.columns)):
+        tbl[0, j].set_facecolor("#2c5f8a")
+        tbl[0, j].set_text_props(color="white", fontweight="bold")
+
+    # Colour Δ(%) cells: green if negative (WPS helps), red if positive
+    col_idx = list(table_df.columns).index("Δ (%)")
+    for i, row_dict in enumerate(rows):
+        dpct = row_dict["Δ (%)"]
+        if not np.isnan(dpct):
+            color = "#d4edda" if dpct < 0 else "#f8d7da"
+            tbl[i + 1, col_idx].set_facecolor(color)
+
+    ax.set_title(
+        "drprecious – Counterfactual re-scoring (opposite WPS model)",
+        fontsize=13,
+        pad=18,
+    )
+
+    out_path = out_dir / "drprecious_counterfactual_table"
+    _save_figure(fig, out_path, dpi=dpi)
+    plt.close(fig)
+    print(f"Saved counterfactual table: {out_path}.pdf / .png")
+
+
 def main() -> None:
     """CLI entrypoint."""
     parser = build_parser()
@@ -2392,6 +3270,25 @@ def main() -> None:
             output_suffix="_top5",
         )
 
+        # Counterfactual re-scoring table for drprecious
+        try:
+            drprecious_subs = [
+                s
+                for s in submissions
+                if _normalize_participant_token(s.name) == "drprecious"
+            ]
+            if drprecious_subs:
+                dp_archive = score_archives_by_name.get(drprecious_subs[0].name)
+                if dp_archive is not None:
+                    plot_drprecious_counterfactual_table(
+                        drprecious_subs[0],
+                        score_archive=dp_archive,
+                        out_dir=args.output_dir,
+                        dpi=args.dpi,
+                    )
+        except Exception as e:
+            print(f"Warning: Could not generate counterfactual table: {e}")
+
         if not args.skip_animation:
             departure = _parse_departure_argument(args.animation_departure)
             for animation_case in args.animation_cases:
@@ -2418,6 +3315,110 @@ def main() -> None:
                     wind_path=wind_path,
                     dpi=args.dpi,
                 )
+
+            # Find and render representative summer/winter cases
+            try:
+                (
+                    summer_case,
+                    summer_departure,
+                    winter_case,
+                    winter_departure,
+                ) = _find_representative_cases(
+                    submissions, energy_lookup, top5_participants
+                )
+                print(
+                    f"Summer case (low variance): {summer_case} "
+                    f"({summer_departure.date()}), "
+                    f"Winter case (high variance): {winter_case} "
+                    f"({winter_departure.date()})"
+                )
+
+                for season, anim_case, season_dep in [
+                    ("summer", summer_case, summer_departure),
+                    ("winter", winter_case, winter_departure),
+                ]:
+                    corridor = _corridor_from_case(anim_case)
+                    if corridor == "atlantic":
+                        wind_path = args.wind_path_atlantic
+                        wave_path = args.wave_path_atlantic
+                    else:
+                        wind_path = args.wind_path_pacific
+                        wave_path = args.wave_path_pacific
+
+                    print(
+                        f"Rendering {season} animation for {anim_case} "
+                        f"({season_dep.date()})..."
+                    )
+                    animate_departure(
+                        [
+                            sub
+                            for sub in submissions
+                            if sub.name in set(top5_participants)
+                        ],
+                        case=anim_case,
+                        departure=season_dep,
+                        energy_lookup=energy_lookup,
+                        score_archives_by_name=score_archives_by_name,
+                        alias_by_name=alias_by_name,
+                        color_by_alias=color_by_alias,
+                        output_path=args.output_dir
+                        / f"animation_{season}_{anim_case}_top5",
+                        wave_path=wave_path,
+                        wind_path=wind_path,
+                        dpi=args.dpi,
+                    )
+            except Exception as e:
+                print(f"Warning: Could not generate seasonal animations: {e}")
+
+            # Render WPS vs no-WPS comparison for drprecious
+            try:
+                drprecious_submissions = [
+                    s
+                    for s in submissions
+                    if _normalize_participant_token(s.name) == "drprecious"
+                ]
+                if drprecious_submissions:
+                    ref_participant = drprecious_submissions[0].name
+                    for ocean, corridor in [("atlantic", "AO"), ("pacific", "PO")]:
+                        wps_case = f"{corridor}_WPS"
+                        nowps_case = f"{corridor}_noWPS"
+
+                        if corridor == "AO":
+                            wind_path = args.wind_path_atlantic
+                            wave_path = args.wave_path_atlantic
+                        else:
+                            wind_path = args.wind_path_pacific
+                            wave_path = args.wave_path_pacific
+
+                        # Find departure with significant WPS impact
+                        departure_wps = _find_departure_with_wps_impact(
+                            submissions, energy_lookup, ref_participant, ocean
+                        )
+
+                        print(
+                            f"Rendering WPS comparison for {ocean} "
+                            f"({wps_case}) vs ({nowps_case})..."
+                        )
+
+                        # Single video: both WPS and no-WPS routes overlaid.
+                        animate_wps_comparison(
+                            drprecious_submissions[0],
+                            wps_case=wps_case,
+                            nowps_case=nowps_case,
+                            departure=departure_wps,
+                            energy_lookup=energy_lookup,
+                            score_archives_by_name=score_archives_by_name,
+                            alias_by_name=alias_by_name,
+                            output_path=(
+                                args.output_dir / f"animation_wps_comparison_{ocean}"
+                                f"_{departure_wps.date()}"
+                            ),
+                            wave_path=wave_path,
+                            wind_path=wind_path,
+                            dpi=args.dpi,
+                        )
+            except Exception as e:
+                print(f"Warning: Could not generate WPS comparison animations: {e}")
 
 
 if __name__ == "__main__":
