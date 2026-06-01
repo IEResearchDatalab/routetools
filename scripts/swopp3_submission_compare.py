@@ -3212,8 +3212,8 @@ def _forward_bearing_deg_vec(
     return np.mod(np.degrees(np.arctan2(x, y)), 360.0)
 
 
-def _rescore_route_counterfactual(df: pd.DataFrame, *, wps: bool) -> float:
-    """Re-score a resampled route CSV with the opposite WPS performance model.
+def _rescore_route_energy(df: pd.DataFrame, *, wps: bool) -> float:
+    """Re-score a resampled route CSV with a chosen WPS performance model.
 
     Replicates the official scorer logic:
       1. Compute per-segment ship bearing from consecutive lat/lon.
@@ -3227,7 +3227,8 @@ def _rescore_route_counterfactual(df: pd.DataFrame, *, wps: bool) -> float:
         Resampled route CSV loaded into a DataFrame (columns: timestamp,
         lat, lon, wind, wind_u, wind_v, wave_h, wave_a, velocity, …).
     wps : bool
-        WPS flag to apply (True = wingsails deployed, False = retracted).
+        WPS flag to apply during re-scoring
+        (True = wingsails deployed, False = retracted).
 
     Returns
     -------
@@ -3291,53 +3292,114 @@ def plot_drprecious_counterfactual_table(
     out_dir: Path,
     dpi: int,
 ) -> None:
-    """Generate the 4×4 counterfactual re-scoring table for drprecious.
+    """Generate route-vs-route WPS/no-WPS validation table for drprecious.
 
-    For each of the 4 cases (AO_WPS, AO_noWPS, PO_WPS, PO_noWPS) the
-    participant's routes are re-scored with the *opposite* WPS model.
-    The table has 4 rows (one per case) and 4 columns:
+    For each ocean, two comparisons are reported using recomputed energies
+    from the same scoring logic:
 
-    * **Original (MWh)** — mean total energy under the submitted WPS setting
-    * **Counterfactual (MWh)** — mean total energy under the opposite setting
-    * **Δ (MWh)** — counterfactual − original
-    * **Δ (%)** — relative change
+    1. WPS model: route optimized with WPS vs route optimized without WPS,
+       both scored with WPS.
+    2. no-WPS model: route optimized without WPS vs route optimized with WPS,
+       both scored without WPS.
+
+    The first route in each comparison is the baseline route and includes both
+    reported and recomputed mean consumptions for consistency checking.
     """
     score_zip = _load_resampled_tracks_zip(score_archive)
     route_members = _index_scored_route_members(score_zip)
 
-    rows = []
-    for case in REQUIRED_CASES:
-        wps_flag: bool = bool(SWOPP3_CASES[case]["wps"])
-        original_energies: list[float] = []
-        counterfactual_energies: list[float] = []
+    def _collect_case_stats(
+        *,
+        route_case: str,
+        scoring_wps: bool,
+    ) -> tuple[float, float]:
+        """Return mean (reported, recomputed) energies for one optimized route."""
+        summary = submission.summaries[route_case].sort_values("departure_time_utc")
+        reported: list[float] = []
+        recomputed: list[float] = []
 
-        summary = submission.summaries[case].sort_values("departure_time_utc")
         for _, row in summary.iterrows():
             departure_key = _normalize_departure_key(row["departure_time_utc"])
             departure_date = departure_key.strftime("%Y%m%d")
-            score_name = route_members[case].get(departure_date)
+            score_name = route_members[route_case].get(departure_date)
             if score_name is None:
                 continue
             with score_zip.open(score_name) as fh:
                 df_route = pd.read_csv(fh)
 
-            original_energies.append(float(df_route["E"].sum()))
-            counterfactual_energies.append(
-                _rescore_route_counterfactual(df_route, wps=not wps_flag)
+            reported.append(float(row["energy_cons_mwh"]))
+            recomputed.append(_rescore_route_energy(df_route, wps=scoring_wps))
+
+        if not recomputed:
+            raise ValueError(
+                f"No scored route members found for {submission.name} / {route_case}"
             )
 
-        if not original_energies:
-            continue
+        return float(np.mean(reported)), float(np.mean(recomputed))
 
-        orig_mean = float(np.mean(original_energies))
-        cf_mean = float(np.mean(counterfactual_energies))
-        delta = cf_mean - orig_mean
-        delta_pct = delta / orig_mean * 100.0 if orig_mean > 0 else float("nan")
+    rows = []
+    comparison_specs = [
+        (
+            "Atlantic",
+            "WPS model",
+            "AO_WPS",
+            "AO_noWPS",
+            True,
+        ),
+        (
+            "Atlantic",
+            "no-WPS model",
+            "AO_noWPS",
+            "AO_WPS",
+            False,
+        ),
+        (
+            "Pacific",
+            "WPS model",
+            "PO_WPS",
+            "PO_noWPS",
+            True,
+        ),
+        (
+            "Pacific",
+            "no-WPS model",
+            "PO_noWPS",
+            "PO_WPS",
+            False,
+        ),
+    ]
+
+    for (
+        ocean,
+        scoring_label,
+        baseline_case,
+        alternative_case,
+        scoring_wps,
+    ) in comparison_specs:
+        baseline_reported, baseline_recomputed = _collect_case_stats(
+            route_case=baseline_case,
+            scoring_wps=scoring_wps,
+        )
+        _, alternative_recomputed = _collect_case_stats(
+            route_case=alternative_case,
+            scoring_wps=scoring_wps,
+        )
+
+        delta = alternative_recomputed - baseline_recomputed
+        delta_pct = (
+            (delta / baseline_recomputed) * 100.0
+            if baseline_recomputed > 0.0
+            else float("nan")
+        )
         rows.append(
             {
-                "Case": CASE_LABELS.get(case, case),
-                "Original (MWh)": round(orig_mean, 2),
-                "Counterfactual (MWh)": round(cf_mean, 2),
+                "Ocean": ocean,
+                "Scoring": scoring_label,
+                "Baseline Route": baseline_case,
+                "Alternative Route": alternative_case,
+                "Reported (MWh)": round(baseline_reported, 2),
+                "Recomputed (MWh)": round(baseline_recomputed, 2),
+                "Alternative Recomputed (MWh)": round(alternative_recomputed, 2),
                 "Δ (MWh)": round(delta, 2),
                 "Δ (%)": round(delta_pct, 1),
             }
@@ -3351,7 +3413,7 @@ def plot_drprecious_counterfactual_table(
 
     table_df = pd.DataFrame(rows)
 
-    fig, ax = plt.subplots(figsize=(10, 2.4 + 0.5 * len(rows)))
+    fig, ax = plt.subplots(figsize=(16, 2.4 + 0.5 * len(rows)))
     ax.axis("off")
     tbl = ax.table(
         cellText=table_df.values,
@@ -3377,7 +3439,7 @@ def plot_drprecious_counterfactual_table(
             tbl[i + 1, col_idx].set_facecolor(color)
 
     ax.set_title(
-        "drprecious – Counterfactual re-scoring (opposite WPS model)",
+        "drprecious – Route comparison under fixed WPS/no-WPS scoring",
         fontsize=13,
         pad=18,
     )
