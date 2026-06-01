@@ -61,7 +61,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import xarray as xr
 from matplotlib import colors as mcolors
-from PIL import Image, ImageSequence
 
 from routetools.swopp3 import SWOPP3_CASES
 from routetools.violations import find_team_prefix
@@ -108,6 +107,15 @@ PARTICIPANT_TABLE_DIRNAME = "participant_tables"
 IDENTITY_MAP_FILENAME = "participant_identity.json"
 SCORE_ARCHIVE_ROOT = Path("output/swopp3_submissions_score")
 TOP5_REQUESTED_TOKENS = ["drprecious", "ohy", "boatface", "freol", "jung_tpn"]
+
+# Fixed target departure dates for seasonal animations (year 2024).
+# Each entry: (season_label, case, month, day)
+SEASONAL_ANIMATION_TARGETS: list[tuple[str, str, int, int]] = [
+    ("winter", "AO_WPS", 2, 10),  # Winter Atlantic: 10 Feb
+    ("summer", "AO_WPS", 8, 10),  # Summer Atlantic: 10 Aug
+    ("winter", "PO_WPS", 12, 5),  # Winter Pacific:  5 Dec
+    ("summer", "PO_WPS", 6, 5),  # Summer Pacific:  5 Jun
+]
 
 
 @dataclass(frozen=True)
@@ -424,9 +432,8 @@ def _discover_score_archives(root: Path) -> dict[str, Path]:
 
 
 def _save_figure(fig: plt.Figure, path: Path, dpi: int) -> None:
-    """Save a figure as PDF and PNG."""
+    """Save a figure as PNG."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
     fig.savefig(path.with_suffix(".png"), dpi=dpi, bbox_inches="tight")
 
 
@@ -434,41 +441,6 @@ def _save_plotly_html(fig: go.Figure, path: Path) -> None:
     """Save a Plotly figure as a standalone interactive HTML file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.write_html(str(path.with_suffix(".html")), include_plotlyjs="cdn")
-
-
-def _gif_to_mp4(gif_path: Path, mp4_path: Path, fps: int) -> None:
-    """Convert GIF to MP4 using OpenCV.
-
-    This fallback is used when ffmpeg is unavailable in the environment.
-    """
-    try:
-        import cv2
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(
-            "MP4 export requires ffmpeg or opencv-python for GIF->MP4 fallback"
-        ) from exc
-
-    with Image.open(gif_path) as im:
-        frames = [frame.convert("RGB") for frame in ImageSequence.Iterator(im)]
-
-    if not frames:
-        raise RuntimeError(f"No frames found in GIF: {gif_path}")
-
-    first = np.array(frames[0])
-    height, width, _ = first.shape
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(mp4_path), fourcc, float(fps), (width, height))
-
-    if not writer.isOpened():
-        raise RuntimeError(f"Could not open MP4 writer for {mp4_path}")
-
-    try:
-        for frame in frames:
-            rgb = np.array(frame)
-            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            writer.write(bgr)
-    finally:
-        writer.release()
 
 
 def _read_summary_csv(path: Path) -> pd.DataFrame:
@@ -1029,6 +1001,54 @@ def _find_representative_cases(
     return summer_case, summer_departure, winter_case, winter_departure
 
 
+def _nearest_departure_for_case(
+    submissions: list[SubmissionData],
+    case: str,
+    target: datetime,
+) -> pd.Timestamp:
+    """Resolve a departure for *case* by date first, then nearest fallback.
+
+    First attempts an exact calendar-date match (ignoring time), which is
+    robust when departures are fixed at 12:00 UTC but caller inputs omit time.
+    If no same-date departure exists, falls back to the nearest timestamp.
+    """
+    target_ts = (
+        pd.Timestamp(target).tz_localize("UTC")
+        if target.tzinfo is None
+        else pd.Timestamp(target).tz_convert("UTC")
+    )
+    target_date = target_ts.date()
+
+    for sub in submissions:
+        summary = sub.summaries.get(case)
+        if summary is None or summary.empty:
+            continue
+        dep_series = pd.to_datetime(summary["departure_time_utc"], utc=True)
+        same_day = dep_series[dep_series.dt.date == target_date]
+        if not same_day.empty:
+            return pd.Timestamp(same_day.iloc[0]).tz_convert("UTC")
+
+    best: pd.Timestamp | None = None
+    best_delta = pd.Timedelta.max
+    for sub in submissions:
+        summary = sub.summaries.get(case)
+        if summary is None or summary.empty:
+            continue
+        for dep in summary["departure_time_utc"]:
+            dep_ts = pd.Timestamp(dep)
+            if dep_ts.tzinfo is None:
+                dep_ts = dep_ts.tz_localize("UTC")
+            delta = abs(dep_ts - target_ts)
+            if delta < best_delta:
+                best_delta = delta
+                best = dep_ts
+        if best is not None:
+            break
+    if best is None:
+        raise ValueError(f"No departures found for case {case}")
+    return best
+
+
 def _find_departure_with_wps_impact(
     submissions: list[SubmissionData],
     energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
@@ -1131,7 +1151,7 @@ def plot_consumption(
         ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
 
-        out = out_dir / f"consumption_{case}{output_suffix}.pdf"
+        out = out_dir / f"consumption_{case}{output_suffix}.png"
         _save_figure(fig, out, dpi=dpi)
         plt.close(fig)
 
@@ -1215,7 +1235,7 @@ def plot_participant_spread(
     ax.grid(alpha=0.3)
     ax.legend(loc="best", ncols=2, fontsize=9)
 
-    out = out_dir / f"spread_participants_{case}{output_suffix}.pdf"
+    out = out_dir / f"spread_participants_{case}{output_suffix}.png"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
 
@@ -1321,7 +1341,7 @@ def plot_month_spread(
     ax.grid(alpha=0.3)
     ax.legend(loc="best", ncols=4, fontsize=8)
 
-    out = out_dir / f"spread_months_{case}{output_suffix}.pdf"
+    out = out_dir / f"spread_months_{case}{output_suffix}.png"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
 
@@ -1444,7 +1464,7 @@ def plot_wps_vs_nowps_spread(
         ax.grid(alpha=0.3)
         ax.legend(loc="best", ncols=2, fontsize=9)
 
-        out = out_dir / f"spread_wps_vs_nowps_{corridor}{output_suffix}.pdf"
+        out = out_dir / f"spread_wps_vs_nowps_{corridor}{output_suffix}.png"
         _save_figure(fig, out, dpi=dpi)
         plt.close(fig)
 
@@ -1587,7 +1607,7 @@ def plot_consumption_vs_exploration_scatter(
     ax.set_xlim(left=0.0)
     ax.grid(alpha=0.3)
 
-    out = out_dir / f"consumption_vs_exploration{output_suffix}.pdf"
+    out = out_dir / f"consumption_vs_exploration{output_suffix}.png"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
 
@@ -1761,7 +1781,7 @@ def save_departure_wins_table(table: pd.DataFrame, *, out_dir: Path, dpi: int) -
     tab.set_fontsize(9)
     tab.scale(1.0, 1.3)
 
-    out = out_dir / "departure_wins_by_scenario.pdf"
+    out = out_dir / "departure_wins_by_scenario.png"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
 
@@ -1869,7 +1889,7 @@ def save_average_consumption_table(
     tab.set_fontsize(9)
     tab.scale(1.0, 1.3)
 
-    out = out_dir / "average_consumption_by_scenario.pdf"
+    out = out_dir / "average_consumption_by_scenario.png"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
 
@@ -2211,19 +2231,32 @@ def animate_wps_comparison(
         case: str,
     ) -> tuple[pd.DataFrame, tuple[np.ndarray, np.ndarray]]:
         summary = submission.summaries[case]
-        row = summary.loc[summary["departure_time_utc"] == departure_utc]
+        row = summary.loc[
+            pd.to_datetime(summary["departure_time_utc"], utc=True).dt.date
+            == departure_utc.date()
+        ]
+        if row.empty:
+            row = summary.loc[
+                pd.to_datetime(summary["departure_time_utc"], utc=True) == departure_utc
+            ]
         if row.empty:
             raise ValueError(
                 f"No data for {submission.name} / {case} / {departure_utc}"
             )
+        departure_match = pd.Timestamp(row.iloc[0]["departure_time_utc"])
+        departure_match = (
+            departure_match.tz_localize("UTC")
+            if departure_match.tzinfo is None
+            else departure_match.tz_convert("UTC")
+        )
         details = str(row.iloc[0]["details_filename"])
         track = _read_track(submission.tracks_dir / details)
         score_archive = score_archives_by_name[submission.name]
         scored_route = _load_scored_route_timeseries(
-            score_archive, case=case, departure_utc=departure_utc
+            score_archive, case=case, departure_utc=departure_match
         )
         profile = _build_cumulative_energy_profile(
-            scored_route, departure_utc=departure_utc
+            scored_route, departure_utc=departure_match
         )
         return track, profile
 
@@ -2552,16 +2585,11 @@ def animate_wps_comparison(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fps = ANIMATION_FPS
         mp4_path = output_path.with_suffix(".mp4")
-        gif_path = output_path.with_suffix(".gif")
 
-        gif_writer = animation.PillowWriter(fps=fps)
-        anim.save(gif_path, writer=gif_writer, dpi=dpi)
-
-        if animation.writers.is_available("ffmpeg"):
-            mp4_writer = animation.FFMpegWriter(fps=fps)
-            anim.save(mp4_path, writer=mp4_writer, dpi=dpi)
-        else:
-            _gif_to_mp4(gif_path, mp4_path, fps=fps)
+        if not animation.writers.is_available("ffmpeg"):
+            raise RuntimeError("MP4 export requires ffmpeg (GIF export is disabled)")
+        mp4_writer = animation.FFMpegWriter(fps=fps)
+        anim.save(mp4_path, writer=mp4_writer, dpi=dpi)
 
         plt.close(fig)
     finally:
@@ -2596,9 +2624,22 @@ def animate_departure(
     cumulative_profiles: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for sub in submissions:
         summary = sub.summaries[case]
-        row = summary.loc[summary["departure_time_utc"] == departure_utc]
+        row = summary.loc[
+            pd.to_datetime(summary["departure_time_utc"], utc=True).dt.date
+            == departure_utc.date()
+        ]
+        if row.empty:
+            row = summary.loc[
+                pd.to_datetime(summary["departure_time_utc"], utc=True) == departure_utc
+            ]
         if row.empty:
             continue
+        departure_match = pd.Timestamp(row.iloc[0]["departure_time_utc"])
+        departure_match = (
+            departure_match.tz_localize("UTC")
+            if departure_match.tzinfo is None
+            else departure_match.tz_convert("UTC")
+        )
         details = str(row.iloc[0]["details_filename"])
         track = _read_track(sub.tracks_dir / details)
         tracks_by_submission[sub.name] = track
@@ -2611,11 +2652,11 @@ def animate_departure(
         scored_route = _load_scored_route_timeseries(
             score_archive,
             case=case,
-            departure_utc=departure_utc,
+            departure_utc=departure_match,
         )
         profile = _build_cumulative_energy_profile(
             scored_route,
-            departure_utc=departure_utc,
+            departure_utc=departure_match,
         )
         cumulative_profiles[sub.name] = profile
         total_energy[sub.name] = float(profile[1][-1])
@@ -2912,18 +2953,11 @@ def animate_departure(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         fps = ANIMATION_FPS
         mp4_path = output_path.with_suffix(".mp4")
-        gif_path = output_path.with_suffix(".gif")
 
-        # Always save GIF.
-        gif_writer = animation.PillowWriter(fps=fps)
-        anim.save(gif_path, writer=gif_writer, dpi=dpi)
-
-        # Always save MP4 (ffmpeg preferred, OpenCV fallback).
-        if animation.writers.is_available("ffmpeg"):
-            mp4_writer = animation.FFMpegWriter(fps=fps)
-            anim.save(mp4_path, writer=mp4_writer, dpi=dpi)
-        else:
-            _gif_to_mp4(gif_path, mp4_path, fps=fps)
+        if not animation.writers.is_available("ffmpeg"):
+            raise RuntimeError("MP4 export requires ffmpeg (GIF export is disabled)")
+        mp4_writer = animation.FFMpegWriter(fps=fps)
+        anim.save(mp4_path, writer=mp4_writer, dpi=dpi)
 
         plt.close(fig)
     finally:
@@ -3011,10 +3045,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--animation-cases",
         nargs="+",
         choices=REQUIRED_CASES,
-        default=REQUIRED_CASES,
+        default=[],
         help=(
-            "Case list used for animation generation. "
-            "Defaults to all four optimized cases."
+            "Case list used for per-departure animation generation. "
+            "Defaults to empty (only seasonal animations are rendered)."
         ),
     )
     parser.add_argument(
@@ -3245,7 +3279,7 @@ def plot_drprecious_counterfactual_table(
     out_path = out_dir / "drprecious_counterfactual_table"
     _save_figure(fig, out_path, dpi=dpi)
     plt.close(fig)
-    print(f"Saved counterfactual table: {out_path}.pdf / .png")
+    print(f"Saved counterfactual table: {out_path}.png")
 
 
 def main() -> None:
@@ -3479,6 +3513,11 @@ def main() -> None:
         if not args.skip_animation:
             departure = _parse_departure_argument(args.animation_departure)
             for animation_case in args.animation_cases:
+                resolved_departure = _nearest_departure_for_case(
+                    submissions,
+                    animation_case,
+                    departure,
+                )
                 corridor = _corridor_from_case(animation_case)
                 if corridor == "atlantic":
                     wind_path = args.wind_path_atlantic
@@ -3487,43 +3526,35 @@ def main() -> None:
                     wind_path = args.wind_path_pacific
                     wave_path = args.wave_path_pacific
 
-                print(f"Rendering animation for {animation_case}...")
+                print(
+                    f"Rendering animation for {animation_case} "
+                    f"(date {resolved_departure.date()})..."
+                )
                 animate_departure(
                     [sub for sub in submissions if sub.name in set(top5_participants)],
                     case=animation_case,
-                    departure=departure,
+                    departure=resolved_departure,
                     energy_lookup=energy_lookup,
                     score_archives_by_name=score_archives_by_name,
                     alias_by_name=alias_by_name,
                     color_by_alias=color_by_alias,
                     output_path=args.output_dir
-                    / f"animation_{animation_case}_{args.animation_departure}_top5",
+                    / (
+                        f"animation_{animation_case}_"
+                        f"{resolved_departure.strftime('%Y-%m-%d')}_top5"
+                    ),
                     wave_path=wave_path,
                     wind_path=wind_path,
                     dpi=args.dpi,
                 )
 
-            # Find and render representative summer/winter cases
-            try:
-                (
-                    summer_case,
-                    summer_departure,
-                    winter_case,
-                    winter_departure,
-                ) = _find_representative_cases(
-                    submissions, energy_lookup, top5_participants
-                )
-                print(
-                    f"Summer case (low variance): {summer_case} "
-                    f"({summer_departure.date()}), "
-                    f"Winter case (high variance): {winter_case} "
-                    f"({winter_departure.date()})"
-                )
-
-                for season, anim_case, season_dep in [
-                    ("summer", summer_case, summer_departure),
-                    ("winter", winter_case, winter_departure),
-                ]:
+            # Render fixed seasonal animations.
+            for season, anim_case, month, day in SEASONAL_ANIMATION_TARGETS:
+                try:
+                    target_dep = datetime(2024, month, day, tzinfo=UTC)
+                    season_dep = _nearest_departure_for_case(
+                        submissions, anim_case, target_dep
+                    )
                     corridor = _corridor_from_case(anim_case)
                     if corridor == "atlantic":
                         wind_path = args.wind_path_atlantic
@@ -3534,7 +3565,7 @@ def main() -> None:
 
                     print(
                         f"Rendering {season} animation for {anim_case} "
-                        f"({season_dep.date()})..."
+                        f"(target {target_dep.date()} → nearest {season_dep.date()})..."
                     )
                     animate_departure(
                         [
@@ -3549,13 +3580,19 @@ def main() -> None:
                         alias_by_name=alias_by_name,
                         color_by_alias=color_by_alias,
                         output_path=args.output_dir
-                        / f"animation_{season}_{anim_case}_top5",
+                        / (
+                            f"animation_{season}_{anim_case}_"
+                            f"{season_dep.strftime('%Y-%m-%d')}_top5"
+                        ),
                         wave_path=wave_path,
                         wind_path=wind_path,
                         dpi=args.dpi,
                     )
-            except Exception as e:
-                print(f"Warning: Could not generate seasonal animations: {e}")
+                except Exception as e:
+                    print(
+                        f"Warning: Could not generate {season} animation "
+                        f"for {anim_case}: {e}"
+                    )
 
             # Render WPS vs no-WPS comparison for drprecious
             try:
