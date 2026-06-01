@@ -2971,7 +2971,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=Path("output/swopp3_submissions_score"),
+        default=Path("output/swopp3_submissions"),
         help="Folder containing participant submission zip files or directories.",
     )
     parser.add_argument(
