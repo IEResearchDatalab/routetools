@@ -58,6 +58,7 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import xarray as xr
 from matplotlib import colors as mcolors
 from PIL import Image, ImageSequence
@@ -427,6 +428,12 @@ def _save_figure(fig: plt.Figure, path: Path, dpi: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
     fig.savefig(path.with_suffix(".png"), dpi=dpi, bbox_inches="tight")
+
+
+def _save_plotly_html(fig: go.Figure, path: Path) -> None:
+    """Save a Plotly figure as a standalone interactive HTML file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.write_html(str(path.with_suffix(".html")), include_plotlyjs="cdn")
 
 
 def _gif_to_mp4(gif_path: Path, mp4_path: Path, fps: int) -> None:
@@ -1128,6 +1135,42 @@ def plot_consumption(
         _save_figure(fig, out, dpi=dpi)
         plt.close(fig)
 
+        # Interactive HTML (hover shows all participant values for a given date)
+        traces: list[go.BaseTraceType] = []
+        for name in _ordered_submission_names(
+            submissions,
+            alias_by_name=alias_by_name,
+            selected_names=selected_names,
+        ):
+            submission = next(sub for sub in submissions if sub.name == name)
+            summary = submission.summaries[case].sort_values("departure_time_utc")
+            departures = pd.DatetimeIndex(summary["departure_time_utc"])
+            energies = [
+                energy_lookup[case][submission.name][_normalize_departure_key(dep)]
+                for dep in departures
+            ]
+            alias = alias_by_name[name]
+            traces.append(
+                go.Scatter(
+                    x=departures.tz_localize(None),
+                    y=energies,
+                    mode="lines",
+                    name=alias,
+                    line={"color": color_by_alias[alias], "width": 1.8},
+                    hovertemplate="%{y:.1f} MWh<extra>%{fullData.name}</extra>",
+                )
+            )
+        pfig = go.Figure(traces)
+        pfig.update_layout(
+            title=f"Consumption Across 2024 Departures — {CASE_LABELS[case]}",
+            xaxis_title="Departure date",
+            yaxis_title="Energy consumption (MWh)",
+            yaxis={"rangemode": "tozero"},
+            hovermode="x unified",
+            legend={"orientation": "v"},
+        )
+        _save_plotly_html(pfig, out)
+
 
 def plot_participant_spread(
     submissions: list[SubmissionData],
@@ -1175,6 +1218,40 @@ def plot_participant_spread(
     out = out_dir / f"spread_participants_{case}{output_suffix}.pdf"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
+
+    # Interactive HTML
+    traces_p: list[go.BaseTraceType] = []
+    for name in _ordered_submission_names(
+        submissions,
+        alias_by_name=alias_by_name,
+        selected_names=selected_names,
+    ):
+        submission = next(sub for sub in submissions if sub.name == name)
+        _, points = sampled_cache[(submission.name, case)]
+        spreads = [
+            _mean_pairwise_haversine_km(points[:, sample_idx, :])
+            for sample_idx in range(points.shape[1])
+        ]
+        alias = alias_by_name[name]
+        traces_p.append(
+            go.Scatter(
+                x=sample_hours,
+                y=spreads,
+                mode="lines+markers",
+                name=alias,
+                line={"color": color_by_alias[alias]},
+                hovertemplate="%{y:.1f} km<extra>%{fullData.name}</extra>",
+            )
+        )
+    pfig_p = go.Figure(traces_p)
+    pfig_p.update_layout(
+        title=f"Participant Spread Comparison — {CASE_LABELS[case]}",
+        xaxis_title="Elapsed time (hours)",
+        yaxis_title="Mean pairwise waypoint distance (km)",
+        yaxis={"rangemode": "tozero"},
+        hovermode="x unified",
+    )
+    _save_plotly_html(pfig_p, out)
 
 
 def plot_month_spread(
@@ -1247,6 +1324,31 @@ def plot_month_spread(
     out = out_dir / f"spread_months_{case}{output_suffix}.pdf"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
+
+    # Interactive HTML
+    traces_m: list[go.BaseTraceType] = []
+    for month in range(1, 13):
+        if not by_month[month]:
+            continue
+        mean_curve = np.mean(np.vstack(by_month[month]), axis=0)
+        traces_m.append(
+            go.Scatter(
+                x=sample_hours,
+                y=mean_curve.tolist(),
+                mode="lines+markers",
+                name=MONTH_NAMES[month - 1],
+                hovertemplate="%{y:.1f} km<extra>%{fullData.name}</extra>",
+            )
+        )
+    pfig_m = go.Figure(traces_m)
+    pfig_m.update_layout(
+        title=f"Month Spread Comparison — {CASE_LABELS[case]}",
+        xaxis_title="Elapsed time (hours)",
+        yaxis_title="Mean cross-participant distance (km)",
+        yaxis={"rangemode": "tozero"},
+        hovermode="x unified",
+    )
+    _save_plotly_html(pfig_m, out)
 
 
 def _mean_haversine_km_between_curves(
@@ -1346,6 +1448,54 @@ def plot_wps_vs_nowps_spread(
         _save_figure(fig, out, dpi=dpi)
         plt.close(fig)
 
+        # Interactive HTML — rebuild the same data for Plotly
+        traces_w: list[go.BaseTraceType] = []
+        for name in _ordered_submission_names(
+            submissions,
+            alias_by_name=alias_by_name,
+            selected_names=selected_names,
+        ):
+            submission = next(sub for sub in submissions if sub.name == name)
+            dep_wps, points_wps = sampled_cache[(submission.name, wps_case)]
+            dep_nowps, points_nowps = sampled_cache[(submission.name, nowps_case)]
+            common_dates = sorted(set(dep_wps).intersection(set(dep_nowps)))
+            if not common_dates:
+                continue
+            wps_row = {dt: idx for idx, dt in enumerate(dep_wps)}
+            nowps_row = {dt: idx for idx, dt in enumerate(dep_nowps)}
+            mean_distances_w: list[float] = []
+            for sample_idx in range(len(sample_hours)):
+                c_wps = np.array(
+                    [points_wps[wps_row[d], sample_idx, :] for d in common_dates],
+                    dtype=float,
+                )
+                c_nowps = np.array(
+                    [points_nowps[nowps_row[d], sample_idx, :] for d in common_dates],
+                    dtype=float,
+                )
+                mean_distances_w.append(
+                    _mean_haversine_km_between_curves(c_wps, c_nowps)
+                )
+            alias = alias_by_name[name]
+            traces_w.append(
+                go.Scatter(
+                    x=sample_hours,
+                    y=mean_distances_w,
+                    mode="lines+markers",
+                    name=alias,
+                    line={"color": color_by_alias[alias]},
+                    hovertemplate=("%{y:.1f} km<extra>%{fullData.name}</extra>"),
+                )
+            )
+        pfig_w = go.Figure(traces_w)
+        pfig_w.update_layout(
+            title=f"WPS vs no-WPS Spread — {corridor.title()}",
+            xaxis_title="Elapsed time (hours)",
+            yaxis_title="Mean waypoint distance between WPS and no-WPS (km)",
+            hovermode="x unified",
+        )
+        _save_plotly_html(pfig_w, out)
+
 
 def _average_exploration_by_participant(
     submissions: list[SubmissionData],
@@ -1440,6 +1590,43 @@ def plot_consumption_vs_exploration_scatter(
     out = out_dir / f"consumption_vs_exploration{output_suffix}.pdf"
     _save_figure(fig, out, dpi=dpi)
     plt.close(fig)
+
+    # Interactive HTML scatter — hover shows alias, exploration, and consumption
+    scatter_points: list[go.BaseTraceType] = []
+    for name, exploration, consumption in points:
+        alias = alias_by_name[name]
+        scatter_points.append(
+            go.Scatter(
+                x=[exploration],
+                y=[consumption],
+                mode="markers+text",
+                name=alias,
+                text=[alias],
+                textposition="middle right",
+                marker={
+                    "color": color_by_alias[alias],
+                    "size": 10,
+                    "line": {"color": "#1f2933", "width": 1},
+                },
+                hovertemplate=(
+                    f"<b>{alias}</b><br>"
+                    "Exploration: %{x:.1f} km<br>"
+                    "Consumption: %{y:.1f} MWh"
+                    "<extra></extra>"
+                ),
+            )
+        )
+    pfig_s = go.Figure(scatter_points)
+    pfig_s.update_layout(
+        title="Average Consumption vs Average Exploration",
+        xaxis_title="Average exploration spread (km)",
+        yaxis_title="Average consumption (MWh)",
+        xaxis={"rangemode": "tozero"},
+        yaxis={"rangemode": "tozero"},
+        hovermode="closest",
+        showlegend=False,
+    )
+    _save_plotly_html(pfig_s, out)
 
 
 def _scenario_columns_index() -> pd.MultiIndex:
