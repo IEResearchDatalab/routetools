@@ -1894,6 +1894,112 @@ def save_average_consumption_table(
     plt.close(fig)
 
 
+def build_cheater_gap_table(
+    submissions: list[SubmissionData],
+    *,
+    energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
+    violation_lookup: dict[str, dict[str, dict[pd.Timestamp, int]]],
+) -> pd.DataFrame:
+    """Build mean percentage gap to per-day best (cheater) by scenario.
+
+    For each (case, departure day), the "cheater" baseline is the minimum
+    non-violating energy among participants. Each participant is compared to
+    this baseline as ``100 * (energy - baseline) / baseline``. The returned
+    table stores mean percentage gaps per participant and scenario.
+    """
+    participants = sorted(sub.name for sub in submissions)
+
+    records: list[dict[str, object]] = []
+    for case in REQUIRED_CASES:
+        for participant in participants:
+            energies = energy_lookup[case][participant]
+            violations = violation_lookup[case][participant]
+            for departure, energy in energies.items():
+                departure_day = _normalize_departure_key(departure).normalize()
+                violation_count = int(violations.get(departure, 0))
+                records.append(
+                    {
+                        "participant": participant,
+                        "case": case,
+                        "departure_day": departure_day,
+                        "energy": float(energy),
+                        "violations": violation_count,
+                    }
+                )
+
+    df = pd.DataFrame.from_records(records)
+    if df.empty:
+        table = pd.DataFrame(index=participants, columns=REQUIRED_CASES, dtype=float)
+    else:
+        valid = df.loc[(df["violations"] == 0) & np.isfinite(df["energy"])].copy()
+        best = (
+            valid.groupby(["case", "departure_day"], as_index=False)["energy"]
+            .min()
+            .rename(columns={"energy": "best_energy"})
+        )
+        valid = valid.merge(best, on=["case", "departure_day"], how="left")
+        valid["gap_pct"] = np.where(
+            valid["best_energy"] > 0.0,
+            100.0 * (valid["energy"] - valid["best_energy"]) / valid["best_energy"],
+            np.nan,
+        )
+
+        mean_gap = (
+            valid.groupby(["participant", "case"], as_index=False)["gap_pct"]
+            .mean()
+            .pivot(index="participant", columns="case", values="gap_pct")
+        )
+        table = mean_gap.reindex(index=participants, columns=REQUIRED_CASES)
+
+    table.index.name = "participant"
+    table.columns = _scenario_columns_index()
+    table["all", "total"] = table.mean(axis=1, skipna=True)
+    table = table.reindex(columns=table.columns[:-1].append(_total_column_index()))
+    return table.sort_index()
+
+
+def save_cheater_gap_table(
+    table: pd.DataFrame,
+    *,
+    out_dir: Path,
+    dpi: int,
+) -> None:
+    """Save cheater-gap percentage table as CSV and figure."""
+    out_csv = out_dir / "cheater_gap_percent_by_scenario.csv"
+    table.to_csv(out_csv, float_format="%.4f")
+
+    fig_height = max(3.2, 0.45 * len(table) + 1.6)
+    fig, ax = plt.subplots(figsize=(9.2, fig_height))
+    ax.axis("off")
+    ax.set_title(
+        "Distance to Cheater Baseline by Scenario (mean gap, %)",
+        fontsize=11,
+        pad=12,
+    )
+
+    col_labels = [f"{ocean}\\n{wps}" for ocean, wps in table.columns.to_flat_index()]
+    cell_text = [
+        ["-" if pd.isna(value) else f"{value:.2f}%" for value in row]
+        for row in table.to_numpy(dtype=float)
+    ]
+    row_labels = list(table.index)
+
+    tab = ax.table(
+        cellText=cell_text,
+        rowLabels=row_labels,
+        colLabels=col_labels,
+        cellLoc="center",
+        loc="center",
+    )
+    tab.auto_set_font_size(False)
+    tab.set_fontsize(9)
+    tab.scale(1.0, 1.3)
+
+    out = out_dir / "cheater_gap_percent_by_scenario.png"
+    _save_figure(fig, out, dpi=dpi)
+    plt.close(fig)
+
+
 def _pick_data_var(dataset: xr.Dataset, candidates: list[str]) -> str:
     """Return the first available variable in dataset from a candidate list."""
     for candidate in candidates:
@@ -3469,6 +3575,18 @@ def main() -> None:
 
         avg_table = avg_table.rename(index=alias_by_name)
         save_average_consumption_table(avg_table, out_dir=args.output_dir, dpi=args.dpi)
+
+        cheater_gap_table = build_cheater_gap_table(
+            submissions,
+            energy_lookup=energy_lookup,
+            violation_lookup=violation_lookup,
+        )
+        cheater_gap_table = cheater_gap_table.rename(index=alias_by_name)
+        save_cheater_gap_table(
+            cheater_gap_table,
+            out_dir=args.output_dir,
+            dpi=args.dpi,
+        )
 
         plot_wps_vs_nowps_spread(
             submissions,
