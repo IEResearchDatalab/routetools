@@ -24,8 +24,8 @@ Each valid submission folder must contain:
 Usage
 -----
     uv run scripts/swopp3_submission_compare.py \
-        --input-root output \
-        --output-dir output/analysis/submission_compare
+        --input-root output/swopp3_submissions_score \
+        --output-dir output/swopp3_submissions_compare
 """
 
 from __future__ import annotations
@@ -2971,13 +2971,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=Path("output/swopp3_submissions"),
+        default=Path("output/swopp3_submissions_score"),
         help="Folder containing participant submission zip files or directories.",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("output/analysis/submission_compare"),
+        default=Path("output/swopp3_submissions_compare"),
         help="Directory where figures and animation are written.",
     )
     parser.add_argument(
