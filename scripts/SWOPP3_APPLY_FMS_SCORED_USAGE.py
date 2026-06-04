@@ -1,23 +1,35 @@
 #!/usr/bin/env python
-r"""
-USAGE EXAMPLES FOR swopp3_apply_fms_to_scored_submissions.py
+r"""USAGE EXAMPLES FOR swopp3_apply_fms_to_scored_submissions.py
 
 This script applies FMS (Finite-difference route refinement) post-processing to
 scored SWOPP3 submission archives and generates before/after energy comparisons.
 
+The FMS-refined submissions are stored back in swopp3_submissions_score with
+a "_fms" suffix, allowing them to be automatically discovered as additional
+competitors by swopp3_submission_compare.py.
+
 BASIC USAGE
 ===========
 
-Single submission archive:
+Default behavior (store FMS results in swopp3_submissions_score):
+    python scripts/swopp3_apply_fms_to_scored_submissions.py \
+        output/swopp3_submissions_score/*boatface*.zip \
+        output/swopp3_submissions_score/*ohy*.zip
+
+    Creates:
+    - output/swopp3_submissions_score/mc boatface_fms/
+    - output/swopp3_submissions_score/ohy123_fms/
+
+Single submission with custom output directory:
     python scripts/swopp3_apply_fms_to_scored_submissions.py \
         output/swopp3_submissions_score/submission_1.zip \
-        --output-dir output/swopp3_fms_results
+        --output-dir output/swopp3_fms_custom
 
-Multiple archives:
+Multiple archives with custom base directory:
     python scripts/swopp3_apply_fms_to_scored_submissions.py \
         output/swopp3_submissions_score/*boatface*.zip \
         output/swopp3_submissions_score/*ohy*.zip \
-        --output-base output/swopp3_fms_scored
+        --output-base output/swopp3_fms_archive
 
 WHAT THE SCRIPT DOES
 ====================
@@ -42,8 +54,11 @@ WHAT THE SCRIPT DOES
 OUTPUT STRUCTURE
 ================
 
-output/swopp3_fms_scored/
-├── mc boatface/
+Default output (stored in swopp3_submissions_score):
+
+output/swopp3_submissions_score/
+├── [original submission zips]
+├── mc boatface_fms/
 │   ├── tracks/
 │   │   ├── details_swopp_wps_atlantic_8kn_2024-01-01T12.csv
 │   │   └── ... (366 FMS-refined tracks per case)
@@ -56,8 +71,11 @@ output/swopp3_fms_scored/
 │   ├── fms_comparison_PO_WPS.csv
 │   ├── fms_comparison_PO_noWPS.csv
 │   └── fms_comparison_summary.json
-└── ohy/
+└── ohy123_fms/
     └── ... (same structure)
+
+These folders are automatically discovered as additional competitors when
+running swopp3_submission_compare.py on the same input-root directory.
 
 COMPARISON METRICS
 ==================
@@ -79,9 +97,12 @@ COMMAND-LINE OPTIONS
 ====================
 
 Input/Output:
-  --output-dir DIR        Explicit output folder (for single archive)
-  --output-base DIR       Base folder for multiple archives
-                          (creates subfolders with participant names)
+  --output-dir DIR        Explicit output directory (for single archive only).
+                          If not specified, defaults to storing in the same
+                          directory as the archive with _fms suffix.
+  --output-base DIR       Base folder for multiple archives. Creates subfolders
+                          with participant name + _fms suffix. Useful for
+                          organizing FMS results separately from originals.
 
 FMS Parameters:
   --fms-patience N        Early-stopping patience (default: 200)
@@ -110,25 +131,37 @@ Control:
 PRACTICAL EXAMPLE
 =================
 
-Refine mc_boatface and ohy123 submissions with default parameters:
+1. Refine submissions and store in swopp3_submissions_score:
 
   python scripts/swopp3_apply_fms_to_scored_submissions.py \
       output/swopp3_submissions_score/*boatface*.zip \
-      output/swopp3_submissions_score/*ohy*.zip \
-      --output-base output/swopp3_fms_scored
+      output/swopp3_submissions_score/*ohy*.zip
 
-After completion, view the summary:
-  cat output/swopp3_fms_scored/mc\\ boatface/fms_comparison_summary.json
+2. Compare original vs FMS-refined submissions:
 
-Compare energy improvements:
+  python scripts/swopp3_submission_compare.py \
+      --input-root output/swopp3_submissions_score \
+      --output-dir output/swopp3_comparison_with_fms
+
+  This will automatically include:
+  - Original submissions (mc_boatface, ohy123, etc.)
+  - FMS-refined variants (mc_boatface_fms, ohy123_fms, etc.)
+
+3. View FMS-specific summary:
+  cat output/swopp3_submissions_score/mc\\ boatface_fms/fms_comparison_summary.json | jq .
+
+4. Calculate energy improvements by case:
   python -c "
 import json
-with open('output/swopp3_fms_scored/mc boatface/fms_comparison_summary.json') as f:
-    summary = json.load(f)
-    for case, stats in sorted(summary.items()):
-        delta = stats['total_energy_delta_mwh']
-        pct = 100 * delta / stats['total_original_energy_mwh']
-        print(f'{case}: {delta:+.1f} MWh ({pct:+.1f}%)')
+for participant in ['mc boatface_fms', 'ohy123_fms']:
+    path = f'output/swopp3_submissions_score/{participant}/fms_comparison_summary.json'
+    with open(path) as f:
+        summary = json.load(f)
+        print(f'\n{participant}:')
+        for case, stats in sorted(summary.items()):
+            delta = stats['total_energy_delta_mwh']
+            pct = 100 * delta / stats['total_original_energy_mwh']
+            print(f'  {case}: {delta:+.1f} MWh ({pct:+.1f}%)')
   "
 
 Notes

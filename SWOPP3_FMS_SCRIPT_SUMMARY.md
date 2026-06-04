@@ -19,7 +19,13 @@ A new script **`scripts/swopp3_apply_fms_to_scored_submissions.py`** that applie
      - PO_WPS, PO_noWPS (Pacific routes)
    - Skips great-circle cases (AGC, PGC)
 
-3. **Before/After Comparisons**
+3. **Integrated with Submission Comparison**
+
+   - FMS-refined submissions stored in `swopp3_submissions_score/{participant}_fms/`
+   - Automatically discovered as additional competitors by `swopp3_submission_compare.py`
+   - Enables direct before/after FMS comparison using existing analysis pipeline
+
+4. **Before/After Comparisons**
 
    - Energy consumption (MWh)
    - Max wind speed (m/s)
@@ -27,7 +33,7 @@ A new script **`scripts/swopp3_apply_fms_to_scored_submissions.py`** that applie
    - Land violation counts
    - Percentage improvements
 
-4. **Comprehensive Output**
+5. **Comprehensive Output**
    - SWOPP3-format summary CSVs (IEUniversity-{CASE_ID}.csv)
    - Refined track files in original folder structure
    - Per-case detailed comparison CSV
@@ -42,15 +48,26 @@ Running on two submissions:
 
 **Status**: Currently processing first case (AO_WPS) - expected to complete in several hours
 
-Output directory: `output/swopp3_fms_scored/`
+Output directories:
+
+- `output/swopp3_submissions_score/mc boatface_fms/`
+- `output/swopp3_submissions_score/ohy123_fms/`
+
+These will be automatically discovered as additional competitors when running `swopp3_submission_compare.py`.
 
 ## Example Command
 
 ```bash
+# Default: store FMS results in swopp3_submissions_score with _fms suffix
+python scripts/swopp3_apply_fms_to_scored_submissions.py \
+    output/swopp3_submissions_score/*boatface*.zip \
+    output/swopp3_submissions_score/*ohy*.zip
+
+# Custom output base directory
 python scripts/swopp3_apply_fms_to_scored_submissions.py \
     output/swopp3_submissions_score/*boatface*.zip \
     output/swopp3_submissions_score/*ohy*.zip \
-    --output-base output/swopp3_fms_scored
+    --output-base output/swopp3_fms_archive
 ```
 
 ## How to Use the Generated Comparisons
@@ -116,35 +133,53 @@ The script automatically handles both:
 
 ## Files Generated
 
-For each participant and case:
+For each participant, a new folder is created in `swopp3_submissions_score/` with `_fms` suffix:
 
 ```
-output/swopp3_fms_scored/
-├── mc boatface/
+output/swopp3_submissions_score/
+├── 704564_mc_boatface_PhaseId25571_*.zip  (original submission)
+├── 756343_ohy123_PhaseId25571_*.zip       (original submission)
+├── mc boatface_fms/                       (FMS-refined version)
 │   ├── tracks/
 │   │   └── [366 refined route CSVs, one per departure]
-│   ├── IEUniversity-AO_WPS.csv          [Summary with energy metrics]
+│   ├── IEUniversity-AO_WPS.csv
 │   ├── IEUniversity-AO_noWPS.csv
 │   ├── IEUniversity-PO_WPS.csv
 │   ├── IEUniversity-PO_noWPS.csv
-│   ├── fms_comparison_AO_WPS.csv        [Before/after per departure]
+│   ├── fms_comparison_AO_WPS.csv
 │   ├── fms_comparison_AO_noWPS.csv
 │   ├── fms_comparison_PO_WPS.csv
 │   ├── fms_comparison_PO_noWPS.csv
-│   └── fms_comparison_summary.json      [Case-level aggregate stats]
-└── ohy/
+│   └── fms_comparison_summary.json
+└── ohy123_fms/
     └── [same structure]
 ```
+
+These can be directly discovered and compared using `swopp3_submission_compare.py` without any additional arguments.
 
 ## Next Steps
 
 Once processing completes:
 
-1. **Review aggregate statistics** in fms_comparison_summary.json
-2. **Analyze per-departure improvements** in fms*comparison*\*.csv files
-3. **Compare with original scored energy** from scores.json
-4. **Generate visualization** of energy distributions before/after
-5. **Export refined routes** for further analysis or submission
+1. **Automatically compare with original submissions**
+
+   ```bash
+   python scripts/swopp3_submission_compare.py \
+       --input-root output/swopp3_submissions_score \
+       --output-dir output/swopp3_submissions_compare_with_fms
+   ```
+
+   The `{participant}_fms` folders will be automatically discovered as additional competitors.
+
+2. **Review aggregate statistics** in fms_comparison_summary.json for each FMS variant
+
+3. **Analyze per-departure improvements** in fms*comparison*\*.csv files
+
+4. **Compare submission leaderboard** between original and FMS-refined variants
+
+5. **Generate visualization** of energy distributions before/after FMS
+
+6. **Export refined routes** for further analysis or submission
 
 ## Notes
 

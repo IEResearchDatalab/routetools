@@ -13,20 +13,36 @@ submitted routes. This script:
 3. Applies FMS to non-GC routes.
 4. Generates comparison tables (before/after FMS consumption and violations).
 
+The FMS-refined submissions are stored in the same directory as the original
+archives with a "_fms" suffix (e.g., "ohy123_fms"), allowing them to be
+automatically discovered as additional competitors by swopp3_submission_compare.py.
+
 Usage
 -----
-Apply FMS to a single submission archive::
+Apply FMS to submissions and store results in swopp3_submissions_score::
 
     uv run scripts/swopp3_apply_fms_to_scored_submissions.py \
-        output/swopp3_submissions_score/704564_mc_boatface_PhaseId25571_*.zip \
-        --output-dir output/swopp3_fms_boatface
+        output/swopp3_submissions_score/*boatface*.zip \
+        output/swopp3_submissions_score/*ohy*.zip
 
-Apply to multiple participant zips::
+    # Creates: output/swopp3_submissions_score/mc boatface_fms/
+    #          output/swopp3_submissions_score/ohy123_fms/
+
+Apply to a single submission with custom output directory::
+
+    uv run scripts/swopp3_apply_fms_to_scored_submissions.py \
+        output/swopp3_submissions_score/704564_mc_boatface_*.zip \
+        --output-dir output/custom_fms_results
+
+Apply to multiple submissions with custom base directory::
 
     uv run scripts/swopp3_apply_fms_to_scored_submissions.py \
         output/swopp3_submissions_score/*boatface*.zip \
         output/swopp3_submissions_score/*ohy*.zip \
-        --output-base output/swopp3_fms_submissions
+        --output-base output/swopp3_fms_archive
+
+    # Creates: output/swopp3_fms_archive/mc boatface_fms/
+    #          output/swopp3_fms_archive/ohy123_fms/
 """
 
 from __future__ import annotations
@@ -821,7 +837,8 @@ def main(
         "-o",
         help=(
             "Base output directory. For each submission, a subdirectory is created "
-            "with the participant name."
+            "with the participant name followed by _fms. If omitted, outputs are "
+            "stored in the same directory as the submission archive."
         ),
     ),
     output_dir: Path | None = typer.Option(  # noqa: B008
@@ -933,15 +950,18 @@ def main(
             continue
 
         # Determine output directory for this archive
+        participant_name = _participant_name_from_scored_zip(archive_path)
+        fms_folder_name = f"{participant_name}_fms"
+
         if output_dir is not None and len(archive_paths) == 1:
             resolved_output_dir = Path(output_dir)
         elif output_base is not None:
-            participant_name = _participant_name_from_scored_zip(archive_path)
-            resolved_output_dir = Path(output_base) / participant_name
+            resolved_output_dir = Path(output_base) / fms_folder_name
         else:
-            # Default: create folder next to archive with _fms suffix
-            stem = archive_path.stem
-            resolved_output_dir = archive_path.parent / f"{stem}_fms"
+            # Default: store FMS results in same directory as archive with _fms suffix
+            # This allows them to be auto-discovered as competitor submissions by
+            # swopp3_submission_compare.py
+            resolved_output_dir = archive_path.parent / fms_folder_name
 
         if not quiet:
             typer.echo(f"\nProcessing {archive_path.name}...")
