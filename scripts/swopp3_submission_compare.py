@@ -24,7 +24,7 @@ Each valid submission folder must contain:
 Usage
 -----
     uv run scripts/swopp3_submission_compare.py \
-        --input-root output/swopp3_submissions_score \
+        --input-root output/swopp3_submissions \
         --output-dir output/swopp3_submissions_compare
 """
 
@@ -116,6 +116,13 @@ SEASONAL_ANIMATION_TARGETS: list[tuple[str, str, int, int]] = [
     ("winter", "PO_WPS", 12, 5),  # Winter Pacific:  5 Dec
     ("summer", "PO_WPS", 6, 5),  # Summer Pacific:  5 Jun
 ]
+
+# Fixed target departure dates for WPS-vs-noWPS comparison animations (year 2024).
+# Entries: ocean -> (month, day)
+WPS_COMPARISON_TARGETS: dict[str, tuple[int, int]] = {
+    "atlantic": (6, 10),
+    "pacific": (6, 5),
+}
 
 
 @dataclass(frozen=True)
@@ -230,6 +237,40 @@ def _assign_participant_identity(
     return name_to_alias, alias_to_name, alias_to_color
 
 
+def _assign_participant_identity_no_anonymization(
+    submissions: list[SubmissionData],
+    *,
+    out_dir: Path,
+) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    """Assign deterministic colors while preserving participant names as labels."""
+    names = sorted(sub.name for sub in submissions)
+    palette = [mcolors.to_hex(c) for c in plt.get_cmap("tab20").colors]
+
+    name_to_alias = {name: name for name in names}
+    alias_to_name = {name: name for name in names}
+    alias_to_color = {
+        name: palette[idx % len(palette)] for idx, name in enumerate(names)
+    }
+
+    payload = {
+        "letters_to_names": {
+            alias: alias_to_name[alias] for alias in sorted(alias_to_name)
+        },
+        "letters_to_colors": {
+            alias: alias_to_color[alias] for alias in sorted(alias_to_color)
+        },
+        "names_to_letters": {
+            name: name_to_alias[name] for name in sorted(name_to_alias)
+        },
+        "anonymized": False,
+    }
+    (out_dir / IDENTITY_MAP_FILENAME).write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    )
+
+    return name_to_alias, alias_to_name, alias_to_color
+
+
 def _update_participant_identity_top5(
     *,
     out_dir: Path,
@@ -311,6 +352,16 @@ def _resolve_requested_top5_participants(
             for name, normalized_name in normalized_names.items()
             if normalized_token in normalized_name
         ]
+        if len(matches) > 1:
+            # When augmented variants (e.g. "participant fms") are present,
+            # keep legacy top-5 behavior by preferring non-FMS participants.
+            non_fms_matches = [
+                name
+                for name in matches
+                if "fms" not in _normalize_participant_token(name)
+            ]
+            if len(non_fms_matches) == 1:
+                matches = non_fms_matches
         if len(matches) != 1:
             raise ValueError(
                 f"Could not resolve top-5 token {token!r} to a unique participant"
@@ -494,29 +545,33 @@ def _find_submission_root(candidate_root: Path) -> Path:
 def _discover_submission_candidates(
     root: Path,
     extraction_root: Path,
-) -> list[tuple[str, str, Path]]:
+) -> tuple[list[tuple[str, str, Path]], list[CandidateIssue]]:
     """Discover folder/zip submission candidates.
 
     Returns tuples ``(display_name, source_label, submission_path)``.
     """
     candidates: list[tuple[str, str, Path]] = []
+    issues: list[CandidateIssue] = []
 
     for entry in sorted(root.iterdir()):
-        if entry.is_dir():
-            display_name = _participant_name_from_submission_id(entry.name)
-            candidates.append((display_name, entry.name, entry))
-            continue
+        try:
+            if entry.is_dir():
+                display_name = _participant_name_from_submission_id(entry.name)
+                candidates.append((display_name, entry.name, entry))
+                continue
 
-        if entry.is_file() and entry.suffix.lower() == ".zip":
-            extracted_dir = extraction_root / entry.stem
-            extracted_dir.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(entry) as zf:
-                zf.extractall(extracted_dir)
-            submission_path = _find_submission_root(extracted_dir)
-            display_name = _participant_name_from_submission_id(entry.stem)
-            candidates.append((display_name, entry.name, submission_path))
+            if entry.is_file() and entry.suffix.lower() == ".zip":
+                extracted_dir = extraction_root / entry.stem
+                extracted_dir.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(entry) as zf:
+                    zf.extractall(extracted_dir)
+                submission_path = _find_submission_root(extracted_dir)
+                display_name = _participant_name_from_submission_id(entry.stem)
+                candidates.append((display_name, entry.name, submission_path))
+        except Exception as exc:  # noqa: BLE001
+            issues.append(CandidateIssue(folder=entry.name, reason=str(exc)))
 
-    return candidates
+    return candidates, issues
 
 
 def scan_submissions(
@@ -534,7 +589,10 @@ def scan_submissions(
         raise FileNotFoundError(f"Input root does not exist: {root}")
 
     used_names: dict[str, int] = {}
-    discovered = _discover_submission_candidates(root, extraction_root)
+    discovered, discovery_issues = _discover_submission_candidates(
+        root, extraction_root
+    )
+    issues.extend(discovery_issues)
 
     for display_name, source_label, candidate in discovered:
         try:
@@ -1691,9 +1749,8 @@ def build_departure_wins_table(
     submissions: list[SubmissionData],
     *,
     energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
-    violation_lookup: dict[str, dict[str, dict[pd.Timestamp, int]]],
 ) -> pd.DataFrame:
-    """Build per-scenario departure-win counts, excluding land-violating routes."""
+    """Build per-scenario departure-win counts using all finite routes."""
     participants = sorted(sub.name for sub in submissions)
     wins = {
         participant: {case: 0 for case in REQUIRED_CASES}
@@ -1707,18 +1764,12 @@ def build_departure_wins_table(
     energy_by_day: dict[str, dict[str, dict[pd.Timestamp, float]]] = {
         case: {name: {} for name in participants} for case in REQUIRED_CASES
     }
-    violation_by_day: dict[str, dict[str, dict[pd.Timestamp, int]]] = {
-        case: {name: {} for name in participants} for case in REQUIRED_CASES
-    }
 
     for case in REQUIRED_CASES:
         for name in participants:
             for departure, energy in energy_lookup[case][name].items():
                 day = _departure_day(departure)
                 energy_by_day[case][name][day] = energy
-            for departure, violations in violation_lookup[case][name].items():
-                day = _departure_day(departure)
-                violation_by_day[case][name][day] = violations
 
     for case in REQUIRED_CASES:
         all_departures: set[pd.Timestamp] = set()
@@ -1728,10 +1779,6 @@ def build_departure_wins_table(
         for departure in sorted(all_departures):
             valid_candidates: list[tuple[str, float]] = []
             for sub in submissions:
-                violations = violation_by_day[case][sub.name].get(departure)
-                if violations is None or violations > 0:
-                    continue
-
                 energy = energy_by_day[case][sub.name].get(departure)
                 if energy is None or not np.isfinite(energy):
                     continue
@@ -1761,7 +1808,7 @@ def save_departure_wins_table(table: pd.DataFrame, *, out_dir: Path, dpi: int) -
     fig, ax = plt.subplots(figsize=(8.5, fig_height))
     ax.axis("off")
     ax.set_title(
-        "Departures Won by Participant (land-violation-free routes only)",
+        "Departures Won by Participant (all routes)",
         fontsize=11,
         pad=12,
     )
@@ -1786,13 +1833,84 @@ def save_departure_wins_table(table: pd.DataFrame, *, out_dir: Path, dpi: int) -
     plt.close(fig)
 
 
+def build_land_violations_table(
+    submissions: list[SubmissionData],
+    *,
+    violation_lookup: dict[str, dict[str, dict[pd.Timestamp, int]]],
+) -> pd.DataFrame:
+    """Build per-scenario counts of routes with land violations."""
+    participants = sorted(sub.name for sub in submissions)
+    violations = {
+        participant: {case: 0 for case in REQUIRED_CASES}
+        for participant in participants
+    }
+
+    for case in REQUIRED_CASES:
+        for participant in participants:
+            case_violations = violation_lookup[case][participant]
+            violations[participant][case] = int(
+                sum(
+                    1
+                    for value in case_violations.values()
+                    if np.isfinite(value) and int(value) > 0
+                )
+            )
+
+    table = pd.DataFrame.from_dict(violations, orient="index")[REQUIRED_CASES]
+    table.index.name = "participant"
+    table.columns = _scenario_columns_index()
+    table["all", "total"] = table.sum(axis=1).astype(int)
+    table = table.reindex(columns=table.columns[:-1].append(_total_column_index()))
+    return table.sort_index()
+
+
+def save_land_violations_table(table: pd.DataFrame, *, out_dir: Path, dpi: int) -> None:
+    """Save land-violation count table as CSV and table figure."""
+    out_csv = out_dir / "land_violations_by_scenario.csv"
+    table.to_csv(out_csv)
+
+    fig_height = max(3.2, 0.45 * len(table) + 1.6)
+    fig, ax = plt.subplots(figsize=(8.5, fig_height))
+    ax.axis("off")
+    ax.set_title(
+        "Land-Violating Routes by Scenario",
+        fontsize=11,
+        pad=12,
+    )
+
+    col_labels = [f"{ocean}\n{wps}" for ocean, wps in table.columns.to_flat_index()]
+    cell_text = table.astype(int).values.tolist()
+    row_labels = list(table.index)
+
+    tab = ax.table(
+        cellText=cell_text,
+        rowLabels=row_labels,
+        colLabels=col_labels,
+        cellLoc="center",
+        loc="center",
+    )
+    tab.auto_set_font_size(False)
+    tab.set_fontsize(9)
+    tab.scale(1.0, 1.3)
+
+    out = out_dir / "land_violations_by_scenario.png"
+    _save_figure(fig, out, dpi=dpi)
+    plt.close(fig)
+
+
 def build_average_consumption_table(
     submissions: list[SubmissionData],
     *,
     energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
-    violation_lookup: dict[str, dict[str, dict[pd.Timestamp, int]]],
 ) -> pd.DataFrame:
-    """Build per-scenario average consumption, excluding land-violating routes."""
+    """Build per-scenario average consumption using all finite routes.
+
+    Includes one synthetic baseline row:
+
+    - ``best_of_all``: each departure uses the minimum energy across
+        participants, averaged on departures where at least one participant is
+        finite.
+    """
     participants = sorted(sub.name for sub in submissions)
     sums = {
         participant: {case: 0.0 for case in REQUIRED_CASES}
@@ -1802,35 +1920,28 @@ def build_average_consumption_table(
         participant: {case: 0 for case in REQUIRED_CASES}
         for participant in participants
     }
-
-    rows_by_case_by_sub: dict[str, dict[str, dict[pd.Timestamp, pd.Series]]] = {
-        case: {
-            sub.name: {
-                _normalize_departure_key(row["departure_time_utc"]): row
-                for _, row in sub.summaries[case]
-                .sort_values("departure_time_utc")
-                .reset_index(drop=True)
-                .iterrows()
-            }
-            for sub in submissions
-        }
-        for case in REQUIRED_CASES
-    }
+    best_of_all_sums = {case: 0.0 for case in REQUIRED_CASES}
+    best_of_all_counts = {case: 0 for case in REQUIRED_CASES}
 
     for case in REQUIRED_CASES:
-        common_departures = set(rows_by_case_by_sub[case][participants[0]].keys())
+        common_departures = set(energy_lookup[case][participants[0]].keys())
         for participant in participants[1:]:
-            common_departures &= set(rows_by_case_by_sub[case][participant].keys())
+            common_departures &= set(energy_lookup[case][participant].keys())
 
         for departure in sorted(common_departures):
             departure_key = _normalize_departure_key(departure)
+            valid_energies: list[float] = []
             for sub in submissions:
-                if violation_lookup[case][sub.name][departure_key] > 0:
-                    continue
-
                 energy = energy_lookup[case][sub.name][departure_key]
+                if not np.isfinite(energy):
+                    continue
                 sums[sub.name][case] += energy
                 counts[sub.name][case] += 1
+                valid_energies.append(float(energy))
+
+            if valid_energies:
+                best_of_all_sums[case] += min(valid_energies)
+                best_of_all_counts[case] += 1
 
     averages = {
         participant: {
@@ -1842,6 +1953,14 @@ def build_average_consumption_table(
             for case in REQUIRED_CASES
         }
         for participant in participants
+    }
+    averages["best_of_all"] = {
+        case: (
+            best_of_all_sums[case] / best_of_all_counts[case]
+            if best_of_all_counts[case] > 0
+            else np.nan
+        )
+        for case in REQUIRED_CASES
     }
 
     table = pd.DataFrame.from_dict(averages, orient="index")[REQUIRED_CASES]
@@ -1866,7 +1985,7 @@ def save_average_consumption_table(
     fig, ax = plt.subplots(figsize=(8.5, fig_height))
     ax.axis("off")
     ax.set_title(
-        "Average Consumption by Scenario (land-violation-free routes only)",
+        "Average Consumption by Scenario (all routes)",
         fontsize=11,
         pad=12,
     )
@@ -1898,12 +2017,11 @@ def build_cheater_gap_table(
     submissions: list[SubmissionData],
     *,
     energy_lookup: dict[str, dict[str, dict[pd.Timestamp, float]]],
-    violation_lookup: dict[str, dict[str, dict[pd.Timestamp, int]]],
 ) -> pd.DataFrame:
     """Build mean percentage gap to per-day best (cheater) by scenario.
 
     For each (case, departure day), the "cheater" baseline is the minimum
-    non-violating energy among participants. Each participant is compared to
+    finite energy among participants. Each participant is compared to
     this baseline as ``100 * (energy - baseline) / baseline``. The returned
     table stores mean percentage gaps per participant and scenario.
     """
@@ -1913,17 +2031,14 @@ def build_cheater_gap_table(
     for case in REQUIRED_CASES:
         for participant in participants:
             energies = energy_lookup[case][participant]
-            violations = violation_lookup[case][participant]
             for departure, energy in energies.items():
                 departure_day = _normalize_departure_key(departure).normalize()
-                violation_count = int(violations.get(departure, 0))
                 records.append(
                     {
                         "participant": participant,
                         "case": case,
                         "departure_day": departure_day,
                         "energy": float(energy),
-                        "violations": violation_count,
                     }
                 )
 
@@ -1931,7 +2046,7 @@ def build_cheater_gap_table(
     if df.empty:
         table = pd.DataFrame(index=participants, columns=REQUIRED_CASES, dtype=float)
     else:
-        valid = df.loc[(df["violations"] == 0) & np.isfinite(df["energy"])].copy()
+        valid = df.loc[np.isfinite(df["energy"])].copy()
         best = (
             valid.groupby(["case", "departure_day"], as_index=False)["energy"]
             .min()
@@ -3169,6 +3284,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip animation generation.",
     )
     parser.add_argument(
+        "--anonymize",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Anonymize participant names in legends/tables (default: enabled). "
+            "Use --no-anonymize to keep real participant names."
+        ),
+    )
+    parser.add_argument(
         "--wind-path-atlantic",
         type=Path,
         default=Path("data/era5/era5_wind_atlantic_2024.nc"),
@@ -3476,14 +3600,26 @@ def main() -> None:
 
         if len(submissions) < 2:
             raise RuntimeError(
-                "At least two valid submissions are required for comparison plots."
+                "At least two valid submissions are required for comparison plots. "
+                "Use --input-root with raw SWOPP3 submissions containing "
+                "summary CSVs and a tracks/ directory."
             )
 
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        alias_by_name, alias_to_name, color_by_alias = _assign_participant_identity(
-            submissions,
-            out_dir=args.output_dir,
-        )
+        if args.anonymize:
+            alias_by_name, alias_to_name, color_by_alias = _assign_participant_identity(
+                submissions,
+                out_dir=args.output_dir,
+            )
+        else:
+            (
+                alias_by_name,
+                alias_to_name,
+                color_by_alias,
+            ) = _assign_participant_identity_no_anonymization(
+                submissions,
+                out_dir=args.output_dir,
+            )
 
         score_archives_by_name = _discover_score_archives(args.score_root)
 
@@ -3525,9 +3661,9 @@ def main() -> None:
         top5_participants = overall_table.head(5)["Participant"].tolist()
         requested_top5_participants = _resolve_requested_top5_participants(submissions)
         if set(top5_participants) != set(requested_top5_participants):
-            raise RuntimeError(
-                "Requested top-5 participants do not match the lowest-consumption "
-                "leaderboard entries"
+            print(
+                "Warning: requested top-5 tokens do not match current leaderboard "
+                "top-5 entries; proceeding with computed top-5 participants."
             )
         _update_participant_identity_top5(
             out_dir=args.output_dir,
@@ -3602,15 +3738,24 @@ def main() -> None:
         wins_table = build_departure_wins_table(
             submissions,
             energy_lookup=energy_lookup,
-            violation_lookup=violation_lookup,
         )
         wins_table = wins_table.rename(index=alias_by_name)
         save_departure_wins_table(wins_table, out_dir=args.output_dir, dpi=args.dpi)
 
+        land_violations_table = build_land_violations_table(
+            submissions,
+            violation_lookup=violation_lookup,
+        )
+        land_violations_table = land_violations_table.rename(index=alias_by_name)
+        save_land_violations_table(
+            land_violations_table,
+            out_dir=args.output_dir,
+            dpi=args.dpi,
+        )
+
         avg_table = build_average_consumption_table(
             submissions,
             energy_lookup=energy_lookup,
-            violation_lookup=violation_lookup,
         )
 
         avg_consumption_by_name = avg_table[("all", "total")].to_dict()
@@ -3641,7 +3786,6 @@ def main() -> None:
         cheater_gap_table = build_cheater_gap_table(
             submissions,
             energy_lookup=energy_lookup,
-            violation_lookup=violation_lookup,
         )
         cheater_gap_table = cheater_gap_table.rename(index=alias_by_name)
         save_cheater_gap_table(
@@ -3782,7 +3926,6 @@ def main() -> None:
                     if _normalize_participant_token(s.name) == "drprecious"
                 ]
                 if drprecious_submissions:
-                    ref_participant = drprecious_submissions[0].name
                     for ocean, corridor in [("atlantic", "AO"), ("pacific", "PO")]:
                         wps_case = f"{corridor}_WPS"
                         nowps_case = f"{corridor}_noWPS"
@@ -3794,14 +3937,20 @@ def main() -> None:
                             wind_path = args.wind_path_pacific
                             wave_path = args.wave_path_pacific
 
-                        # Find departure with significant WPS impact
-                        departure_wps = _find_departure_with_wps_impact(
-                            submissions, energy_lookup, ref_participant, ocean
+                        # Use fixed June departure targets for WPS comparisons.
+                        month, day = WPS_COMPARISON_TARGETS[ocean]
+                        target_departure = datetime(2024, month, day, 12, 0)
+                        departure_wps = _nearest_departure_for_case(
+                            submissions,
+                            wps_case,
+                            target_departure,
                         )
 
                         print(
                             f"Rendering WPS comparison for {ocean} "
-                            f"({wps_case}) vs ({nowps_case})..."
+                            f"({wps_case}) vs ({nowps_case}) "
+                            f"(target 2024-{month:02d}-{day:02d} "
+                            f"-> nearest {departure_wps.strftime('%Y-%m-%d')})..."
                         )
 
                         # Single video: both WPS and no-WPS routes overlaid.

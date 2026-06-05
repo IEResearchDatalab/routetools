@@ -91,6 +91,7 @@ _ERA5_FILE_RE = re.compile(
 _DTFMT = "%Y-%m-%d %H:%M:%S"
 _DEFAULT_ERA5_BATCH_DAYS = 183.0
 _DEFAULT_ERA5_RELOAD_MARGIN_DAYS = 20.0
+_DEFAULT_ROUTE_POINT_INTERVAL_HOURS = 2.0
 
 # Default penalty weights forwarded to cost_function_rise_penalized.
 _DEFAULT_WIND_PENALTY_WEIGHT = 1000
@@ -171,41 +172,20 @@ def _extract_zip_member_bytes(archive_path: Path, member_name: str) -> bytes:
 
 def _extract_submission_from_scored_archive(
     archive_path: Path,
-) -> tuple[dict[str, list[Path]], dict[str, dict[str, Any]], Path]:
-    """Extract submission structure from a scored archive.
-
-    Returns
-    -------
-    tuple[dict[str, list[Path]], dict[str, dict[str, Any]], Path]
-        Mapping of case_id to list of extracted track paths,
-        metadata dict for each case (for reconstructing summary CSVs),
-        and temp directory path.
-    """
-    import tempfile
-
-    temp_dir = Path(tempfile.mkdtemp(prefix="swopp3_fms_"))
+    extract_dir: Path,
+    *,
+    route_point_interval_hours: float,
+) -> Path:
+    """Extract the embedded submission files to ``extract_dir`` at fixed cadence."""
+    extract_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         # Extract resampled_tracks.zip from the scored archive
         resampled_zip_bytes = _extract_zip_member_bytes(
             archive_path, "resampled_tracks.zip"
         )
-        resampled_zip_path = temp_dir / "resampled_tracks.zip"
+        resampled_zip_path = extract_dir / "resampled_tracks.zip"
         resampled_zip_path.write_bytes(resampled_zip_bytes)
-
-        # Extract all track files from resampled_tracks.zip
-        tracks_by_case: dict[str, list[Path]] = {case: [] for case in SWOPP3_CASES}
-        metadata_by_case: dict[str, dict[str, Any]] = {
-            case: {
-                "tracks": [],
-                "departures": [],
-                "distances": [],
-                "energy_mwh": [],
-                "max_wind_mps": [],
-                "max_hs_m": [],
-            }
-            for case in SWOPP3_CASES
-        }
 
         with zipfile.ZipFile(resampled_zip_path, "r") as resampled_zip:
             for member_name in resampled_zip.namelist():
@@ -223,28 +203,26 @@ def _extract_submission_from_scored_archive(
                     continue
 
                 filename = Path(member_name).name
-                # Parse departure from filename (always 12:00 UTC)
-                match = re.search(r"(\d{4}-\d{2}-\d{2})", filename)
-                if match is None:
-                    continue
-                date_str = match.group(1)
-                departure_utc = datetime.strptime(f"{date_str} 12:00:00", _DTFMT)
+                route_rows = _read_track_rows_from_bytes(
+                    resampled_zip.read(member_name)
+                )
+                route_rows = _downsample_track_rows(
+                    route_rows,
+                    passage_hours=float(SWOPP3_CASES[case_id]["passage_hours"]),
+                    point_interval_hours=route_point_interval_hours,
+                )
 
                 # Extract and save the track file
-                case_dir = temp_dir / "tracks" / case_id
+                case_dir = extract_dir / "tracks" / case_id
                 case_dir.mkdir(parents=True, exist_ok=True)
                 track_path = case_dir / filename
-                track_path.write_bytes(resampled_zip.read(member_name))
+                _write_track_rows(track_path, route_rows)
 
-                tracks_by_case[case_id].append(track_path)
-                metadata_by_case[case_id]["tracks"].append(str(track_path))
-                metadata_by_case[case_id]["departures"].append(departure_utc)
-
-        return tracks_by_case, metadata_by_case, temp_dir
+        return extract_dir
 
     except Exception as e:
         # Clean up on error
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        shutil.rmtree(extract_dir, ignore_errors=True)
         raise e
 
 
@@ -269,6 +247,72 @@ def _read_track_curve(track_path: Path) -> jnp.ndarray:
         [jnp.asarray(lons, dtype=jnp.float32), jnp.asarray(lats, dtype=jnp.float32)],
         axis=1,
     )
+
+
+def _read_track_rows_from_bytes(track_bytes: bytes) -> list[dict[str, str]]:
+    """Parse one extracted route CSV into a list of row dictionaries."""
+    text = track_bytes.decode("utf-8")
+    return list(csv.DictReader(text.splitlines()))
+
+
+def _downsample_track_rows(
+    rows: list[dict[str, str]],
+    *,
+    passage_hours: float,
+    point_interval_hours: float,
+) -> list[dict[str, str]]:
+    """Keep approximately one CSV row per fixed hour interval plus endpoints."""
+    if len(rows) <= 2:
+        return rows
+    if passage_hours <= 0:
+        raise ValueError("passage_hours must be positive")
+    if point_interval_hours <= 0:
+        raise ValueError("point_interval_hours must be positive")
+
+    segment_hours = passage_hours / (len(rows) - 1)
+    stride = max(1, int(round(point_interval_hours / segment_hours)))
+    if stride <= 1:
+        return rows
+
+    sampled_rows = rows[::stride]
+    if sampled_rows[-1] != rows[-1]:
+        sampled_rows.append(rows[-1])
+    return sampled_rows
+
+
+def _write_track_rows(track_path: Path, rows: list[dict[str, str]]) -> None:
+    """Write route rows back to CSV preserving the original column order."""
+    if not rows:
+        raise ValueError(f"Cannot write empty track CSV: {track_path}")
+    with track_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _downsample_curve_for_fms(
+    curve: jnp.ndarray,
+    *,
+    passage_hours: float,
+    point_interval_hours: float,
+) -> jnp.ndarray:
+    """Reduce a route to roughly one control point per fixed hour interval."""
+    if curve.ndim != 2 or curve.shape[0] <= 2:
+        return curve
+    if passage_hours <= 0:
+        raise ValueError("passage_hours must be positive")
+    if point_interval_hours <= 0:
+        raise ValueError("point_interval_hours must be positive")
+
+    segment_hours = passage_hours / (curve.shape[0] - 1)
+    stride = max(1, int(round(point_interval_hours / segment_hours)))
+    if stride <= 1:
+        return curve
+
+    downsampled = curve[::stride]
+    if not jnp.array_equal(downsampled[-1], curve[-1]):
+        downsampled = jnp.concatenate([downsampled, curve[-1:]], axis=0)
+    return downsampled
 
 
 def _count_curve_land_violations(curve: jnp.ndarray, land: Any) -> int:
@@ -523,6 +567,7 @@ def apply_fms_to_scored_submission(
     fms_maxfevals: int = 10000,
     era5_batch_days: float = _DEFAULT_ERA5_BATCH_DAYS,
     era5_reload_margin_days: float = _DEFAULT_ERA5_RELOAD_MARGIN_DAYS,
+    route_point_interval_hours: float = _DEFAULT_ROUTE_POINT_INTERVAL_HOURS,
     tws_limit: float = DEFAULT_TWS_LIMIT,
     hs_limit: float = DEFAULT_HS_LIMIT,
     wind_penalty_weight: float = _DEFAULT_WIND_PENALTY_WEIGHT,
@@ -548,14 +593,24 @@ def apply_fms_to_scored_submission(
     if not quiet:
         typer.echo(f"Extracting submission from {archive_path.name}...")
 
-    tracks_by_case, metadata_by_case, temp_dir = (
-        _extract_submission_from_scored_archive(archive_path)
-    )
+    extracted_dir = output_dir / "_unzipped" / archive_path.stem
+    if not extracted_dir.exists() or not any(extracted_dir.rglob("*.csv")):
+        extracted_dir = _extract_submission_from_scored_archive(
+            archive_path,
+            extracted_dir,
+            route_point_interval_hours=route_point_interval_hours,
+        )
+    elif not quiet:
+        typer.echo(f"Reusing extracted submission in {extracted_dir}...")
 
     try:
         # Identify non-GC cases that need FMS
         non_gc_cases = [case for case in SWOPP3_CASES if _is_non_gc_case(case)]
-        non_gc_case_ids = [case for case in non_gc_cases if tracks_by_case[case]]
+        non_gc_case_ids = [
+            case
+            for case in non_gc_cases
+            if sorted((extracted_dir / "tracks" / case).glob("*.csv"))
+        ]
 
         if not non_gc_case_ids:
             if not quiet:
@@ -589,12 +644,26 @@ def apply_fms_to_scored_submission(
                 era5_reload_margin_days,
             )
 
-            output_rows: list[dict[str, str]] = []
-            comparison_rows: list[dict[str, Any]] = []
+            case_summary_path = output_dir / f"IEUniversity-{case_id}.csv"
+            comparison_csv_path = output_dir / f"fms_comparison_{case_id}.csv"
+            output_rows: list[dict[str, str]] = _load_file_a_rows(case_summary_path)
+            comparison_rows: list[dict[str, Any]] = _load_comparison_rows(
+                comparison_csv_path
+            )
+            completed_details = {
+                row["details_filename"]
+                for row in output_rows
+                if row.get("details_filename")
+            }
+            completed_comparison_details = {
+                row["details_filename"]
+                for row in comparison_rows
+                if row.get("details_filename")
+            }
             resources: CorridorResources | None = None
             reload_after: datetime | None = None
 
-            track_paths = sorted(tracks_by_case[case_id])
+            track_paths = sorted((extracted_dir / "tracks" / case_id).glob("*.csv"))
 
             try:
                 for idx, track_path in enumerate(track_paths, start=1):
@@ -637,16 +706,101 @@ def apply_fms_to_scored_submission(
                             f"Failed to load corridor resources for {case_id}"
                         )
 
-                    curve_original = _read_track_curve(track_path)
                     departure_offset_h = _departure_offset_hours(
                         departure,
                         resources.dataset_epoch,
                     )
 
+                    details_filename = track_path.name
+                    route_output_path = output_dir / "tracks" / details_filename
+                    if (
+                        details_filename in completed_details
+                        and route_output_path.exists()
+                    ):
+                        if details_filename not in completed_comparison_details:
+                            curve_original = _read_track_curve(track_path)
+                            curve_fms = _read_track_curve(route_output_path)
+
+                            original_land_violations = _count_curve_land_violations(
+                                curve_original,
+                                resources.land,
+                            )
+                            fms_land_violations = _count_curve_land_violations(
+                                curve_fms,
+                                resources.land,
+                            )
+                            if fms_land_violations > original_land_violations:
+                                curve_fms = curve_original
+                                fms_land_violations = original_land_violations
+
+                            original_energy, original_max_tws, original_max_hs = (
+                                evaluate_energy(
+                                    curve_original,
+                                    departure,
+                                    passage_hours,
+                                    wps=bool(case["wps"]),
+                                    windfield=resources.windfield,
+                                    wavefield=resources.wavefield,
+                                    departure_offset_h=departure_offset_h,
+                                )
+                            )
+                            fms_energy, fms_max_tws, fms_max_hs = evaluate_energy(
+                                curve_fms,
+                                departure,
+                                passage_hours,
+                                wps=bool(case["wps"]),
+                                windfield=resources.windfield,
+                                wavefield=resources.wavefield,
+                                departure_offset_h=departure_offset_h,
+                            )
+
+                            comparison_rows.append(
+                                {
+                                    "details_filename": details_filename,
+                                    "departure_utc": departure.isoformat(),
+                                    "original_energy_mwh": float(original_energy),
+                                    "fms_energy_mwh": float(fms_energy),
+                                    "energy_delta_mwh": float(
+                                        fms_energy - original_energy
+                                    ),
+                                    "energy_pct_change": (
+                                        100.0
+                                        * (fms_energy - original_energy)
+                                        / original_energy
+                                        if original_energy > 0
+                                        else 0.0
+                                    ),
+                                    "original_max_tws_mps": float(original_max_tws),
+                                    "fms_max_tws_mps": float(fms_max_tws),
+                                    "original_max_hs_m": float(original_max_hs),
+                                    "fms_max_hs_m": float(fms_max_hs),
+                                    "original_land_violations": int(
+                                        original_land_violations
+                                    ),
+                                    "fms_land_violations": int(fms_land_violations),
+                                }
+                            )
+                            completed_comparison_details.add(details_filename)
+
+                        if not quiet:
+                            typer.echo(
+                                f"[{case_id}] {idx}/{len(track_paths)} "
+                                f"{departure.strftime('%Y-%m-%d')} "
+                                "already exists, skipping"
+                            )
+                        continue
+
+                    curve_original = _read_track_curve(track_path)
+                    curve_fms_input = _downsample_curve_for_fms(
+                        curve_original,
+                        passage_hours=passage_hours,
+                        point_interval_hours=route_point_interval_hours,
+                    )
+
                     # Apply FMS
                     curve_fms_batch, _ = optimize_fms(
                         vectorfield=resources.vectorfield,
-                        curve=curve_original,
+                        curve=curve_fms_input,
                         land=resources.land,
                         windfield=resources.windfield,
                         wavefield=resources.wavefield,
@@ -710,11 +864,10 @@ def apply_fms_to_scored_submission(
                     )
 
                     distance_nm = sailed_distance_nm(curve_fms)
-                    details_filename = track_path.name
                     write_file_b(
                         curve_fms,
                         waypoint_times(curve_fms, departure, passage_hours),
-                        output_dir / "tracks" / details_filename,
+                        route_output_path,
                     )
                     output_rows.append(
                         file_a_row(
@@ -731,6 +884,7 @@ def apply_fms_to_scored_submission(
                     # Record comparison
                     comparison_rows.append(
                         {
+                            "details_filename": details_filename,
                             "departure_utc": departure.isoformat(),
                             "original_energy_mwh": float(original_energy),
                             "fms_energy_mwh": float(fms_energy),
@@ -748,18 +902,32 @@ def apply_fms_to_scored_submission(
                             "fms_land_violations": int(fms_land_violations),
                         }
                     )
+                    completed_details.add(details_filename)
+                    completed_comparison_details.add(details_filename)
+
+                    write_file_a(output_rows, case_summary_path)
+                    _write_comparison_rows(comparison_csv_path, comparison_rows)
 
                     if not quiet:
                         typer.echo(
                             f"[{case_id}] {idx}/{len(track_paths)} "
                             f"{departure.strftime('%Y-%m-%d')} "
+                            f"points={int(curve_original.shape[0])}"
+                            f"->{int(curve_fms_input.shape[0])} "
                             f"original={original_energy:.1f} MWh  "
                             f"fms={fms_energy:.1f} MWh  "
                             f"delta={fms_energy - original_energy:+.1f} MWh"
                         )
 
+                    del curve_fms_batch
+                    del curve_fms_input
+                    del curve_fms
+                    del curve_original
+                    gc.collect()
+
                 # Write summary CSV for this case
-                write_file_a(output_rows, output_dir / f"IEUniversity-{case_id}.csv")
+                write_file_a(output_rows, case_summary_path)
+                _write_comparison_rows(comparison_csv_path, comparison_rows)
                 comparison_tables[case_id] = comparison_rows
 
             finally:
@@ -770,8 +938,7 @@ def apply_fms_to_scored_submission(
         return output_dir, comparison_tables
 
     finally:
-        # Clean up temporary files
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        gc.collect()
 
 
 def _save_comparison_summary(
@@ -824,6 +991,67 @@ def _save_comparison_summary(
 
     summary_path = output_dir / "fms_comparison_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2))
+
+
+def _load_file_a_rows(path: Path) -> list[dict[str, str]]:
+    """Load a File A CSV if it exists."""
+    if not path.exists():
+        return []
+
+    with path.open(newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def _load_comparison_rows(path: Path) -> list[dict[str, Any]]:
+    """Load a comparison CSV if it exists."""
+    if not path.exists():
+        return []
+
+    rows: list[dict[str, Any]] = []
+    with path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(
+                {
+                    "details_filename": row.get("details_filename", ""),
+                    "departure_utc": row["departure_utc"],
+                    "original_energy_mwh": float(row["original_energy_mwh"]),
+                    "fms_energy_mwh": float(row["fms_energy_mwh"]),
+                    "energy_delta_mwh": float(row["energy_delta_mwh"]),
+                    "energy_pct_change": float(row["energy_pct_change"]),
+                    "original_max_tws_mps": float(row["original_max_tws_mps"]),
+                    "fms_max_tws_mps": float(row["fms_max_tws_mps"]),
+                    "original_max_hs_m": float(row["original_max_hs_m"]),
+                    "fms_max_hs_m": float(row["fms_max_hs_m"]),
+                    "original_land_violations": int(row["original_land_violations"]),
+                    "fms_land_violations": int(row["fms_land_violations"]),
+                }
+            )
+    return rows
+
+
+def _write_comparison_rows(path: Path, rows: list[dict[str, Any]]) -> None:
+    """Write comparison rows to CSV."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "details_filename",
+        "departure_utc",
+        "original_energy_mwh",
+        "fms_energy_mwh",
+        "energy_delta_mwh",
+        "energy_pct_change",
+        "original_max_tws_mps",
+        "fms_max_tws_mps",
+        "original_max_hs_m",
+        "fms_max_hs_m",
+        "original_land_violations",
+        "fms_land_violations",
+    ]
+
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 @app.command()
@@ -906,6 +1134,15 @@ def main(
             "Reload ERA5 data when a departure is this close to the current batch end."
         ),
     ),
+    route_point_interval_hours: float = typer.Option(  # noqa: B008
+        _DEFAULT_ROUTE_POINT_INTERVAL_HOURS,
+        "--route-point-interval-hours",
+        min=0.1,
+        help=(
+            "Hours between route control points passed into FMS. "
+            "Use 2.0 for roughly one point every two hours."
+        ),
+    ),
     tws_limit: float = typer.Option(  # noqa: B008
         DEFAULT_TWS_LIMIT,
         "--tws-limit",
@@ -980,6 +1217,7 @@ def main(
             fms_maxfevals=fms_maxfevals,
             era5_batch_days=era5_batch_days,
             era5_reload_margin_days=era5_reload_margin_days,
+            route_point_interval_hours=route_point_interval_hours,
             tws_limit=tws_limit,
             hs_limit=hs_limit,
             wind_penalty_weight=wind_penalty_weight,
