@@ -721,6 +721,9 @@ def main(
         corridor_wave["pacific"] = wave_path
 
     try:
+        if experiment is None:
+            _validate_required_data_paths(case_ids, corridor_wind, corridor_wave)
+
         if experiment is not None:
             profile = _load_experiment_profile(config_path, experiment)
             manifest_path = _write_experiment_manifest(
