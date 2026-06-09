@@ -333,6 +333,28 @@ class TestTimeVariation:
         )
         assert jnp.allclose(pen, 1.0)
 
+    def test_with_travel_time_uses_equal_segment_timing(self):
+        """Fixed-time weather checks should match SWOPP3's equal-step timing."""
+
+        def _windowed_windfield(lon, lat, t):
+            day = 86400.0
+            high = (t >= 0.45 * day) & (t < 0.55 * day)
+            u = jnp.where(high, 30.0, 10.0)
+            v = jnp.zeros_like(u)
+            return u, v
+
+        curve = jnp.array([[[0.0, 0.0], [1.0, 0.0], [3.0, 0.0], [4.0, 0.0]]])
+        total_time = 3.0 * 86400.0
+        pen = weather_penalty(
+            curve,
+            windfield=_windowed_windfield,
+            penalty=1.0,
+            travel_time=total_time,
+            spherical_correction=False,
+        )
+
+        assert jnp.allclose(pen, 1.0)
+
     def test_with_travel_stw_catches_violation(self):
         """With travel_stw, middle segment triggers violation."""
         # 4 points from (0,0) to (3,0) → 3 segments of length 1°
