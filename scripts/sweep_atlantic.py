@@ -10,8 +10,8 @@ representative departures spanning the full delta range, for 20 total.
 
 Target departures (0-indexed day-of-year):
     Detour (delta > 10%):  5, 10, 11, 313, 314, 361
-    Representative sample: 1, 30, 60, 90, 120, 150, 180,
-        210, 240, 270, 300, 330, 350, 365
+    Representative sample:
+        1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 350, 365
 
 Grid:
     weather_penalty_weight : 5, 10, 20, 40, 100
@@ -78,7 +78,7 @@ GC_CASE_ID = "AGC_noWPS"
 
 
 def main() -> None:
-    """Run the Atlantic parameter sweep."""
+    """Run the Atlantic validation sweep and write the comparison CSV."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--wind-path",

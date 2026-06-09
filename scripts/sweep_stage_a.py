@@ -52,7 +52,7 @@ GC_CASE_ID = "PGC_noWPS"
 
 
 def main() -> None:
-    """Run stage-A parameter sweep."""
+    """Run the Stage A Pacific detour sweep and write the results CSV."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--wind-path",

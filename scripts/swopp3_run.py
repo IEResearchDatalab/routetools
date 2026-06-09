@@ -16,19 +16,30 @@ missing and why they are required.
 Run all 8 cases with explicit per-corridor paths:
 
     uv run scripts/swopp3_run.py \
-        --wind-path-atlantic data/era5/era5_wind_atlantic_2024.nc \
-        --wave-path-atlantic data/era5/era5_waves_atlantic_2024.nc \
-        --wind-path-pacific  data/era5/era5_wind_pacific_2024.nc  \
-        --wave-path-pacific  data/era5/era5_waves_pacific_2024.nc  \
-        --output-dir output/swopp3
+        --wind-path-atlantic "data/era5/era5_wind_atlantic_2024.nc" \
+        --wave-path-atlantic "data/era5/era5_waves_atlantic_2024.nc" \
+        --wind-path-pacific  "data/era5/era5_wind_pacific_2024.nc" \
+        --wave-path-pacific  "data/era5/era5_waves_pacific_2024.nc" \
+        --output-dir "output" \
+        --n-points 500  --verbosity 2
 
 Run only Atlantic cases after downloading Atlantic data:
 
-    uv run scripts/swopp3_run.py \
-        --cases AGC_WPS AGC_noWPS \
-        --wind-path data/era5/era5_wind_atlantic_2024.nc \
-        --wave-path data/era5/era5_waves_atlantic_2024.nc \
-        --output-dir output/swopp3
+    uv run python scripts/swopp3_run.py \
+    --cases AO_WPS --cases AO_noWPS --cases AGC_WPS --cases AGC_noWPS \
+    --wind-path-atlantic "data/era5/era5_wind_atlantic_2024.nc" \
+    --wave-path-atlantic "data/era5/era5_waves_atlantic_2024.nc" \
+    --output-dir "output" \
+    --n-points 355  --verbosity 2
+
+Run only Pacific cases after downloading Pacific data:
+
+    uv run python scripts/swopp3_run.py \
+    --cases PO_WPS --cases PO_noWPS --cases PGC_WPS --cases PGC_noWPS \
+    --wind-path-pacific "data/era5/era5_wind_pacific_2024.nc" \
+    --wave-path-pacific "data/era5/era5_waves_pacific_2024.nc" \
+    --output-dir "output" \
+    --n-points 584 --verbosity 2
 
 Run only the first 3 departures (quick test):
 
@@ -57,6 +68,13 @@ app = typer.Typer(
 _ERA5_FILE_RE = re.compile(
     r"^(?P<prefix>era5_[^_]+_[^_]+_)(?P<year>\d{4})(?:_(?P<suffix>\d{2}(?:-\d{2})?))?\.nc$"
 )
+
+
+def _resolve_cli_verbosity(verbosity: int) -> int:
+    """Validate the CLI verbosity value."""
+    if verbosity not in (0, 1, 2):
+        raise ValueError("verbosity must be one of 0, 1, or 2")
+    return verbosity
 
 
 def _selected_corridors(case_ids: list[str]) -> list[str]:
@@ -213,11 +231,21 @@ def main(
         "-n",
         help="Limit number of departures (for quick testing).",
     ),
-    quiet: bool = typer.Option(  # noqa: B008
+    verbosity: int = typer.Option(  # noqa: B008
+        1,
+        "--verbosity",
+        "-v",
+        help="Print level: 0 = none, 1 = runner only, 2 = runner + CMA-ES.",
+    ),
+    log_memory: bool = typer.Option(  # noqa: B008
         False,
-        "--quiet",
-        "-q",
-        help="Suppress progress output.",
+        "--log-memory",
+        help="Print current process RSS after each completed departure.",
+    ),
+    resume: bool = typer.Option(  # noqa: B008
+        False,
+        "--resume",
+        help="Resume a case from existing valid File A/File B outputs.",
     ),
     control_points: int | None = typer.Option(  # noqa: B008
         None,
@@ -266,6 +294,13 @@ def main(
     from routetools.swopp3 import SWOPP3_CASES, departures_2024
     from routetools.swopp3_runner import run_case
 
+    try:
+        verbosity = _resolve_cli_verbosity(verbosity)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    show_progress = verbosity >= 1
+
     # ---- Select cases ----
     if cases is not None:
         case_ids = cases
@@ -289,7 +324,8 @@ def main(
     if max_departures is not None:
         departures = departures[:max_departures]
 
-    typer.echo(f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)")
+    if show_progress:
+        typer.echo(f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)")
 
     # ---- Build per-corridor field map ----
     corridor_wind: dict[str, Path] = {}
@@ -335,10 +371,11 @@ def main(
             raise ValueError(f"No wind path available for corridor '{corridor}'")
         load_paths = _loadable_era5_paths(wp)
         load_target = load_paths if len(load_paths) > 1 else load_paths[0]
-        typer.echo(
-            f"Loading wind field for {corridor} from "
-            f"{', '.join(str(path) for path in load_paths)} …"
-        )
+        if show_progress:
+            typer.echo(
+                f"Loading wind field for {corridor} from "
+                f"{', '.join(str(path) for path in load_paths)} …"
+            )
         epoch = load_dataset_epoch(load_target)
         wf = load_era5_windfield(load_target, temporal_stride=temporal_stride)
         _loaded_wind[corridor] = (wf, epoch)
@@ -365,10 +402,11 @@ def main(
             raise ValueError(f"No wave path available for corridor '{corridor}'")
         load_paths = _loadable_era5_paths(wp)
         load_target = load_paths if len(load_paths) > 1 else load_paths[0]
-        typer.echo(
-            f"Loading wave field for {corridor} from "
-            f"{', '.join(str(path) for path in load_paths)} …"
-        )
+        if show_progress:
+            typer.echo(
+                f"Loading wave field for {corridor} from "
+                f"{', '.join(str(path) for path in load_paths)} …"
+            )
         epoch = load_dataset_epoch(load_target)
         wvf = load_era5_wavefield(load_target, temporal_stride=temporal_stride)
         _loaded_wave[corridor] = (wvf, epoch)
@@ -399,10 +437,11 @@ def main(
                 raise KeyError(f"No latitude coordinate found in {wp}")
         lon_range = (float(lons.min()), float(lons.max()))
         lat_range = (float(lats.min()), float(lats.max()))
-        typer.echo(
-            f"Building Natural Earth land mask for {corridor} "
-            f"lon={lon_range}, lat={lat_range} …"
-        )
+        if show_progress:
+            typer.echo(
+                f"Building Natural Earth land mask for {corridor} "
+                f"lon={lon_range}, lat={lat_range} …"
+            )
         land = load_natural_earth_land_mask(lon_range, lat_range)
         _loaded_land[corridor] = land
         return land
@@ -426,17 +465,20 @@ def main(
             import jax
 
             jax.clear_caches()
-            typer.echo(
-                f"[info] Freed {prev_corridor} corridor data before loading {corridor}"
-            )
+            if show_progress:
+                typer.echo(
+                    "[info] Freed "
+                    f"{prev_corridor} corridor data before loading {corridor}"
+                )
         prev_corridor = corridor
 
-        typer.echo(f"\n{'=' * 60}")
-        typer.echo(f"Case {cid}: {case['label']}")
-        typer.echo(
-            f"  strategy={case['strategy']}  wps={case['wps']}  route={corridor}"
-        )
-        typer.echo(f"{'=' * 60}")
+        if show_progress:
+            typer.echo(f"\n{'=' * 60}")
+            typer.echo(f"Case {cid}: {case['label']}")
+            typer.echo(
+                f"  strategy={case['strategy']}  wps={case['wps']}  route={corridor}"
+            )
+            typer.echo(f"{'=' * 60}")
 
         windfield, wind_epoch = _get_wind(corridor)
         wavefield, wave_epoch = _get_wave(corridor)
@@ -466,21 +508,24 @@ def main(
             output_dir=output_dir,
             submission=submission,
             n_points=n_points,
-            verbose=not quiet,
+            verbosity=verbosity,
             dataset_epoch=dataset_epoch,
+            log_memory=log_memory,
+            resume=resume,
             **cmaes_extra,
         )
 
-        # Summary
-        energies = [r.energy_mwh for r in results]
-        total_time = sum(r.comp_time_s for r in results)
-        typer.echo(
-            f"  {len(results)} departures  "
-            f"mean E={sum(energies) / len(energies):.2f} MWh  "
-            f"total comp time={total_time:.1f}s"
-        )
+        if show_progress:
+            energies = [r.energy_mwh for r in results]
+            total_time = sum(r.comp_time_s for r in results)
+            typer.echo(
+                f"  {len(results)} departures  "
+                f"mean E={sum(energies) / len(energies):.2f} MWh  "
+                f"total comp time={total_time:.1f}s"
+            )
 
-    typer.echo(f"\nOutputs written to {output_dir}")
+    if show_progress:
+        typer.echo(f"\nOutputs written to {output_dir}")
 
 
 if __name__ == "__main__":

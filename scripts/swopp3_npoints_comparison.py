@@ -53,7 +53,10 @@ def resample_curve(curve: np.ndarray, n_out: int) -> np.ndarray:
 
 
 def load_track(path: Path) -> tuple[np.ndarray, datetime]:
-    """Load a track CSV -> (L,2) lon/lat array + departure."""
+    """Load a track CSV into a lon/lat curve and departure timestamp.
+
+    The CSV is expected to expose ``time_utc``, ``lat_deg``, and ``lon_deg``.
+    """
     with open(path) as f:
         reader = csv.DictReader(f)
         rows = list(reader)
@@ -66,9 +69,11 @@ def load_track(path: Path) -> tuple[np.ndarray, datetime]:
 
 
 def main() -> None:
-    """Resample existing tracks and compare energy."""
+    """Compare native optimized tracks against resampled waypoint counts."""
     parser = argparse.ArgumentParser(
-        description="Resample tracks and compare energy.",
+        description=(
+            "Resample existing tracks and compare energy at different resolutions."
+        ),
     )
     parser.add_argument(
         "--corridor",

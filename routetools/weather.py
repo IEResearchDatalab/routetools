@@ -97,9 +97,10 @@ def _segment_midpoints(
         per segment as ``distance / travel_stw``; ``t_mid`` will be in
         seconds when ``spherical_correction`` is ``True``.
     travel_time : float, optional
-        Total travel time.  Time is distributed proportionally by segment
-        distance.  The units of ``travel_time`` carry through to ``t_mid``
-        (e.g. pass hours to get hours).
+        Total travel time.  Each segment is assumed to occupy an equal share
+        of the total duration, ``travel_time / (L - 1)``. The units of
+        ``travel_time`` carry through to ``t_mid`` (e.g. pass hours to get
+        hours).
     spherical_correction : bool
         If ``True`` (default), use haversine distances (metres).
 
@@ -117,6 +118,9 @@ def _segment_midpoints(
         # Fallback: no time information → zeros (original behaviour)
         return mid_lon, mid_lat, jnp.zeros_like(mid_lon)
 
+    if curve.shape[1] < 2:
+        return mid_lon, mid_lat, jnp.zeros_like(mid_lon)
+
     # Compute segment distances
     if spherical_correction:
         dx, dy = haversine_meters_components(
@@ -131,11 +135,8 @@ def _segment_midpoints(
     segment_dist = jnp.sqrt(dx**2 + dy**2)
 
     if travel_time is not None:
-        # Constant time: distribute total time proportionally by distance
-        total_dist = jnp.sum(segment_dist, axis=1, keepdims=True)
-        # Avoid division by zero for degenerate curves
-        total_dist = jnp.maximum(total_dist, 1e-12)
-        segment_dt = (segment_dist / total_dist) * travel_time
+        # Fixed-time SWOPP3 routes assume equal time spacing between waypoints.
+        segment_dt = jnp.full_like(segment_dist, travel_time / (curve.shape[1] - 1))
     else:
         # Constant STW: t = distance / speed
         segment_dt = segment_dist / travel_stw
@@ -192,7 +193,8 @@ def evaluate_weather(
     travel_stw : float, optional
         Constant speed through water (m/s) for elapsed-time estimation.
     travel_time : float, optional
-        Total travel time (seconds); distributed proportionally by distance.
+        Total travel time in the same units expected by the field closures.
+        Each segment is assumed to occupy ``travel_time / (L - 1)``.
     spherical_correction : bool
         Use haversine distances (default ``True``).
 
@@ -289,10 +291,9 @@ def weather_penalty(
     travel_stw : float, optional
         Constant speed through water (m/s) for elapsed-time estimation.
     travel_time : float, optional
-        Total travel time with arbitrary time units; distributed
-        proportionally by distance. Units must match those used by
-        ``time_offset`` and the time coordinate expected by the field
-        closures.
+        Total travel time with arbitrary time units. Each segment is assumed
+        to occupy ``travel_time / (L - 1)``. Units must match those used by
+        ``time_offset`` and the time coordinate expected by the field closures.
     spherical_correction : bool
         Use haversine distances (default ``True``).
     time_offset : float
