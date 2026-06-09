@@ -64,11 +64,11 @@ EXPERIMENTS_REGISTRY: dict[str, dict] = {
         "hatch": "///",
         "order": 4,
     },
-    # ── Sweep-combined profile (two-experiment) ──────────────────────────
+    # ── BERS profile (two-experiment) ─────────────────────────────────────
     "sweep_combined": {
         "folder": "sweep_combined",
         "label": "CMA-ES",
-        "short": "Sweep Combined",
+        "short": "BERS",
         "color": "#F23333",  # IE law red — unconstrained
         "color_light": "#FF9B9B",
         "hatch": "",
@@ -77,7 +77,7 @@ EXPERIMENTS_REGISTRY: dict[str, dict] = {
     "sweep_combined_fms": {
         "folder": "sweep_combined_fms",
         "label": "CMA-ES + FMS",
-        "short": "Sweep Combined + FMS",
+        "short": "BERS + FMS",
         "color": "#007A3D",  # emerald green — high contrast with red
         "color_light": "#5CC28A",
         "hatch": "///",
@@ -85,8 +85,8 @@ EXPERIMENTS_REGISTRY: dict[str, dict] = {
     },
     "sweep_combined_fms_strict": {
         "folder": "sweep_combined_fms_strict",
-        "label": "CMA-ES + FMS (strict)",
-        "short": "Sweep Combined + FMS Strict",
+        "label": "CMA-ES + FMS",
+        "short": "BERS + FMS",
         "color": "#0097DC",  # IE business blue
         "color_light": "#7FCCEE",
         "hatch": "///",
