@@ -182,6 +182,77 @@ def _resolve_profile_paths(config_path: Path, config: dict[str, Any]) -> dict[st
     return resolved
 
 
+def _month_start(dep: datetime) -> datetime:
+    """Return the first day of departure month at midnight."""
+    return dep.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _add_months(ts: datetime, months: int) -> datetime:
+    """Return ``ts`` shifted by ``months`` while keeping day=1 semantics."""
+    month_index = (ts.month - 1) + months
+    year = ts.year + month_index // 12
+    month = (month_index % 12) + 1
+    return ts.replace(year=year, month=month, day=1)
+
+
+def _monthly_departure_batches(
+    departures: list[datetime],
+) -> list[tuple[datetime | None, datetime | None, list[datetime]]]:
+    """Group departures by month and attach a configurable weather window.
+
+    When ``dataload_limit`` is:
+    - ``0``: return one batch with no time slicing (full available timeline).
+    - ``X > 0``: group departures by month, then for each month M load weather
+      from start(M) through start(M + X + 1). This means "current month and the
+      following X months".
+    """
+    return _departure_batches(departures, dataload_limit=1)
+
+
+def _departure_batches(
+    departures: list[datetime],
+    *,
+    dataload_limit: int,
+) -> list[tuple[datetime | None, datetime | None, list[datetime]]]:
+    """Return departure batches and ERA5 load windows.
+
+    Parameters
+    ----------
+    departures : list[datetime]
+        Departure datetimes to process.
+    dataload_limit : int
+        Number of months to *process* in one batch. The loader adds one
+        extra month for safety. ``0`` means no time limit (single
+        full-timeline load).
+    """
+    if dataload_limit < 0:
+        raise ValueError("dataload_limit must be >= 0")
+
+    if dataload_limit == 0:
+        return [(None, None, departures)]
+
+    sorted_deps = sorted(departures)
+    batches: list[tuple[datetime | None, datetime | None, list[datetime]]] = []
+
+    i = 0
+    while i < len(sorted_deps):
+        start = _month_start(sorted_deps[i])
+        work_end = _add_months(start, dataload_limit)
+        load_end = _add_months(start, dataload_limit + 1)
+
+        j = i
+        while j < len(sorted_deps):
+            dep_month = _month_start(sorted_deps[j])
+            if dep_month >= work_end:
+                break
+            j += 1
+
+        batches.append((start, load_end, sorted_deps[i:j]))
+        i = j
+
+    return batches
+
+
 def _load_experiment_profile(config_path: Path, experiment: str) -> dict[str, Any]:
     """Load and resolve one SWOPP3 experiment profile from TOML."""
     if not config_path.exists():
@@ -279,6 +350,7 @@ def _run_swopp3_configuration(
     sigma0: float,
     popsize: int,
     maxfevals: int,
+    dataload_limit: int,
     cmaes_verbose: bool,
     quiet: bool,
 ) -> None:
@@ -326,15 +398,24 @@ def _run_swopp3_configuration(
 
     _validate_required_data_paths(case_ids, corridor_wind, corridor_wave)
 
-    _loaded_wind: dict[str, tuple[FieldClosure, datetime]] = {}
-    _loaded_wave: dict[str, tuple[FieldClosure, datetime]] = {}
-    _loaded_vf: dict[str, FieldClosure] = {}
+    _loaded_wind: dict[
+        tuple[str, datetime | None, datetime | None], tuple[FieldClosure, datetime]
+    ] = {}
+    _loaded_wave: dict[
+        tuple[str, datetime | None, datetime | None], tuple[FieldClosure, datetime]
+    ] = {}
+    _loaded_vf: dict[tuple[str, datetime | None, datetime | None], FieldClosure] = {}
     _loaded_land: dict[str, object] = {}
 
-    def _get_wind(corridor: str) -> tuple[FieldClosure, datetime]:
+    def _get_wind(
+        corridor: str,
+        time_start: datetime | None,
+        time_end: datetime | None,
+    ) -> tuple[FieldClosure, datetime]:
         """Return the windfield closure and dataset epoch for one corridor."""
-        if corridor in _loaded_wind:
-            return _loaded_wind[corridor]
+        key = (corridor, time_start, time_end)
+        if key in _loaded_wind:
+            return _loaded_wind[key]
         wp = corridor_wind.get(corridor)
         if wp is None:
             raise ValueError(f"No wind path available for corridor '{corridor}'")
@@ -344,15 +425,28 @@ def _run_swopp3_configuration(
             f"Loading wind field for {corridor} from "
             f"{', '.join(str(path) for path in load_paths)} …"
         )
-        epoch = load_dataset_epoch(load_target)
-        wf = load_era5_windfield(load_target)
-        _loaded_wind[corridor] = (wf, epoch)
+        epoch = load_dataset_epoch(
+            load_target,
+            time_start=time_start,
+            time_end=time_end,
+        )
+        wf = load_era5_windfield(
+            load_target,
+            time_start=time_start,
+            time_end=time_end,
+        )
+        _loaded_wind[key] = (wf, epoch)
         return wf, epoch
 
-    def _get_vectorfield(corridor: str) -> FieldClosure:
+    def _get_vectorfield(
+        corridor: str,
+        time_start: datetime | None,
+        time_end: datetime | None,
+    ) -> FieldClosure:
         """Return the ERA5 vectorfield closure for one corridor."""
-        if corridor in _loaded_vf:
-            return _loaded_vf[corridor]
+        key = (corridor, time_start, time_end)
+        if key in _loaded_vf:
+            return _loaded_vf[key]
         wp = corridor_wind.get(corridor)
         if wp is None:
             raise ValueError(f"No wind path available for corridor '{corridor}'")
@@ -362,14 +456,23 @@ def _run_swopp3_configuration(
             f"Loading vectorfield for {corridor} from "
             f"{', '.join(str(path) for path in load_paths)} …"
         )
-        vf = load_era5_vectorfield(load_target)
-        _loaded_vf[corridor] = vf
+        vf = load_era5_vectorfield(
+            load_target,
+            time_start=time_start,
+            time_end=time_end,
+        )
+        _loaded_vf[key] = vf
         return vf
 
-    def _get_wave(corridor: str) -> tuple[FieldClosure, datetime]:
+    def _get_wave(
+        corridor: str,
+        time_start: datetime | None,
+        time_end: datetime | None,
+    ) -> tuple[FieldClosure, datetime]:
         """Return the wavefield closure and dataset epoch for one corridor."""
-        if corridor in _loaded_wave:
-            return _loaded_wave[corridor]
+        key = (corridor, time_start, time_end)
+        if key in _loaded_wave:
+            return _loaded_wave[key]
         wp = corridor_wave.get(corridor)
         if wp is None:
             raise ValueError(f"No wave path available for corridor '{corridor}'")
@@ -379,9 +482,17 @@ def _run_swopp3_configuration(
             f"Loading wave field for {corridor} from "
             f"{', '.join(str(path) for path in load_paths)} …"
         )
-        epoch = load_dataset_epoch(load_target)
-        wvf = load_era5_wavefield(load_target)
-        _loaded_wave[corridor] = (wvf, epoch)
+        epoch = load_dataset_epoch(
+            load_target,
+            time_start=time_start,
+            time_end=time_end,
+        )
+        wvf = load_era5_wavefield(
+            load_target,
+            time_start=time_start,
+            time_end=time_end,
+        )
+        _loaded_wave[key] = (wvf, epoch)
         return wvf, epoch
 
     def _get_land(corridor: str):
@@ -428,39 +539,70 @@ def _run_swopp3_configuration(
         )
         typer.echo(f"{'=' * 60}")
 
-        windfield, wind_epoch = _get_wind(corridor)
-        wavefield, wave_epoch = _get_wave(corridor)
-        if wave_epoch != wind_epoch:
-            raise ValueError(
-                "Wind and wave dataset epochs differ for corridor "
-                f"'{corridor}': {wind_epoch.isoformat()} != {wave_epoch.isoformat()}"
-            )
-        vectorfield = _get_vectorfield(corridor)
-        land = _get_land(corridor)
-        dataset_epoch = wind_epoch
+        land = None
+        results = []
+        for batch_i, (batch_start, batch_end, batch_departures) in enumerate(
+            _departure_batches(departures, dataload_limit=dataload_limit),
+            start=1,
+        ):
+            if not quiet:
+                if batch_start is None or batch_end is None:
+                    typer.echo(
+                        f"[{cid}] Loading weather batch {batch_i}: "
+                        f"full timeline for {len(batch_departures)} departure(s)"
+                    )
+                else:
+                    typer.echo(
+                        f"[{cid}] Loading weather batch {batch_i}: "
+                        f"{batch_start.date()} -> {batch_end.date()} "
+                        f"for {len(batch_departures)} departure(s)"
+                    )
 
-        results = run_case(
+            windfield, wind_epoch = _get_wind(corridor, batch_start, batch_end)
+            wavefield, wave_epoch = _get_wave(corridor, batch_start, batch_end)
+            if wave_epoch != wind_epoch:
+                raise ValueError(
+                    "Wind and wave dataset epochs differ for corridor "
+                    f"'{corridor}': {wind_epoch.isoformat()} "
+                    f"!= {wave_epoch.isoformat()}"
+                )
+            if land is None:
+                land = _get_land(corridor)
+            vectorfield = _get_vectorfield(corridor, batch_start, batch_end)
+
+            batch_results = run_case(
+                cid,
+                batch_departures,
+                vectorfield=vectorfield,
+                windfield=windfield,
+                wavefield=wavefield,
+                land=land,
+                output_dir=None,
+                submission=submission,
+                n_points=n_points,
+                verbose=not quiet,
+                dataset_epoch=wind_epoch,
+                weather_penalty_weight=weather_penalty_weight,
+                wind_penalty_weight=wind_penalty_weight,
+                wave_penalty_weight=wave_penalty_weight,
+                distance_penalty_weight=distance_penalty_weight,
+                dt_eval_minutes=dt_eval_minutes,
+                K=cmaes_k,
+                sigma0=sigma0,
+                popsize=popsize,
+                maxfevals=maxfevals,
+                cmaes_verbose=cmaes_verbose,
+            )
+            results.extend(batch_results)
+
+        # Persist outputs once per case after all monthly batches complete.
+        from routetools.swopp3_runner import _write_case_outputs
+
+        _write_case_outputs(
             cid,
-            departures,
-            vectorfield=vectorfield,
-            windfield=windfield,
-            wavefield=wavefield,
-            land=land,
-            output_dir=output_dir,
+            results,
+            output_dir,
             submission=submission,
-            n_points=n_points,
-            verbose=not quiet,
-            dataset_epoch=dataset_epoch,
-            weather_penalty_weight=weather_penalty_weight,
-            wind_penalty_weight=wind_penalty_weight,
-            wave_penalty_weight=wave_penalty_weight,
-            distance_penalty_weight=distance_penalty_weight,
-            dt_eval_minutes=dt_eval_minutes,
-            K=cmaes_k,
-            sigma0=sigma0,
-            popsize=popsize,
-            maxfevals=maxfevals,
-            cmaes_verbose=cmaes_verbose,
         )
 
         energies = [r.energy_mwh for r in results]
@@ -614,6 +756,16 @@ def main(
         25000,
         "--maxfevals",
         help="Maximum number of CMA-ES function evaluations.",
+    ),
+    dataload_limit: int = typer.Option(  # noqa: B008
+        0,
+        "--dataload-limit",
+        min=0,
+        help=(
+            "Weather loading window in months. 0 = no limit (full timeline). "
+            "X>0 = process departures in X-month chunks and load one extra "
+            "month for safety."
+        ),
     ),
     cmaes_verbose: bool = typer.Option(  # noqa: B008
         False,
@@ -788,6 +940,7 @@ def main(
                     sigma0=float(run.get("sigma0", sigma0)),
                     popsize=int(run.get("popsize", popsize)),
                     maxfevals=int(run.get("maxfevals", maxfevals)),
+                    dataload_limit=int(run.get("dataload_limit", dataload_limit)),
                     cmaes_verbose=bool(run.get("cmaes_verbose", cmaes_verbose)),
                     quiet=quiet,
                 )
