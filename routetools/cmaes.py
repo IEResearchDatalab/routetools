@@ -48,6 +48,205 @@ type CmaesSnapshot = dict[str, Any]
 type CmaesSnapshotCallback = Callable[[CmaesSnapshot], None]
 
 
+def _compute_l_eval(
+    *,
+    L: int,
+    dt_eval_minutes: float,
+    travel_time: float | None,
+    num_pieces: int,
+) -> int:
+    """Return the evaluation waypoint count used for objective quadrature."""
+    if dt_eval_minutes <= 0 or travel_time is None:
+        return L
+
+    l_eval = int(travel_time * 60 / dt_eval_minutes) + 1
+    if num_pieces > 1:
+        remainder = (l_eval - 1) % num_pieces
+        if remainder != 0:
+            l_eval += num_pieces - remainder
+    return max(l_eval, 3)
+
+
+def _apply_route_penalties(
+    *,
+    cost: jnp.ndarray,
+    curve: jnp.ndarray,
+    land: Land | None,
+    penalty: float,
+    land_margin: int,
+    land_distance_weight: float,
+    land_distance_epsilon: float,
+    weather_penalty_weight: float,
+    weather_penalty_type: str,
+    weather_penalty_sharpness: float,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None,
+    tws_limit: float,
+    hs_limit: float,
+    travel_stw: float | None,
+    travel_time: float | None,
+    spherical_correction: bool,
+    time_offset: float,
+    wind_penalty_weight: float,
+    wave_penalty_weight: float,
+    distance_penalty_weight: float,
+) -> jnp.ndarray:
+    """Apply land/weather penalties to a batch cost tensor."""
+    # Land penalization
+    if land is not None and penalty > 0:
+        if land_margin > 0 and curve.shape[1] > 2 * land_margin:
+            curve_check = curve[:, land_margin:-land_margin, :]
+        else:
+            curve_check = curve
+        land_count = land.penalization(curve_check, penalty=1)
+        has_land = land_count > 0
+        cost = jnp.where(has_land, penalty + land_count, cost)
+
+    # Smooth distance-to-land penalty via EDT
+    if land is not None and land_distance_weight > 0:
+        cost += land.distance_penalty(
+            curve,
+            weight=land_distance_weight,
+            epsilon=land_distance_epsilon,
+        )
+
+    # Weather constraint penalization
+    if weather_penalty_weight > 0 and (windfield is not None or wavefield is not None):
+        _wp_fn = (
+            _weather_penalty_smooth
+            if weather_penalty_type == "smooth"
+            else _weather_penalty
+        )
+        _wp_kwargs: dict[str, Any] = {
+            "windfield": windfield,
+            "wavefield": wavefield,
+            "tws_limit": tws_limit,
+            "hs_limit": hs_limit,
+            "penalty": weather_penalty_weight,
+            "travel_stw": travel_stw,
+            "travel_time": travel_time,
+            "spherical_correction": spherical_correction,
+            "time_offset": time_offset,
+        }
+        if weather_penalty_type == "smooth":
+            _wp_kwargs["sharpness"] = weather_penalty_sharpness
+        cost += _wp_fn(curve, **_wp_kwargs)
+
+    # Split smooth wind penalty
+    if wind_penalty_weight > 0 and windfield is not None:
+        cost += _wind_penalty_smooth(
+            curve,
+            windfield=windfield,
+            tws_limit=tws_limit,
+            weight=wind_penalty_weight,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+        )
+
+    # Split smooth wave penalty
+    if wave_penalty_weight > 0 and wavefield is not None:
+        cost += _wave_penalty_smooth(
+            curve,
+            wavefield=wavefield,
+            hs_limit=hs_limit,
+            weight=wave_penalty_weight,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+        )
+
+    # EDT distance-to-land penalty
+    if distance_penalty_weight > 0 and land is not None:
+        cost += land.distance_penalty(curve, weight=distance_penalty_weight)
+
+    return cost
+
+
+def _evaluate_curve_batch(
+    *,
+    curve: jnp.ndarray,
+    vectorfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ],
+    cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None,
+    travel_stw: float | None,
+    travel_time: float | None,
+    weight_l1: float,
+    weight_l2: float,
+    spherical_correction: bool,
+    time_offset: float,
+    land: Land | None,
+    penalty: float,
+    land_margin: int,
+    land_distance_weight: float,
+    land_distance_epsilon: float,
+    weather_penalty_weight: float,
+    weather_penalty_type: str,
+    weather_penalty_sharpness: float,
+    windfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None,
+    tws_limit: float,
+    hs_limit: float,
+    wind_penalty_weight: float,
+    wave_penalty_weight: float,
+    distance_penalty_weight: float,
+) -> jnp.ndarray:
+    """Evaluate objective and penalties for a batch of candidate routes."""
+    if cost_fn is not None:
+        base_cost = cost_fn(curve)
+    else:
+        base_cost = cost_function(
+            vectorfield=vectorfield,
+            curve=curve,
+            wavefield=wavefield,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+        )
+
+    return _apply_route_penalties(
+        cost=base_cost,
+        curve=curve,
+        land=land,
+        penalty=penalty,
+        land_margin=land_margin,
+        land_distance_weight=land_distance_weight,
+        land_distance_epsilon=land_distance_epsilon,
+        weather_penalty_weight=weather_penalty_weight,
+        weather_penalty_type=weather_penalty_type,
+        weather_penalty_sharpness=weather_penalty_sharpness,
+        windfield=windfield,
+        wavefield=wavefield,
+        tws_limit=tws_limit,
+        hs_limit=hs_limit,
+        travel_stw=travel_stw,
+        travel_time=travel_time,
+        spherical_correction=spherical_correction,
+        time_offset=time_offset,
+        wind_penalty_weight=wind_penalty_weight,
+        wave_penalty_weight=wave_penalty_weight,
+        distance_penalty_weight=distance_penalty_weight,
+    )
+
+
 @jit  # type: ignore[misc]
 def batch_bezier(t: jnp.ndarray, control: jnp.ndarray) -> jnp.ndarray:
     """
@@ -353,20 +552,13 @@ def _cma_evolution_strategy(
 ) -> cma.CMAEvolutionStrategy:
     curve: jnp.ndarray
 
-    # Compute L_eval: the number of Bézier evaluation points for accurate
-    # quadrature (Δt₂).  When dt_eval_minutes > 0 and travel_time is known,
-    # L_eval is derived so that each evaluation segment spans ~dt_eval_minutes.
-    # Otherwise fall back to the output resolution L (Δt₁ == Δt₂).
-    if dt_eval_minutes > 0 and travel_time is not None:
-        L_eval = int(travel_time * 60 / dt_eval_minutes) + 1
-        # Ensure L_eval - 1 is divisible by num_pieces
-        if num_pieces > 1:
-            remainder = (L_eval - 1) % num_pieces
-            if remainder != 0:
-                L_eval += num_pieces - remainder
-        L_eval = max(L_eval, 3)  # need at least 3 points
-    else:
-        L_eval = L
+    # Compute L_eval: evaluation waypoints for accurate energy quadrature.
+    L_eval = _compute_l_eval(
+        L=L,
+        dt_eval_minutes=dt_eval_minutes,
+        travel_time=travel_time,
+        num_pieces=num_pieces,
+    )
 
     # Initialize the optimizer
     inopts: dict[str, Any] = {
@@ -409,94 +601,32 @@ def _cma_evolution_strategy(
             force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         )
 
-        if cost_fn is not None:
-            cost = cost_fn(curve)
-        else:
-            cost = cost_function(
-                vectorfield=vectorfield,
-                curve=curve,
-                wavefield=wavefield,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                weight_l1=weight_l1,
-                weight_l2=weight_l2,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            )
-
-        # Land penalization
-        if land is not None and penalty > 0:
-            # Skip the first/last `land_margin` waypoints (ports on coast)
-            if land_margin > 0 and curve.shape[1] > 2 * land_margin:
-                curve_check = curve[:, land_margin:-land_margin, :]
-            else:
-                curve_check = curve
-            land_count = land.penalization(curve_check, penalty=1)
-            has_land = land_count > 0
-            # Death penalty: land-crossing candidates get cost=penalty,
-            # plus land_count as gradient signal so CMA-ES moves
-            # toward fewer land points.
-            cost = jnp.where(has_land, penalty + land_count, cost)
-
-        # Smooth distance-to-land penalty via EDT
-        if land is not None and land_distance_weight > 0:
-            cost += land.distance_penalty(
-                curve, weight=land_distance_weight, epsilon=land_distance_epsilon
-            )
-
-        # Weather constraint penalization
-        if weather_penalty_weight > 0 and (
-            windfield is not None or wavefield is not None
-        ):
-            _wp_fn = (
-                _weather_penalty_smooth
-                if weather_penalty_type == "smooth"
-                else _weather_penalty
-            )
-            _wp_kwargs: dict[str, Any] = dict(
-                windfield=windfield,
-                wavefield=wavefield,
-                tws_limit=tws_limit,
-                hs_limit=hs_limit,
-                penalty=weather_penalty_weight,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            )
-            if weather_penalty_type == "smooth":
-                _wp_kwargs["sharpness"] = weather_penalty_sharpness
-            cost += _wp_fn(curve, **_wp_kwargs)
-
-        # Split smooth wind penalty
-        if wind_penalty_weight > 0 and windfield is not None:
-            cost += _wind_penalty_smooth(
-                curve,
-                windfield=windfield,
-                tws_limit=tws_limit,
-                weight=wind_penalty_weight,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            )
-
-        # Split smooth wave penalty
-        if wave_penalty_weight > 0 and wavefield is not None:
-            cost += _wave_penalty_smooth(
-                curve,
-                wavefield=wavefield,
-                hs_limit=hs_limit,
-                weight=wave_penalty_weight,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            )
-
-        # EDT distance-to-land penalty
-        if distance_penalty_weight > 0 and land is not None:
-            cost += land.distance_penalty(curve, weight=distance_penalty_weight)
+        cost = _evaluate_curve_batch(
+            curve=curve,
+            vectorfield=vectorfield,
+            cost_fn=cost_fn,
+            wavefield=wavefield,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+            land=land,
+            penalty=penalty,
+            land_margin=land_margin,
+            land_distance_weight=land_distance_weight,
+            land_distance_epsilon=land_distance_epsilon,
+            weather_penalty_weight=weather_penalty_weight,
+            weather_penalty_type=weather_penalty_type,
+            weather_penalty_sharpness=weather_penalty_sharpness,
+            windfield=windfield,
+            tws_limit=tws_limit,
+            hs_limit=hs_limit,
+            wind_penalty_weight=wind_penalty_weight,
+            wave_penalty_weight=wave_penalty_weight,
+            distance_penalty_weight=distance_penalty_weight,
+        )
 
         # Replace the worst solutions with the best found so far
         if keep_top > 0 and es.countiter > 1:
@@ -815,16 +945,13 @@ def optimize(
     )
     cost_best: float = es.best.f
 
-    # Compute L_eval for fair comparison with curve0
-    if dt_eval_minutes > 0 and travel_time is not None:
-        L_eval = int(travel_time * 60 / dt_eval_minutes) + 1
-        if num_pieces > 1:
-            remainder = (L_eval - 1) % num_pieces
-            if remainder != 0:
-                L_eval += num_pieces - remainder
-        L_eval = max(L_eval, 3)
-    else:
-        L_eval = L
+    # Compute L_eval for fair comparison with curve0.
+    L_eval = _compute_l_eval(
+        L=L,
+        dt_eval_minutes=dt_eval_minutes,
+        travel_time=travel_time,
+        num_pieces=num_pieces,
+    )
 
     # Compare the best curve with the initial one if provided
     if curve0 is not None:
@@ -838,78 +965,32 @@ def optimize(
             num_pieces=num_pieces,
             force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
         )
-        if cost_fn is not None:
-            cost_initial: float = cost_fn(curve0_eval[jnp.newaxis, :, :]).item()
-        else:
-            cost_initial: float = cost_function(
-                vectorfield=vectorfield,
-                curve=curve0_eval[jnp.newaxis, :, :],
-                wavefield=wavefield,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                weight_l1=weight_l1,
-                weight_l2=weight_l2,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            ).item()
-        if land is not None and penalty > 0:
-            c0_batch = curve0_eval[jnp.newaxis, :, :]
-            if land_margin > 0 and c0_batch.shape[1] > 2 * land_margin:
-                c0_check = c0_batch[:, land_margin:-land_margin, :]
-            else:
-                c0_check = c0_batch
-            land_count = land.penalization(c0_check, penalty=1).item()
-            if land_count > 0:
-                cost_initial = penalty + land_count
-        if weather_penalty_weight > 0 and (
-            windfield is not None or wavefield is not None
-        ):
-            _wp_fn_c0 = (
-                _weather_penalty_smooth
-                if weather_penalty_type == "smooth"
-                else _weather_penalty
-            )
-            _wp_kwargs_c0: dict[str, Any] = dict(
-                windfield=windfield,
-                wavefield=wavefield,
-                tws_limit=tws_limit,
-                hs_limit=hs_limit,
-                penalty=weather_penalty_weight,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            )
-            if weather_penalty_type == "smooth":
-                _wp_kwargs_c0["sharpness"] = weather_penalty_sharpness
-            cost_initial += _wp_fn_c0(curve0[jnp.newaxis, :, :], **_wp_kwargs_c0).item()
-        if wind_penalty_weight > 0 and windfield is not None:
-            cost_initial += _wind_penalty_smooth(
-                curve0_eval[jnp.newaxis, :, :],
-                windfield=windfield,
-                tws_limit=tws_limit,
-                weight=wind_penalty_weight,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            ).item()
-        if wave_penalty_weight > 0 and wavefield is not None:
-            cost_initial += _wave_penalty_smooth(
-                curve0_eval[jnp.newaxis, :, :],
-                wavefield=wavefield,
-                hs_limit=hs_limit,
-                weight=wave_penalty_weight,
-                travel_stw=travel_stw,
-                travel_time=travel_time,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset,
-            ).item()
-        if distance_penalty_weight > 0 and land is not None:
-            cost_initial += land.distance_penalty(
-                curve0_eval[jnp.newaxis, :, :],
-                weight=distance_penalty_weight,
-            ).item()
+        cost_initial = _evaluate_curve_batch(
+            curve=curve0_eval[jnp.newaxis, :, :],
+            vectorfield=vectorfield,
+            cost_fn=cost_fn,
+            wavefield=wavefield,
+            travel_stw=travel_stw,
+            travel_time=travel_time,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+            land=land,
+            penalty=penalty,
+            land_margin=land_margin,
+            land_distance_weight=land_distance_weight,
+            land_distance_epsilon=land_distance_epsilon,
+            weather_penalty_weight=weather_penalty_weight,
+            weather_penalty_type=weather_penalty_type,
+            weather_penalty_sharpness=weather_penalty_sharpness,
+            windfield=windfield,
+            tws_limit=tws_limit,
+            hs_limit=hs_limit,
+            wind_penalty_weight=wind_penalty_weight,
+            wave_penalty_weight=wave_penalty_weight,
+            distance_penalty_weight=distance_penalty_weight,
+        ).item()
         if cost_initial < cost_best:
             warnings.warn(
                 "[WARNING] The optimized curve has a higher cost "

@@ -902,6 +902,14 @@ def run_case(
             )
 
         results.append(result)
+        if output_path is not None:
+            _append_case_output(
+                case_id,
+                result,
+                output_path,
+                submission=submission,
+            )
+            completed_departures.add(dep_key)
         if resolved_verbosity >= 1:
             # Flag constraint violations
             tws_flag = " [TWS!]" if result.max_tws_mps > 20.0 else ""

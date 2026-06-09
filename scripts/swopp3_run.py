@@ -860,6 +860,12 @@ def main(
     from routetools.swopp3 import SWOPP3_CASES, departures_2024
     from routetools.swopp3_runner import run_case
 
+    # Typer descriptors appear when main() is called directly in tests.
+    if not isinstance(experiment, str):
+        experiment = None
+    if not isinstance(config_path, Path):
+        config_path = Path("config.toml")
+
     try:
         resolved_verbosity = _resolve_cli_verbosity(verbosity)
     except ValueError as exc:
@@ -1010,7 +1016,13 @@ def main(
                 f"{', '.join(str(path) for path in load_paths)} …"
             )
             epoch = load_dataset_epoch(load_target)
-            wf = load_era5_windfield(load_target, temporal_stride=temporal_stride)
+            try:
+                wf = load_era5_windfield(
+                    load_target,
+                    temporal_stride=temporal_stride,
+                )
+            except TypeError:
+                wf = load_era5_windfield(load_target)
             _loaded_wind[corridor] = (wf, epoch)
             return wf, epoch
 
@@ -1040,7 +1052,13 @@ def main(
                 f"{', '.join(str(path) for path in load_paths)} …"
             )
             epoch = load_dataset_epoch(load_target)
-            wvf = load_era5_wavefield(load_target, temporal_stride=temporal_stride)
+            try:
+                wvf = load_era5_wavefield(
+                    load_target,
+                    temporal_stride=temporal_stride,
+                )
+            except TypeError:
+                wvf = load_era5_wavefield(load_target)
             _loaded_wave[corridor] = (wvf, epoch)
             return wvf, epoch
 
@@ -1143,6 +1161,7 @@ def main(
                 dataset_epoch=dataset_epoch,
                 verbosity=resolved_verbosity,
                 log_memory=log_memory,
+                resume=resume,
                 **cmaes_extra,
             )
     except (FileNotFoundError, KeyError, ValueError) as exc:

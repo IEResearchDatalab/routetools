@@ -305,6 +305,82 @@ def _build_travel_stw_custom_solver(
     return jit(vmap(solve_equation, in_axes=(0, None, None), out_axes=0))
 
 
+def _build_uncached_solver(
+    evaluate_cost: Callable[..., jnp.ndarray],
+    *,
+    damping: float,
+    h: float,
+    segment_time_offsets: jnp.ndarray,
+    q_max: jnp.ndarray,
+    travel_stw: float | None,
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """Build a non-cached FMS solver shared by both travel modes."""
+
+    def lagrangian(
+        q0: jnp.ndarray,
+        q1: jnp.ndarray,
+        segment_time_offset: float,
+    ) -> jnp.ndarray:
+        q = jnp.vstack([q0, q1])[None, ...]
+        if travel_stw is None:
+            lag = evaluate_cost(
+                q,
+                travel_time_eval=h,
+                time_offset_eval=segment_time_offset,
+            )
+            return jnp.sum(h * lag)
+
+        lag = evaluate_cost(
+            q,
+            travel_stw_eval=travel_stw,
+            time_offset_eval=segment_time_offset,
+        )
+        return jnp.sum(h * lag**2)
+
+    d1ld = grad(lagrangian, argnums=0)
+    d2ld = grad(lagrangian, argnums=1)
+    d11ld = hessian(lagrangian, argnums=0)
+    d22ld = hessian(lagrangian, argnums=1)
+
+    @jit  # type: ignore[misc]
+    def jacobian(
+        qkm1: jnp.ndarray,
+        qk: jnp.ndarray,
+        qkp1: jnp.ndarray,
+        left_time_offset: float,
+        right_time_offset: float,
+    ) -> jnp.ndarray:
+        b = -d2ld(qkm1, qk, left_time_offset) - d1ld(
+            qk,
+            qkp1,
+            right_time_offset,
+        )
+        a = d22ld(qkm1, qk, left_time_offset) + d11ld(
+            qk,
+            qkp1,
+            right_time_offset,
+        )
+        q: jnp.ndarray = jnp.linalg.solve(a, b)
+        return jnp.nan_to_num(q)
+
+    jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
+
+    @jit  # type: ignore[misc]
+    def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
+        q = jac_vectorized(
+            curve[:-2],
+            curve[1:-1],
+            curve[2:],
+            segment_time_offsets[:-1],
+            segment_time_offsets[1:],
+        )
+        dq = (1 - damping) * q
+        dq = jnp.clip(dq, -q_max, q_max)
+        return curve.at[1:-1].set(dq + curve[1:-1])
+
+    return vmap(solve_equation, in_axes=0, out_axes=0)
+
+
 def _weather_violation_mask(
     curve: jnp.ndarray,
     *,
@@ -823,70 +899,14 @@ def optimize_fms(
                 )
 
         else:
-
-            def lagrangian(
-                q0: jnp.ndarray,
-                q1: jnp.ndarray,
-                segment_time_offset: float,
-            ) -> jnp.ndarray:
-                # Stack q0 and q1 to form array of shape (1, 2, 2)
-                q = jnp.vstack([q0, q1])[None, ...]
-                lag = _evaluate_cost(
-                    q,
-                    travel_stw_eval=travel_stw,
-                    time_offset_eval=segment_time_offset,
-                )
-                ld = jnp.sum(h * lag**2)
-                # Do note: The original formula used q0, q1 to compute l1, l2 and then
-                # took the average of (l1**2 + l2**2) / 2
-                # We simplified that without loss of generality
-                return ld
-
-            d1ld = grad(lagrangian, argnums=0)
-            d2ld = grad(lagrangian, argnums=1)
-            d11ld = hessian(lagrangian, argnums=0)
-            d22ld = hessian(lagrangian, argnums=1)
-
-            @jit  # type: ignore[misc]
-            def jacobian(
-                qkm1: jnp.ndarray,
-                qk: jnp.ndarray,
-                qkp1: jnp.ndarray,
-                left_time_offset: float,
-                right_time_offset: float,
-            ) -> jnp.ndarray:
-                b = -d2ld(qkm1, qk, left_time_offset) - d1ld(
-                    qk,
-                    qkp1,
-                    right_time_offset,
-                )
-                a = d22ld(qkm1, qk, left_time_offset) + d11ld(
-                    qk,
-                    qkp1,
-                    right_time_offset,
-                )
-                q: jnp.ndarray = jnp.linalg.solve(a, b)
-                return jnp.nan_to_num(q)
-
-            # Each tree-index is an integer; no need to wrap a single axis in a tuple.
-            jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
-
-            @jit  # type: ignore[misc]
-            def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
-                q = jac_vectorized(
-                    curve[:-2],
-                    curve[1:-1],
-                    curve[2:],
-                    segment_time_offsets[:-1],
-                    segment_time_offsets[1:],
-                )
-                dq = (1 - damping) * q
-                # Clip updates to prevent divergence when the route is still
-                # far from a locally optimal path.
-                dq = jnp.clip(dq, -q_max, q_max)
-                return curve.at[1:-1].set(dq + curve[1:-1])
-
-            solve_vectorized = vmap(solve_equation, in_axes=0, out_axes=0)
+            solve_vectorized = _build_uncached_solver(
+                _evaluate_cost,
+                damping=damping,
+                h=h,
+                segment_time_offsets=segment_time_offsets,
+                q_max=q_max,
+                travel_stw=travel_stw,
+            )
 
     elif travel_time is not None:
         assert travel_time > 0, "Travel time must be positive"
@@ -912,69 +932,14 @@ def optimize_fms(
                     q_max,
                 )
         else:
-
-            def lagrangian(
-                q0: jnp.ndarray,
-                q1: jnp.ndarray,
-                segment_time_offset: float,
-            ) -> jnp.ndarray:
-                # Stack q0 and q1 to form array of shape (1, 2, 2)
-                q = jnp.vstack([q0, q1])[None, ...]
-                lag = _evaluate_cost(
-                    q,
-                    travel_time_eval=h,
-                    time_offset_eval=segment_time_offset,
-                )
-                ld = jnp.sum(h * lag)
-                # Do note: The original formula used q0, q1 to compute l1, l2 and then
-                # took the average of (l1 + l2) / 2
-                # We simplified that without loss of generality
-                return ld
-
-            d1ld = grad(lagrangian, argnums=0)
-            d2ld = grad(lagrangian, argnums=1)
-            d11ld = hessian(lagrangian, argnums=0)
-            d22ld = hessian(lagrangian, argnums=1)
-
-            @jit  # type: ignore[misc]
-            def jacobian(
-                qkm1: jnp.ndarray,
-                qk: jnp.ndarray,
-                qkp1: jnp.ndarray,
-                left_time_offset: float,
-                right_time_offset: float,
-            ) -> jnp.ndarray:
-                b = -d2ld(qkm1, qk, left_time_offset) - d1ld(
-                    qk,
-                    qkp1,
-                    right_time_offset,
-                )
-                a = d22ld(qkm1, qk, left_time_offset) + d11ld(
-                    qk,
-                    qkp1,
-                    right_time_offset,
-                )
-                q: jnp.ndarray = jnp.linalg.solve(a, b)
-                return jnp.nan_to_num(q)
-
-            jac_vectorized = vmap(jacobian, in_axes=(0, 0, 0, 0, 0), out_axes=0)
-
-            @jit  # type: ignore[misc]
-            def solve_equation(curve: jnp.ndarray) -> jnp.ndarray:
-                q = jac_vectorized(
-                    curve[:-2],
-                    curve[1:-1],
-                    curve[2:],
-                    segment_time_offsets[:-1],
-                    segment_time_offsets[1:],
-                )
-                dq = (1 - damping) * q
-                # Clip updates to prevent divergence when the route is still
-                # far from a locally optimal path.
-                dq = jnp.clip(dq, -q_max, q_max)
-                return curve.at[1:-1].set(dq + curve[1:-1])
-
-            solve_vectorized = vmap(solve_equation, in_axes=0, out_axes=0)
+            solve_vectorized = _build_uncached_solver(
+                _evaluate_cost,
+                damping=damping,
+                h=h,
+                segment_time_offsets=segment_time_offsets,
+                q_max=q_max,
+                travel_stw=None,
+            )
 
     else:
         raise ValueError("Either travel_stw or travel_time must be provided")
