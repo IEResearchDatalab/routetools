@@ -94,10 +94,12 @@ def _segment_midpoints(
         Shape ``(B, L, 2)`` with ``(lon, lat)``.
     travel_stw : float, optional
         Constant speed through water (m/s).  Used to estimate elapsed time
-        per segment as ``distance / travel_stw``.
+        per segment as ``distance / travel_stw``; ``t_mid`` will be in
+        seconds when ``spherical_correction`` is ``True``.
     travel_time : float, optional
-        Total travel time (seconds).  Time is distributed proportionally
-        by segment distance.
+        Total travel time.  Time is distributed proportionally by segment
+        distance.  The units of ``travel_time`` carry through to ``t_mid``
+        (e.g. pass hours to get hours).
     spherical_correction : bool
         If ``True`` (default), use haversine distances (metres).
 
@@ -105,7 +107,8 @@ def _segment_midpoints(
     -------
     mid_lon, mid_lat, t_mid : jnp.ndarray
         Each of shape ``(B, L-1)``.  ``t_mid`` is the estimated elapsed
-        time (in seconds) at the midpoint of each segment.
+        time at the midpoint of each segment, in the same units as
+        ``travel_time`` or seconds when ``travel_stw`` is used.
     """
     mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
     mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
@@ -261,6 +264,7 @@ def weather_penalty(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Compute a hard penalty for weather constraint violations.
 
@@ -285,9 +289,17 @@ def weather_penalty(
     travel_stw : float, optional
         Constant speed through water (m/s) for elapsed-time estimation.
     travel_time : float, optional
-        Total travel time (seconds); distributed proportionally by distance.
+        Total travel time with arbitrary time units; distributed
+        proportionally by distance. Units must match those used by
+        ``time_offset`` and the time coordinate expected by the field
+        closures.
     spherical_correction : bool
         Use haversine distances (default ``True``).
+    time_offset : float
+        Offset added to ``t_mid`` before querying field closures.  Must
+        be in the same units as ``travel_time`` (or seconds when using
+        ``travel_stw``).  Typically the departure offset in hours when
+        ``travel_time`` is also in hours.
 
     Returns
     -------
@@ -300,6 +312,7 @@ def weather_penalty(
         travel_time=travel_time,
         spherical_correction=spherical_correction,
     )
+    t_mid = t_mid + time_offset
 
     violations = jnp.zeros(curve.shape[0])
 
@@ -337,6 +350,7 @@ def weather_penalty_smooth(
     travel_stw: float | None = None,
     travel_time: float | None = None,
     spherical_correction: bool = True,
+    time_offset: float = 0.0,
 ) -> jnp.ndarray:
     """Compute a smooth (differentiable) penalty for weather violations.
 
@@ -364,11 +378,22 @@ def weather_penalty_smooth(
     sharpness : float
         Linear multiplier on the squared excess (default 5).
     travel_stw : float, optional
-        Constant speed through water (m/s) for elapsed-time estimation.
+        Constant speed through water (m/s) used to infer elapsed time from
+        segment distances.  When provided, elapsed times are computed in
+        seconds.
     travel_time : float, optional
-        Total travel time (seconds); distributed proportionally by distance.
+        Total travel duration in arbitrary time units; distributed
+        proportionally by segment distance.  Units are not interpreted by
+        this function, but they are carried through to ``t_mid`` and must
+        be consistent with what ``windfield``/``wavefield`` expect.
     spherical_correction : bool
         Use haversine distances (default ``True``).
+    time_offset : float
+        Offset added to ``t_mid`` before querying field closures.  Must
+        be in the same units as the resulting time axis: seconds when
+        using ``travel_stw``, or the same arbitrary units as
+        ``travel_time`` when it is provided directly (for example, hours
+        when ``travel_time`` is in hours).
 
     Returns
     -------
@@ -381,6 +406,7 @@ def weather_penalty_smooth(
         travel_time=travel_time,
         spherical_correction=spherical_correction,
     )
+    t_mid = t_mid + time_offset
 
     total = jnp.zeros(curve.shape[0])
 

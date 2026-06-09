@@ -69,6 +69,13 @@ ENDPOINT_TOLERANCE_DEG = 0.5
 # Passage time tolerance (hours)
 PASSAGE_TIME_TOLERANCE_H = 1.0
 
+# Resampling interval for energy integration (minutes)
+# Decouples waypoint density (Δt₁) from integration accuracy (Δt₂).
+RESAMPLE_DT_MINUTES = 30
+
+# Interpolation order for ERA5 queries (1=trilinear, 3=tricubic)
+INTERP_ORDER = 3
+
 CASE_NAMES = [
     "AO_WPS",
     "AO_noWPS",
@@ -166,6 +173,98 @@ def _coord_distance_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> f
     """Euclidean distance in degrees with antimeridian-safe longitude delta."""
     dlon = (lon1 - lon2 + 180) % 360 - 180  # wrapped to [-180, 180]
     return math.sqrt((lat1 - lat2) ** 2 + dlon**2)
+
+
+def _slerp(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+    f: float,
+) -> tuple[float, float]:
+    """Spherical linear interpolation at fraction *f* in [0, 1].
+
+    Parameters and return values are in degrees.
+    """
+    phi1, lam1 = math.radians(lat1), math.radians(lon1)
+    phi2, lam2 = math.radians(lat2), math.radians(lon2)
+
+    p1 = np.array(
+        [
+            math.cos(phi1) * math.cos(lam1),
+            math.cos(phi1) * math.sin(lam1),
+            math.sin(phi1),
+        ]
+    )
+    p2 = np.array(
+        [
+            math.cos(phi2) * math.cos(lam2),
+            math.cos(phi2) * math.sin(lam2),
+            math.sin(phi2),
+        ]
+    )
+
+    dot = float(np.clip(np.dot(p1, p2), -1.0, 1.0))
+    sigma = math.acos(dot)
+
+    if sigma < 1e-12:
+        lat = lat1 + f * (lat2 - lat1)
+        lon = lon1 + f * ((lon2 - lon1 + 180) % 360 - 180)
+        return lat, lon
+
+    a = math.sin((1 - f) * sigma) / math.sin(sigma)
+    b = math.sin(f * sigma) / math.sin(sigma)
+    p = a * p1 + b * p2
+
+    lat = math.degrees(math.atan2(p[2], math.sqrt(p[0] ** 2 + p[1] ** 2)))
+    lon = math.degrees(math.atan2(p[1], p[0]))
+    return lat, lon
+
+
+def resample_track(
+    waypoints: list[tuple[datetime, float, float]],
+    dt_minutes: float = RESAMPLE_DT_MINUTES,
+) -> list[tuple[datetime, float, float]]:
+    """Resample a track to uniform temporal spacing via geodesic interpolation.
+
+    Parameters
+    ----------
+    waypoints
+        List of ``(time, lat_deg, lon_deg)`` — the original track.
+    dt_minutes
+        Target sub-segment interval in minutes.
+
+    Returns
+    -------
+    list[tuple[datetime, float, float]]
+        Resampled waypoints at approximately uniform Δt₂.
+        First and last points are preserved exactly.
+    """
+    if len(waypoints) < 2:
+        return list(waypoints)
+
+    result: list[tuple[datetime, float, float]] = []
+
+    for i in range(len(waypoints) - 1):
+        t0, lat0, lon0 = waypoints[i]
+        t1, lat1, lon1 = waypoints[i + 1]
+
+        seg_seconds = (t1 - t0).total_seconds()
+        if seg_seconds <= 0:
+            result.append((t0, lat0, lon0))
+            continue
+
+        dt_seconds = dt_minutes * 60.0
+        n_sub = max(1, math.ceil(seg_seconds / dt_seconds))
+
+        for j in range(n_sub):
+            f = j / n_sub
+            t = t0 + timedelta(seconds=f * seg_seconds)
+            lat, lon = _slerp(lat0, lon0, lat1, lon1, f)
+            result.append((t, lat, lon))
+
+    result.append(waypoints[-1])
+    return result
 
 
 def find_team_prefix(sub_dir: Path) -> str | None:
@@ -424,16 +523,18 @@ def validate_file_b(
 
     # ── Land crossing checks (skipped for GC cases) ──
     if land_checker is not None and case_id not in GC_CASES:
-        land_count = 0
-        step = max(1, len(waypoints) // 50)  # check ~50 points max
-        for idx in range(0, len(waypoints), step):
-            _, lat, lon = waypoints[idx]
+        land_rows: list[int] = []
+        for idx, (_, lat, lon) in enumerate(waypoints):
             if lat is not None and lon is not None and land_checker(lat, lon):
-                land_count += 1
-        if land_count > 0:
+                land_rows.append(idx + 1)  # 1-based row number
+        if land_rows:
+            # Show up to 10 row numbers to keep the message readable
+            shown = land_rows[:10]
+            suffix = f", ... ({len(land_rows)} total)" if len(land_rows) > 10 else ""
+            rows_str = ", ".join(str(r) for r in shown) + suffix
             errors.append(
-                f"{fname}: {land_count} waypoint(s) on land "
-                f"(checked {len(range(0, len(waypoints), step))} points)"
+                f"{fname}: {len(land_rows)} waypoint(s) on land "
+                f"at row(s) {rows_str}"
             )
 
     return errors
@@ -541,8 +642,9 @@ def _interp_era5(
     query_lat: np.ndarray,
     query_lon: np.ndarray,
     query_t_h: np.ndarray,
+    order: int = INTERP_ORDER,
 ) -> np.ndarray:
-    """Trilinear interpolation of an ERA5 variable at query points.
+    """Interpolate an ERA5 variable at query points.
 
     Parameters
     ----------
@@ -550,6 +652,7 @@ def _interp_era5(
     var_name : variable name in the grid
     query_lat, query_lon : arrays of shape (N,) in degrees
     query_t_h : array of shape (N,) — hours since grid t0
+    order : interpolation order (1=trilinear, 3=tricubic)
 
     Returns array of shape (N,).
     """
@@ -572,17 +675,23 @@ def _interp_era5(
     fi_lat = np.clip(fi_lat, 0, len(lat) - 1)
     fi_lon = np.clip(fi_lon, 0, len(lon) - 1)
 
-    # Integer indices for trilinear interpolation
+    if order > 1:
+        from scipy.ndimage import map_coordinates
+
+        coords = np.array([fi_t, fi_lat, fi_lon])
+        return map_coordinates(arr, coords, order=order, mode="nearest").astype(
+            np.float64
+        )
+
+    # Fallback: manual trilinear (order=1)
     i0_t = np.clip(np.floor(fi_t).astype(int), 0, len(times_h) - 2)
     i0_lat = np.clip(np.floor(fi_lat).astype(int), 0, len(lat) - 2)
     i0_lon = np.clip(np.floor(fi_lon).astype(int), 0, len(lon) - 2)
 
-    # Fractional parts
     wt = (fi_t - i0_t).astype(np.float32)
     wlat = (fi_lat - i0_lat).astype(np.float32)
     wlon = (fi_lon - i0_lon).astype(np.float32)
 
-    # Trilinear interpolation (8 corners)
     result = np.zeros(len(query_lat), dtype=np.float32)
     for dt_off in (0, 1):
         for dlat_off in (0, 1):
@@ -739,16 +848,22 @@ def try_load_era5_scorer(ref_dir: Path):
         case_id: str,
         waypoints: list[tuple[datetime, float, float]],
         departure_str: str,
-    ) -> float | None:
-        """Re-evaluate a single route using ERA5 + RISE model.
+    ) -> tuple[float, int, int] | None:
+        """Re-evaluate a single route using ERA5 + RISE trapezoidal rule.
 
         Parameters
         ----------
         case_id : one of the CASE_NAMES
         waypoints : list of (datetime, lat_deg, lon_deg) tuples
+            Should already be resampled to uniform Δt₂.
         departure_str : departure datetime as string
 
-        Returns energy in MWh, or None if evaluation is not possible.
+        Returns
+        -------
+        tuple[float, int, int] | None
+            ``(energy_mwh, wind_violations, wave_violations)`` or None if
+            evaluation is not possible.  Violation counts are the number
+            of evaluation points where TWS > 20 m/s or Hs > 7 m.
         """
         case_def = CASE_DEFS[case_id]
         corridor = case_def["route"]
@@ -774,52 +889,61 @@ def try_load_era5_scorer(ref_dir: Path):
         seg_dt_h = ((wp_times[1:] - wp_times[:-1]) / np.timedelta64(1, "h")).astype(
             np.float64
         )
-        # Guard against zero-length segments
         seg_dt_h = np.maximum(seg_dt_h, 1e-6)
 
         # Normalize lons to match ERA5 grid convention [0, 360)
         grid_lon = wind_grid["lon"]
         if grid_lon[0] >= 0 and grid_lon[-1] > 180:
-            # Grid is in [0, 360) — shift negative lons
             lons = np.where(lons < 0, lons + 360, lons)
 
-        # Segment midpoints (position)
-        mid_lat = (lats[:-1] + lats[1:]) / 2
-        mid_lon = (lons[:-1] + lons[1:]) / 2
-
-        # Segment midpoint times (hours since grid t0)
+        # ── Trapezoidal rule: evaluate weather at ALL waypoints ──
         dep_dt64 = wp_times[0]
         dep_offset_h = float((dep_dt64 - wind_grid["t0"]) / np.timedelta64(1, "h"))
-        cum_h = np.cumsum(seg_dt_h)
-        seg_mid_h = dep_offset_h + cum_h - seg_dt_h / 2
+        wp_times_h = np.zeros(n_wp, dtype=np.float64)
+        wp_times_h[0] = dep_offset_h
+        wp_times_h[1:] = dep_offset_h + np.cumsum(seg_dt_h)
 
-        # Interpolate weather at segment midpoints
-        u10 = _interp_era5(wind_grid, "u10", mid_lat, mid_lon, seg_mid_h)
-        v10 = _interp_era5(wind_grid, "v10", mid_lat, mid_lon, seg_mid_h)
-        swh = _interp_era5(wave_grid, "swh", mid_lat, mid_lon, seg_mid_h)
-        mwd = _interp_era5(wave_grid, "mwd", mid_lat, mid_lon, seg_mid_h)
+        # Interpolate weather at every waypoint (not just midpoints)
+        u10 = _interp_era5(wind_grid, "u10", lats, lons, wp_times_h)
+        v10 = _interp_era5(wind_grid, "v10", lats, lons, wp_times_h)
+        swh = _interp_era5(wave_grid, "swh", lats, lons, wp_times_h)
+        mwd = _interp_era5(wave_grid, "mwd", lats, lons, wp_times_h)
 
-        # Ship speed (m/s)
+        # Weather at all waypoints for constraint checking
+        tws_all = np.sqrt(u10**2 + v10**2)
+        wind_violations = int(np.sum(tws_all > MAX_WIND_MPS))
+        wave_violations = int(np.sum(swh > MAX_HS_M))
+
+        # Ship speed and bearing per segment
         seg_dist_m = _haversine_m(lats[:-1], lons[:-1], lats[1:], lons[1:])
         v_mps = seg_dist_m / (seg_dt_h * 3600.0)
-
-        # Ship bearing (degrees)
         bearing_deg = _forward_bearing_deg(lats[:-1], lons[:-1], lats[1:], lons[1:])
 
-        # True wind speed and angle relative to heading
-        tws = np.sqrt(u10**2 + v10**2)
-        wind_from_deg = np.mod(180.0 + np.degrees(np.arctan2(u10, v10)), 360.0)
-        twa_deg = np.mod(wind_from_deg - bearing_deg, 360.0)
+        # ── RISE power at segment start points ──
+        tws_start = tws_all[:-1]
+        wind_from_start = np.mod(
+            180.0 + np.degrees(np.arctan2(u10[:-1], v10[:-1])), 360.0
+        )
+        twa_start = np.mod(wind_from_start - bearing_deg, 360.0)
+        mwa_start = np.mod(mwd[:-1] - bearing_deg, 360.0)
+        power_start = _rise_power(
+            tws_start, twa_start, swh[:-1], mwa_start, v_mps, case_def["wps"]
+        )
 
-        # Mean wave angle relative to heading
-        mwa_deg = np.mod(mwd - bearing_deg, 360.0)
+        # ── RISE power at segment end points ──
+        tws_end = tws_all[1:]
+        wind_from_end = np.mod(180.0 + np.degrees(np.arctan2(u10[1:], v10[1:])), 360.0)
+        twa_end = np.mod(wind_from_end - bearing_deg, 360.0)
+        mwa_end = np.mod(mwd[1:] - bearing_deg, 360.0)
+        power_end = _rise_power(
+            tws_end, twa_end, swh[1:], mwa_end, v_mps, case_def["wps"]
+        )
 
-        # RISE power at each segment
-        power_kw = _rise_power(tws, twa_deg, swh, mwa_deg, v_mps, case_def["wps"])
-
-        # Energy integration (per-segment dt)
-        energy_mwh = float(np.sum(power_kw * seg_dt_h) / 1000.0)
-        return energy_mwh
+        # ── Trapezoidal average ──
+        # E_i = (P_start + P_end) / 2 * dt
+        power_avg = (power_start + power_end) / 2.0
+        energy_mwh = float(np.sum(power_avg * seg_dt_h) / 1000.0)
+        return energy_mwh, wind_violations, wave_violations
 
     return evaluate_route
 
@@ -1162,11 +1286,38 @@ def score_submission() -> dict:
     # Detect team prefix
     team_prefix = find_team_prefix(submission_dir)
     if team_prefix is None:
-        all_errors.append("Cannot detect team prefix from CSV filenames")
+        found_csvs = sorted(f.name for f in submission_dir.glob("*.csv"))
+        found_all = (
+            sorted(f.name for f in submission_dir.iterdir())
+            if submission_dir.is_dir()
+            else []
+        )
+        msg = (
+            "Cannot detect team prefix from CSV filenames. "
+            "Expected File-A CSVs named <TeamName>-<N>-<CaseName>.csv "
+            f"(e.g. MyTeam-1-AO_WPS.csv) at the root of the zip. "
+            f"Found {len(found_csvs)} CSV(s) at root: {found_csvs[:10]}. "
+            f"All root entries ({len(found_all)}): {found_all[:20]}. "
+            "Common fix: zip files from *inside* the directory, not the "
+            "directory itself (cd into it, then zip)."
+        )
+        all_errors.append(msg)
+        print(f"ERROR: {msg}", file=sys.stderr)
         scores["total_energy_mwh"] = 1e12
         scores["validation_errors"] = 1
         for case in CASE_NAMES:
             scores[f"{case}_energy_mwh"] = 1e12
+
+        # Write log even on early return so it's available in CodaBench
+        log_path = output_dir / "scoring_log.txt"
+        with log_path.open("w") as f:
+            f.write(f"VALIDATION: {len(all_errors)} issue(s) found\n")
+            for err in all_errors:
+                f.write(f"  ✗ {err}\n")
+            f.write("\nSCORES:\n")
+            for k, v in scores.items():
+                f.write(f"  {k}: {v}\n")
+
         return scores
 
     # Try to load land checker
@@ -1209,6 +1360,9 @@ def score_submission() -> dict:
         tracks_dir = submission_dir / "tracks"
         re_eval_energy = 0.0
         re_eval_ok = era5_scorer is not None
+        case_wind_violations = 0
+        case_wave_violations = 0
+        case_land_crossings = 0
         for row in fa_rows:
             fb_name = row.get("details_filename", "")
             if not fb_name:
@@ -1235,12 +1389,13 @@ def score_submission() -> dict:
                 case,
                 departure_dt=dep_dt,
                 arrival_dt=arr_dt,
-                land_checker=land_checker,
+                land_checker=None,  # defer land check to resampled track
             )
             all_errors.extend(fb_errors)
 
-            # Attempt ERA5 re-evaluation for this departure
-            if re_eval_ok and fb_path.exists() and dep_dt is not None:
+            # Load waypoints for resampling, land check, and re-evaluation
+            waypoints = None
+            if fb_path.exists():
                 try:
                     with fb_path.open() as fbf:
                         wps_reader = csv.DictReader(fbf)
@@ -1250,10 +1405,46 @@ def score_submission() -> dict:
                             lat = float(wp_row["lat_deg"])
                             lon = float(wp_row["lon_deg"])
                             waypoints.append((t, lat, lon))
+                except Exception:
+                    waypoints = None
+
+            if waypoints is None or len(waypoints) < 2:
+                if re_eval_ok:
+                    re_eval_ok = False
+                continue
+
+            # Resample to uniform Δt₂ for fair evaluation
+            waypoints_resampled = resample_track(waypoints, RESAMPLE_DT_MINUTES)
+
+            # ── Land crossing check on resampled waypoints (STRONG) ──
+            if land_checker is not None and case not in GC_CASES:
+                land_rows: list[int] = []
+                for idx, (_, lat, lon) in enumerate(waypoints_resampled):
+                    if land_checker(lat, lon):
+                        land_rows.append(idx + 1)
+                if land_rows:
+                    case_land_crossings += len(land_rows)
+                    n_calc = len(waypoints_resampled)
+                    shown = land_rows[:10]
+                    suffix = (
+                        f", ... ({len(land_rows)} total)" if len(land_rows) > 10 else ""
+                    )
+                    rows_str = ", ".join(str(r) for r in shown) + suffix
+                    all_errors.append(
+                        f"{fb_path.name}: {len(land_rows)}/{n_calc} "
+                        f"calculation points on land at index(es) {rows_str}"
+                    )
+
+            # ── ERA5 re-evaluation on resampled track ──
+            if re_eval_ok and dep_dt is not None:
+                try:
                     dep_str = dep_dt.strftime(DTFMT)
-                    e = era5_scorer(case, waypoints, dep_str)
-                    if e is not None:
+                    result = era5_scorer(case, waypoints_resampled, dep_str)
+                    if result is not None:
+                        e, wv, wav = result
                         re_eval_energy += e
+                        case_wind_violations += wv
+                        case_wave_violations += wav
                         case_energies[case].append((dep_dt, e))
                         # Collect route coords (subsample for memory)
                         lats = [wp[1] for wp in waypoints]
@@ -1267,7 +1458,6 @@ def score_submission() -> dict:
                 except Exception:
                     re_eval_ok = False
             elif re_eval_ok:
-                # Track file missing or departure unknown — cannot re-evaluate
                 re_eval_ok = False
 
         # Use re-evaluated energy when successful, else fall back
@@ -1283,6 +1473,28 @@ def score_submission() -> dict:
         scores[f"{case}_energy_mwh"] = round(case_energy_final, 4)
         scores[f"{case}_reported_mwh"] = round(case_energy, 4)
         total_energy += case_energy_final
+
+        # ── Strong violations (land) — route physically impossible ──
+        if case_land_crossings > 0:
+            all_errors.append(
+                f"{case}: STRONG — {case_land_crossings} calculation points "
+                f"cross land"
+            )
+        scores[f"{case}_land_violations"] = case_land_crossings
+
+        # ── Weak violations (weather) — route dangerous but possible ──
+        if case_wind_violations > 0 and case not in GC_CASES:
+            all_warnings.append(
+                f"{case}: {case_wind_violations} calculation points "
+                f"exceed TWS limit ({MAX_WIND_MPS} m/s)"
+            )
+        if case_wave_violations > 0 and case not in GC_CASES:
+            all_warnings.append(
+                f"{case}: {case_wave_violations} calculation points "
+                f"exceed Hs limit ({MAX_HS_M} m)"
+            )
+        scores[f"{case}_wind_violations"] = case_wind_violations
+        scores[f"{case}_wave_violations"] = case_wave_violations
 
     # ── Cross-case consistency checks ──
     wps_pairs = [
@@ -1345,6 +1557,20 @@ if __name__ == "__main__":
     scores_path = output_dir / "scores.json"
     with scores_path.open("w") as f:
         json.dump(scores, f, indent=2)
+
+    # Print errors/warnings prominently so they appear in CodaBench logs
+    n_errors = int(scores.get("validation_errors", 0))
+    if n_errors > 0:
+        log_path = output_dir / "scoring_log.txt"
+        if log_path.exists():
+            print("\n" + "=" * 60, file=sys.stderr)
+            print(
+                "SCORING LOG (see detailed_results.html for full report):",
+                file=sys.stderr,
+            )
+            print("=" * 60, file=sys.stderr)
+            print(log_path.read_text(), file=sys.stderr)
+            print("=" * 60 + "\n", file=sys.stderr)
 
     print(f"Scores written to {scores_path}")
     for k, v in scores.items():

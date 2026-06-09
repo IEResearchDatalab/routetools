@@ -31,6 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 import xarray as xr
 
+from routetools.interpolate import map_coordinates_cubic, prefilter_cubic
 from routetools.vectorfield import time_variant
 
 if TYPE_CHECKING:
@@ -79,26 +80,48 @@ def _normalize_time_coord(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
-def _load_datasets(paths: str | Path | Sequence[str | Path]) -> xr.Dataset:
+def _load_datasets(
+    paths: str | Path | Sequence[str | Path],
+    temporal_stride: int = 1,
+) -> xr.Dataset:
     """Open one or more NetCDF files and concatenate along the time axis.
 
     When multiple files are provided they are concatenated in order.  The
     time dimension is normalised to ``valid_time`` before concatenation so
     that files downloaded from CDS (``valid_time``) and GCS (``time``) can
     be freely mixed.
+
+    Parameters
+    ----------
+    paths : str, Path, or list thereof
+        Path(s) to ERA5 NetCDF file(s).
+    temporal_stride : int
+        Keep every *temporal_stride*-th timestep.  ``1`` loads all
+        timesteps (default); ``3`` loads every 3rd timestep, etc.
+        Useful for reducing JIT constant-capture size on GPU.
     """
     if isinstance(paths, str | Path):
-        return _normalize_time_coord(_load_dataset(paths))
+        ds = _normalize_time_coord(_load_dataset(paths))
+    else:
+        datasets = [_normalize_time_coord(_load_dataset(p)) for p in paths]
+        if len(datasets) == 1:
+            ds = datasets[0]
+        else:
+            time_name = _get_coord_name(datasets[0], ["valid_time", "time"])
+            ds = xr.concat(datasets, dim=time_name)
+            # Ensure monotonic time after concatenation
+            ds = ds.sortby(time_name)
 
-    datasets = [_normalize_time_coord(_load_dataset(p)) for p in paths]
-    if len(datasets) == 1:
-        return datasets[0]
+    if temporal_stride > 1:
+        time_name = _get_coord_name(ds, ["valid_time", "time"])
+        ds = ds.isel({time_name: slice(None, None, temporal_stride)})
+        logger.info(
+            "Applied temporal stride=%d: %d timesteps retained",
+            temporal_stride,
+            ds.sizes[time_name],
+        )
 
-    time_name = _get_coord_name(datasets[0], ["valid_time", "time"])
-    combined = xr.concat(datasets, dim=time_name)
-    # Ensure monotonic time after concatenation
-    combined = combined.sortby(time_name)
-    return combined
+    return ds
 
 
 def _get_coord_name(ds: xr.Dataset, candidates: list[str]) -> str:
@@ -228,7 +251,7 @@ def _build_field_closure(
         Offset in hours to add to the ``t`` argument so that ``t=0`` maps to
         the departure time within the dataset.
     order : int
-        Interpolation order (1 = linear).
+        Interpolation order (1 = linear, 3 = cubic via B-spline prefilter).
     mode : str
         Boundary mode for ``map_coordinates``.
     add_time_variant_attr : bool
@@ -240,6 +263,17 @@ def _build_field_closure(
         ``(lon, lat, t) -> (a, b)`` closure.
     """
     dep_offset = jnp.float32(departure_offset_h)
+    use_cubic = order >= 3
+
+    # For cubic interpolation, prefilter once at load time so that
+    # the inner closure only needs JIT-compatible arithmetic.
+    if use_cubic:
+        coeffs_a, npad = prefilter_cubic(np.asarray(data_a))
+        coeffs_b, _ = prefilter_cubic(np.asarray(data_b))
+    else:
+        coeffs_a = data_a
+        coeffs_b = data_b
+        npad = 0
 
     def _field(
         lon: jnp.ndarray,
@@ -281,8 +315,16 @@ def _build_field_closure(
         coords = (x - begin) / spacing  # shape (N, 3)
 
         # Interpolate
-        a = jax.scipy.ndimage.map_coordinates(data_a, coords.T, order=order, mode=mode)
-        b = jax.scipy.ndimage.map_coordinates(data_b, coords.T, order=order, mode=mode)
+        if use_cubic:
+            a = map_coordinates_cubic(coeffs_a, coords.T, npad=npad)
+            b = map_coordinates_cubic(coeffs_b, coords.T, npad=npad)
+        else:
+            a = jax.scipy.ndimage.map_coordinates(
+                coeffs_a, coords.T, order=order, mode=mode
+            )
+            b = jax.scipy.ndimage.map_coordinates(
+                coeffs_b, coords.T, order=order, mode=mode
+            )
 
         # Reshape if needed
         if shape is not None:
@@ -307,6 +349,7 @@ def load_era5_windfield(
     order: int = 1,
     u_var: str | None = None,
     v_var: str | None = None,
+    temporal_stride: int = 1,
 ) -> Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
@@ -341,7 +384,7 @@ def load_era5_windfield(
     Callable
         ``(lon, lat, t) -> (u10, v10)`` with ``.is_time_variant = True``.
     """
-    ds = _load_datasets(path)
+    ds = _load_datasets(path, temporal_stride=temporal_stride)
 
     # Auto-detect variable names
     if u_var is None:
@@ -426,6 +469,7 @@ def load_era5_vectorfield(
     order: int = 1,
     u_var: str | None = None,
     v_var: str | None = None,
+    temporal_stride: int = 1,
 ) -> Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
@@ -448,6 +492,7 @@ def load_era5_vectorfield(
         order=order,
         u_var=u_var,
         v_var=v_var,
+        temporal_stride=temporal_stride,
     )
 
 
@@ -458,6 +503,7 @@ def load_era5_wavefield(
     order: int = 1,
     hs_var: str | None = None,
     dir_var: str | None = None,
+    temporal_stride: int = 1,
 ) -> Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
@@ -492,7 +538,7 @@ def load_era5_wavefield(
     Callable
         ``(lon, lat, t) -> (hs, mwd)``.
     """
-    ds = _load_datasets(path)
+    ds = _load_datasets(path, temporal_stride=temporal_stride)
 
     # Auto-detect variable names
     if hs_var is None:
@@ -689,6 +735,13 @@ def load_era5_land_mask(
         land._lats = jnp.array([])
         land._lons = jnp.array([])
 
+    # Precompute EDT for distance_penalty()
+    from scipy.ndimage import distance_transform_edt
+
+    binary_land = np.asarray(land._array > land.water_level)
+    edt = distance_transform_edt(~binary_land)
+    land._edt = jnp.asarray(edt, dtype=jnp.float32)
+
     n_land = int(np.sum(is_land_lonlat))
     n_total = int(np.prod(is_land_lonlat.shape))
     logger.info(
@@ -874,6 +927,13 @@ def load_natural_earth_land_mask(
     else:
         land._lats = jnp.array([])
         land._lons = jnp.array([])
+
+    # Precompute EDT for distance_penalty()
+    from scipy.ndimage import distance_transform_edt
+
+    binary_land = np.asarray(land._array > land.water_level)
+    edt = distance_transform_edt(~binary_land)
+    land._edt = jnp.asarray(edt, dtype=jnp.float32)
 
     n_land = int(np.sum(land_array > 0.5))
     n_total = n_lon * n_lat

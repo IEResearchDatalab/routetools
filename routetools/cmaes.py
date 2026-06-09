@@ -17,6 +17,7 @@ from routetools.cost import cost_function
 from routetools.land import Land
 from routetools.vectorfield import vectorfield_fourvortices
 from routetools.weather import weather_penalty as _weather_penalty
+from routetools.weather import weather_penalty_smooth as _weather_penalty_smooth
 
 
 @jit  # type: ignore[misc]
@@ -288,7 +289,11 @@ def _cma_evolution_strategy(
     ]
     | None = None,
     penalty: float = 1e10,
+    land_distance_weight: float = 0.0,
+    land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
+    weather_penalty_type: str = "hard",
+    weather_penalty_sharpness: float = 5.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -310,21 +315,25 @@ def _cma_evolution_strategy(
     cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     land_margin: int = 0,
     verbose: bool = True,
+    bounds: list[list[float]] | None = None,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
     curve: jnp.ndarray
     # Initialize the optimizer
+    inopts: dict[str, Any] = {
+        "popsize": popsize,
+        "tolfun": tolfun,
+        "maxfevals": maxfevals,
+        "seed": seed,
+        "CSA_dampfac": damping,  # v positive multiplier for step-size damping
+    }
+    if bounds is not None:
+        inopts["bounds"] = bounds
+    inopts |= kwargs
     es = cma.CMAEvolutionStrategy(
         x0,
         sigma0,
-        inopts={
-            "popsize": popsize,
-            "tolfun": tolfun,
-            "maxfevals": maxfevals,
-            "seed": seed,
-            "CSA_dampfac": damping,  # v positive multiplier for step-size damping
-        }
-        | kwargs,
+        inopts=inopts,
     )
     # Check if the land penalization is consistent
     if land is not None:
@@ -379,18 +388,33 @@ def _cma_evolution_strategy(
             # toward fewer land points.
             cost = jnp.where(has_land, penalty + land_count, cost)
 
+        # Smooth distance-to-land penalty via EDT
+        if land is not None and land_distance_weight > 0:
+            cost += land.distance_penalty(
+                curve, weight=land_distance_weight, epsilon=land_distance_epsilon
+            )
+
         # Weather constraint penalization
         if weather_penalty_weight > 0 and (
             windfield is not None or wavefield is not None
         ):
-            cost += _weather_penalty(
-                curve,
+            _wp_fn = (
+                _weather_penalty_smooth
+                if weather_penalty_type == "smooth"
+                else _weather_penalty
+            )
+            _wp_kwargs: dict[str, Any] = dict(
                 windfield=windfield,
                 wavefield=wavefield,
                 tws_limit=tws_limit,
                 hs_limit=hs_limit,
                 penalty=weather_penalty_weight,
+                travel_time=travel_time,
+                time_offset=time_offset,
             )
+            if weather_penalty_type == "smooth":
+                _wp_kwargs["sharpness"] = weather_penalty_sharpness
+            cost += _wp_fn(curve, **_wp_kwargs)
 
         # Replace the worst solutions with the best found so far
         if keep_top > 0 and es.countiter > 1:
@@ -435,7 +459,11 @@ def optimize(
     ]
     | None = None,
     penalty: float = 1e10,
+    land_distance_weight: float = 0.0,
+    land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
+    weather_penalty_type: str = "hard",
+    weather_penalty_sharpness: float = 5.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -458,6 +486,7 @@ def optimize(
     cost_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
     land_margin: int = 0,
     verbose: bool = True,
+    bounds: list[list[float]] | None = None,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
     Solve the vessel routing problem for a given vector field.
@@ -488,9 +517,17 @@ def optimize(
     penalty : float, optional
         Large penalty applied to routes that intersect land (death-penalty
         scheme), by default 1e10
+    land_distance_weight : float, optional
+        Weight for the smooth distance-to-land penalty via EDT.
+        Set to 0 (default) to disable.
+    land_distance_epsilon : float, optional
+        Regularisation constant for the EDT penalty (default 1.0).
     weather_penalty_weight : float, optional
         Penalty weight for weather constraint violations (TWS, Hs).
         Set to 0 (default) to disable weather penalties.
+    weather_penalty_type : str, optional
+        ``"hard"`` (step function, default) or ``"smooth"`` (squared-ReLU
+        ramp from :func:`weather_penalty_smooth`).
     tws_limit : float, optional
         Maximum allowed true wind speed in m/s, by default 20.0
     hs_limit : float, optional
@@ -529,6 +566,10 @@ def optimize(
         Random seed for reproducibility. By default jnp.nan
     verbose : bool, optional
         By default True
+    bounds : list[list[float]] | None, optional
+        Per-dimension ``[lower, upper]`` bounds for CMA-ES control-point
+        parameters.  Each list has length ``2*(K-2)``.  ``None`` disables
+        bounds (default).
 
     Returns
     -------
@@ -594,7 +635,11 @@ def optimize(
         wavefield=wavefield,
         windfield=windfield,
         penalty=penalty,
+        land_distance_weight=land_distance_weight,
+        land_distance_epsilon=land_distance_epsilon,
         weather_penalty_weight=weather_penalty_weight,
+        weather_penalty_type=weather_penalty_type,
+        weather_penalty_sharpness=weather_penalty_sharpness,
         tws_limit=tws_limit,
         hs_limit=hs_limit,
         travel_stw=travel_stw,
@@ -616,6 +661,7 @@ def optimize(
         cost_fn=cost_fn,
         land_margin=land_margin,
         verbose=verbose,
+        bounds=bounds,
     )
     time_end = time.time()
     if verbose:
@@ -660,14 +706,23 @@ def optimize(
         if weather_penalty_weight > 0 and (
             windfield is not None or wavefield is not None
         ):
-            cost_initial += _weather_penalty(
-                curve0[jnp.newaxis, :, :],
+            _wp_fn_c0 = (
+                _weather_penalty_smooth
+                if weather_penalty_type == "smooth"
+                else _weather_penalty
+            )
+            _wp_kwargs_c0: dict[str, Any] = dict(
                 windfield=windfield,
                 wavefield=wavefield,
                 tws_limit=tws_limit,
                 hs_limit=hs_limit,
                 penalty=weather_penalty_weight,
-            ).item()
+                travel_time=travel_time,
+                time_offset=time_offset,
+            )
+            if weather_penalty_type == "smooth":
+                _wp_kwargs_c0["sharpness"] = weather_penalty_sharpness
+            cost_initial += _wp_fn_c0(curve0[jnp.newaxis, :, :], **_wp_kwargs_c0).item()
         if cost_initial < cost_best:
             warnings.warn(
                 "[WARNING] The optimized curve has a higher cost "
@@ -706,7 +761,11 @@ def optimize_with_increasing_penalization(
     penalty_init: float = 0,
     penalty_increment: float = 10,
     maxiter: int = 10,
+    land_distance_weight: float = 0.0,
+    land_distance_epsilon: float = 1.0,
     weather_penalty_weight: float = 0.0,
+    weather_penalty_type: str = "hard",
+    weather_penalty_sharpness: float = 5.0,
     tws_limit: float = 20.0,
     hs_limit: float = 7.0,
     travel_stw: float | None = None,
@@ -761,6 +820,8 @@ def optimize_with_increasing_penalization(
     weather_penalty_weight : float, optional
         Penalty weight for weather constraint violations (TWS, Hs).
         Set to 0 (default) to disable weather penalties.
+    weather_penalty_type : str, optional
+        ``"hard"`` (step function, default) or ``"smooth"`` (squared-ReLU).
     tws_limit : float, optional
         Maximum allowed true wind speed in m/s, by default 20.0
     hs_limit : float, optional
@@ -823,7 +884,11 @@ def optimize_with_increasing_penalization(
             wavefield=wavefield,
             windfield=windfield,
             penalty=penalty,
+            land_distance_weight=land_distance_weight,
+            land_distance_epsilon=land_distance_epsilon,
             weather_penalty_weight=weather_penalty_weight,
+            weather_penalty_type=weather_penalty_type,
+            weather_penalty_sharpness=weather_penalty_sharpness,
             tws_limit=tws_limit,
             hs_limit=hs_limit,
             travel_stw=travel_stw,
