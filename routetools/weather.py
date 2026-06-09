@@ -139,6 +139,9 @@ def _segment_midpoints(
         # Fallback: no time information → time_offset only
         return mid_lon, mid_lat, jnp.full_like(mid_lon, time_offset)
 
+    if curve.shape[1] < 2:
+        return mid_lon, mid_lat, jnp.zeros_like(mid_lon)
+
     # Compute segment distances
     if spherical_correction:
         dx, dy = haversine_meters_components(
@@ -217,7 +220,8 @@ def evaluate_weather(
     travel_stw : float, optional
         Constant speed through water (m/s) for elapsed-time estimation.
     travel_time : float, optional
-        Total travel time (seconds); distributed proportionally by distance.
+        Total travel time in the same units expected by the field closures.
+        Each segment is assumed to occupy ``travel_time / (L - 1)``.
     spherical_correction : bool
         Use haversine distances (default ``True``).
 
@@ -294,43 +298,49 @@ def weather_penalty(
 ) -> jnp.ndarray:
     """Compute a hard penalty for weather constraint violations.
 
-    For each route in the batch, counts the number of **segments** where
-    TWS or Hs exceeds the threshold, multiplied by ``penalty``.  This is
-    analogous to ``Land.penalization``.
+        For each route in the batch, counts the number of **segments** where
+        TWS or Hs exceeds the threshold, multiplied by ``penalty``.  This is
+        analogous to ``Land.penalization``.
 
     Parameters
     ----------
-    curve : jnp.ndarray
-        Batch of trajectories, shape ``(B, L, 2)``.
-    windfield : Callable, optional
-        ``(lon, lat, t) -> (u10, v10)``.
-    wavefield : Callable, optional
-        ``(lon, lat, t) -> (hs, mwd)``.
-    tws_limit : float
-        TWS threshold in m/s (default 20).
-    hs_limit : float
-        Hs threshold in m (default 7).
-    penalty : float
-        Penalty per violating segment (default 10).
-    travel_stw : float, optional
-        Constant speed through water (m/s) for elapsed-time estimation.
-    travel_time : float, optional
-        Total travel time with arbitrary time units; distributed
-        proportionally by distance. Units must match those used by
-        ``time_offset`` and the time coordinate expected by the field
-        closures.
-    spherical_correction : bool
-        Use haversine distances (default ``True``).
-    time_offset : float
-        Offset added to ``t_mid`` before querying field closures.  Must
-        be in the same units as ``travel_time`` (or seconds when using
-        ``travel_stw``).  Typically the departure offset in hours when
-        ``travel_time`` is also in hours.
+        curve : jnp.ndarray
+            Batch of trajectories, shape ``(B, L, 2)``.
+        windfield : Callable, optional
+            ``(lon, lat, t) -> (u10, v10)``.
+        wavefield : Callable, optional
+            ``(lon, lat, t) -> (hs, mwd)``.
+        tws_limit : float
+            TWS threshold in m/s (default 20).
+        hs_limit : float
+            Hs threshold in m (default 7).
+        penalty : float
+            Penalty per violating segment (default 10).
+        travel_stw : float, optional
+            Constant speed through water (m/s) for elapsed-time estimation.
+        travel_time : float, optional
+    <<<<<<< HEAD
+            Total travel time with arbitrary time units; distributed
+            proportionally by distance. Units must match those used by
+            ``time_offset`` and the time coordinate expected by the field
+            closures.
+    =======
+            Total travel time with arbitrary time units. Each segment is assumed
+            to occupy ``travel_time / (L - 1)``. Units must match those used by
+            ``time_offset`` and the time coordinate expected by the field closures.
+    >>>>>>> swopp
+        spherical_correction : bool
+            Use haversine distances (default ``True``).
+        time_offset : float
+            Offset added to ``t_mid`` before querying field closures.  Must
+            be in the same units as ``travel_time`` (or seconds when using
+            ``travel_stw``).  Typically the departure offset in hours when
+            ``travel_time`` is also in hours.
 
     Returns
     -------
-    jnp.ndarray
-        Penalty per route, shape ``(B,)``.
+        jnp.ndarray
+            Penalty per route, shape ``(B,)``.
     """
     mid_lon, mid_lat, t_mid = _segment_midpoints(
         curve,

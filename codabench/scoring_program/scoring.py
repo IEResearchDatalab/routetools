@@ -701,12 +701,10 @@ def _interp_era5(
     i0_lat = np.clip(np.floor(fi_lat).astype(int), 0, len(lat) - 2)
     i0_lon = np.clip(np.floor(fi_lon).astype(int), 0, len(lon) - 2)
 
-    # Fractional parts
     wt = (fi_t - i0_t).astype(np.float32)
     wlat = (fi_lat - i0_lat).astype(np.float32)
     wlon = (fi_lon - i0_lon).astype(np.float32)
 
-    # Trilinear interpolation (8 corners)
     result = np.zeros(len(query_lat), dtype=np.float32)
     for dt_off in (0, 1):
         for dlat_off in (0, 1):
@@ -989,13 +987,11 @@ def try_load_era5_scorer(ref_dir: Path):
         seg_dt_h = ((wp_times[1:] - wp_times[:-1]) / np.timedelta64(1, "h")).astype(
             np.float64
         )
-        # Guard against zero-length segments
         seg_dt_h = np.maximum(seg_dt_h, 1e-6)
 
         # Normalize lons to match ERA5 grid convention [0, 360)
         grid_lon = wind_grid["lon"]
         if grid_lon[0] >= 0 and grid_lon[-1] > 180:
-            # Grid is in [0, 360) — shift negative lons
             lons = np.where(lons < 0, lons + 360, lons)
 
         # ── Trapezoidal rule: evaluate weather at ALL waypoints ──

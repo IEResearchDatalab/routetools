@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-r"""USAGE EXAMPLES FOR swopp3_apply_fms_to_scored_submissions.py
+r"""USAGE EXAMPLES FOR swopp3_apply_fms_to_scored_submissions.py.
 
 This script applies FMS (Finite-difference route refinement) post-processing to
 scored SWOPP3 submission archives and generates before/after energy comparisons.
@@ -148,7 +148,8 @@ PRACTICAL EXAMPLE
   - FMS-refined variants (mc_boatface_fms, ohy123_fms, etc.)
 
 3. View FMS-specific summary:
-  cat output/swopp3_submissions_score/mc\\ boatface_fms/fms_comparison_summary.json | jq .
+  cat output/swopp3_submissions_score/mc\\ boatface_fms/
+      fms_comparison_summary.json | jq .
 
 4. Calculate energy improvements by case:
   python -c "

@@ -1,3 +1,26 @@
+"""CMA-ES route optimization utilities.
+
+This module parameterizes vessel routes as Bezier curves and optimizes their
+free control points with `pycma`. The main `optimize` entry point converts an
+initial straight line or seed curve into control-point space, evaluates each
+population as full routes, applies optional land and weather penalties, and
+returns the best route in waypoint form together with summary metadata.
+
+The default path minimizes `routetools.cost.cost_function`, but callers may
+inject a custom batched `cost_fn` to align CMA-ES with another objective, such
+as SWOPP3's RISE energy model. Land intersection penalties, distance-to-land
+repulsion, and weather penalties are layered outside the custom objective so
+the population loop can be reused across synthetic and real-weather scenarios.
+
+New in this workflow is the optional `snapshot_callback` hook exposed on both
+`_cma_evolution_strategy` and `optimize`. When provided, it receives one
+dictionary per CMA-ES iteration containing the whole candidate population,
+their costs, the generation-best route, and the global-best route so far. This
+is intended for controlled visualizations and diagnostics, including the
+single-departure SWOPP3 GIF script, without changing the optimizer's default
+behavior or return type.
+"""
+
 import time
 import warnings
 from collections.abc import Callable
@@ -20,6 +43,9 @@ from routetools.weather import wave_penalty_smooth as _wave_penalty_smooth
 from routetools.weather import weather_penalty as _weather_penalty
 from routetools.weather import weather_penalty_smooth as _weather_penalty_smooth
 from routetools.weather import wind_penalty_smooth as _wind_penalty_smooth
+
+type CmaesSnapshot = dict[str, Any]
+type CmaesSnapshotCallback = Callable[[CmaesSnapshot], None]
 
 
 @jit  # type: ignore[misc]
@@ -322,6 +348,7 @@ def _cma_evolution_strategy(
     dt_eval_minutes: float = 0.0,
     verbose: bool = True,
     bounds: list[list[float]] | None = None,
+    snapshot_callback: CmaesSnapshotCallback | None = None,
     **kwargs: dict[str, Any],
 ) -> cma.CMAEvolutionStrategy:
     curve: jnp.ndarray
@@ -484,9 +511,35 @@ def _cma_evolution_strategy(
                     cost = cost.at[idx_worst[i]].set(top_costs[i])
                     curve = curve.at[idx_worst[i], ...].set(top_curves[i, ...])
 
+        generation_best_index = int(jnp.argmin(cost))
+        generation_best_curve = curve[generation_best_index]
+        generation_best_cost = float(cost[generation_best_index])
+
         es.tell(X, cost.tolist())  # update the optimizer
         if verbose:
             es.disp()
+
+        if snapshot_callback is not None:
+            best_curve = control_to_curve(
+                jnp.asarray(es.best.x),
+                src,
+                dst,
+                L=L,
+                num_pieces=num_pieces,
+                force_L_multiple_of_num_pieces=force_L_multiple_of_num_pieces,
+            )
+            snapshot_callback(
+                {
+                    "iteration": es.countiter,
+                    "population_curves": curve,
+                    "population_costs": cost,
+                    "generation_best_index": generation_best_index,
+                    "generation_best_curve": generation_best_curve,
+                    "generation_best_cost": generation_best_cost,
+                    "best_curve": best_curve,
+                    "best_cost": float(es.best.f),
+                }
+            )
 
         # Save the top solutions (use cost as fitness)
         if keep_top > 0:
@@ -546,6 +599,7 @@ def optimize(
     dt_eval_minutes: float = 0.0,
     verbose: bool = True,
     bounds: list[list[float]] | None = None,
+    snapshot_callback: CmaesSnapshotCallback | None = None,
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """
     Solve the vessel routing problem for a given vector field.
@@ -644,6 +698,10 @@ def optimize(
         Per-dimension ``[lower, upper]`` bounds for CMA-ES control-point
         parameters.  Each list has length ``2*(K-2)``.  ``None`` disables
         bounds (default).
+    snapshot_callback : callable, optional
+        Called after every CMA-ES iteration with the current population,
+        per-candidate costs, the generation-best route, and the global-best
+        route so far. Default is ``None``.
 
     Returns
     -------
@@ -740,6 +798,7 @@ def optimize(
         dt_eval_minutes=dt_eval_minutes,
         verbose=verbose,
         bounds=bounds,
+        snapshot_callback=snapshot_callback,
     )
     time_end = time.time()
     if verbose:

@@ -16,19 +16,30 @@ missing and why they are required.
 Run all 8 cases with explicit per-corridor paths:
 
     uv run scripts/swopp3_run.py \
-        --wind-path-atlantic data/era5/era5_wind_atlantic_2024.nc \
-        --wave-path-atlantic data/era5/era5_waves_atlantic_2024.nc \
-        --wind-path-pacific  data/era5/era5_wind_pacific_2024.nc  \
-        --wave-path-pacific  data/era5/era5_waves_pacific_2024.nc  \
-        --output-dir output/swopp3
+        --wind-path-atlantic "data/era5/era5_wind_atlantic_2024.nc" \
+        --wave-path-atlantic "data/era5/era5_waves_atlantic_2024.nc" \
+        --wind-path-pacific  "data/era5/era5_wind_pacific_2024.nc" \
+        --wave-path-pacific  "data/era5/era5_waves_pacific_2024.nc" \
+        --output-dir "output" \
+        --n-points 500  --verbosity 2
 
 Run only Atlantic cases after downloading Atlantic data:
 
-    uv run scripts/swopp3_run.py \
-        --cases AGC_WPS AGC_noWPS \
-        --wind-path data/era5/era5_wind_atlantic_2024.nc \
-        --wave-path data/era5/era5_waves_atlantic_2024.nc \
-        --output-dir output/swopp3
+    uv run python scripts/swopp3_run.py \
+    --cases AO_WPS --cases AO_noWPS --cases AGC_WPS --cases AGC_noWPS \
+    --wind-path-atlantic "data/era5/era5_wind_atlantic_2024.nc" \
+    --wave-path-atlantic "data/era5/era5_waves_atlantic_2024.nc" \
+    --output-dir "output" \
+    --n-points 355  --verbosity 2
+
+Run only Pacific cases after downloading Pacific data:
+
+    uv run python scripts/swopp3_run.py \
+    --cases PO_WPS --cases PO_noWPS --cases PGC_WPS --cases PGC_noWPS \
+    --wind-path-pacific "data/era5/era5_wind_pacific_2024.nc" \
+    --wave-path-pacific "data/era5/era5_waves_pacific_2024.nc" \
+    --output-dir "output" \
+    --n-points 584 --verbosity 2
 
 Run only the first 3 departures (quick test):
 
@@ -68,6 +79,13 @@ _CONFIG_PATH_KEYS = {
     "wind_path_pacific",
     "wave_path_pacific",
 }
+
+
+def _resolve_cli_verbosity(verbosity: int) -> int:
+    """Validate the CLI verbosity value."""
+    if verbosity not in (0, 1, 2):
+        raise ValueError("verbosity must be one of 0, 1, or 2")
+    return verbosity
 
 
 def _selected_corridors(case_ids: list[str]) -> list[str]:
@@ -772,11 +790,28 @@ def main(
         "--cmaes-verbose",
         help="Print per-generation CMA-ES diagnostics.",
     ),
+    verbosity: int = typer.Option(  # noqa: B008
+        1,
+        "--verbosity",
+        min=0,
+        max=2,
+        help="Output level: 0=silent, 1=progress, 2=progress + CMA-ES details.",
+    ),
     quiet: bool = typer.Option(  # noqa: B008
         False,
         "--quiet",
         "-q",
-        help="Suppress progress output.",
+        help="Suppress routine progress output.",
+    ),
+    log_memory: bool = typer.Option(  # noqa: B008
+        False,
+        "--log-memory",
+        help="Print current process RSS after each completed departure.",
+    ),
+    resume: bool = typer.Option(  # noqa: B008
+        False,
+        "--resume",
+        help="Resume a case from existing valid File A/File B outputs.",
     ),
     control_points: int | None = typer.Option(  # noqa: B008
         None,
@@ -825,6 +860,15 @@ def main(
     from routetools.swopp3 import SWOPP3_CASES, departures_2024
     from routetools.swopp3_runner import run_case
 
+    try:
+        resolved_verbosity = _resolve_cli_verbosity(verbosity)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if quiet:
+        resolved_verbosity = 0
+    show_progress = resolved_verbosity >= 1
+
     # ---- Select cases ----
     if cases is not None:
         case_ids = cases
@@ -848,7 +892,8 @@ def main(
     if max_departures is not None:
         departures = departures[:max_departures]
 
-    typer.echo(f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)")
+    if show_progress:
+        typer.echo(f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)")
 
     # ---- Build per-corridor field map ----
     corridor_wind: dict[str, Path] = {}
@@ -1094,8 +1139,10 @@ def main(
                 output_dir=output_dir,
                 submission=submission,
                 n_points=n_points,
-                verbose=not quiet,
+                verbose=None,
                 dataset_epoch=dataset_epoch,
+                verbosity=resolved_verbosity,
+                log_memory=log_memory,
                 **cmaes_extra,
             )
     except (FileNotFoundError, KeyError, ValueError) as exc:

@@ -6,6 +6,9 @@ import os
 import shutil
 import signal
 import socket
+
+# This is only needed for the pytests to pass
+import sys
 import tempfile
 import time
 import uuid
@@ -13,31 +16,27 @@ from shutil import make_archive
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
-from zipfile import ZipFile, BadZipFile
-import docker
-from rich.progress import Progress
-from rich.pretty import pprint
-import requests
+from zipfile import BadZipFile, ZipFile
 
+import docker
+import requests
 import websockets
 import yaml
 from billiard.exceptions import SoftTimeLimitExceeded
 from celery import Celery, shared_task, utils
-from kombu import Queue, Exchange
+from kombu import Exchange, Queue
+from rich.pretty import pprint
+from rich.progress import Progress
 from urllib3 import Retry
-
-# This is only needed for the pytests to pass
-import sys
 
 sys.path.append("/app/src/settings/")
 
-from celery import signals
 import logging
 
-logger = logging.getLogger(__name__)
-from logs_loguru import configure_logging, colorize_run_args
-import json
+from celery import signals
 
+logger = logging.getLogger(__name__)
+from logs_loguru import colorize_run_args, configure_logging
 
 # -----------------------------------------------
 # Logging
@@ -53,7 +52,7 @@ if os.environ.get("USE_GPU", "false").lower() == "true":
     logger.info(
         "Using "
         + os.environ.get("CONTAINER_ENGINE_EXECUTABLE", "docker").upper()
-        + "with GPU capabilites : "
+        + "with GPU capabilities : "
         + os.environ.get("GPU_DEVICE", "nvidia.com/gpu=all")
     )
 else:
@@ -107,7 +106,7 @@ def show_progress(line, progress):
             return
 
         task_id = line["id"]
-        if task_id not in tasks.keys():
+        if task_id not in tasks:
             if completed:
                 # some layers are really small that they download immediately without showing
                 # anything as Downloading in the stream.
@@ -214,7 +213,9 @@ class ExecutionTimeLimitExceeded(Exception):
 # -----------------------------------------------------------------------------
 @shared_task(name="compute_worker_run")
 def run_wrapper(run_args):
-    logger.info(f"Received run arguments: \n {colorize_run_args(json.dumps(run_args, default=str))}")
+    logger.info(
+        f"Received run arguments: \n {colorize_run_args(json.dumps(run_args, default=str))}"
+    )
     run = Run(run_args)
 
     try:
@@ -387,7 +388,8 @@ class Run:
 
     async def watch_detailed_results(self):
         """Watches files alongside scoring + program containers, currently only used
-        for detailed_results.html"""
+        for detailed_results.html
+        """
         if not self.detailed_results_url:
             return
         file_path = self.get_detailed_results_file_path()
@@ -449,7 +451,9 @@ class Run:
                 )
             )
         except Exception as e:
-            logger.error("This error might result in a Execution Time Exceeded error" + e)
+            logger.error(
+                "This error might result in a Execution Time Exceeded error" + e
+            )
             if os.environ.get("LOG_LEVEL", "info").lower() == "debug":
                 logger.exception(e)
 
@@ -506,7 +510,7 @@ class Run:
         self._update_submission(data)
 
     def _get_container_image(self, image_name):
-        logger.info("Running pull for image: {}".format(image_name))
+        logger.info(f"Running pull for image: {image_name}")
         retries, max_retries = (0, 3)
         while retries < max_retries:
             try:
@@ -534,7 +538,7 @@ class Run:
                     asyncio.run(self._send_data_through_socket(str(pull_error)))
                     raise DockerImagePullException(
                         f"Pull for {image_name} failed! Check the logs for more information"
-                    )
+                    ) from pull_error
                 else:
                     logger.warning("Failed. Retrying in 5 seconds...")
                     time.sleep(5)  # Wait 5 seconds before retrying
@@ -591,7 +595,8 @@ class Run:
         against existence in CACHE_DIR/<hashed_url> and only downloaded if needed. Cache size is checked
         during the prepare step and cleared if it's over MAX_CACHE_DIR_SIZE_GB.
 
-        :returns zip file path"""
+        :returns zip file path
+        """
         logger.info(f"Getting bundle {url} to unpack @ {destination}")
         download_needed = True
 
@@ -616,10 +621,10 @@ class Run:
                 try:
                     # Download the bundle
                     urlretrieve(url, bundle_file)
-                except HTTPError:
+                except HTTPError as err:
                     raise SubmissionException(
                         f"Problem fetching {url} to put in {destination}"
-                    )
+                    ) from err
             try:
                 # Extract the contents to destination directory
                 with ZipFile(bundle_file, "r") as z:
@@ -643,7 +648,6 @@ class Run:
         :param kind: either 'ingestion' or 'program'
         :return:
         """
-
         # Creating this and setting 2 values to None in case there is not enough time for the worker to get logs, otherwise we will have errors later on
         logs_Unified = [None, None]
 
@@ -719,14 +723,14 @@ class Run:
         except Exception as e:
             logger.error(
                 "There was an error while starting the container and getting the logs"
-                + e
+                f"{e}"
             )
             if os.environ.get("LOG_LEVEL", "info").lower() == "debug":
                 logger.exception(e)
 
         # Get the return code of the competition container once done
         try:
-            # Gets the logs of the container, sperating stdout and stderr (first and second position) thanks for demux=True
+            # Gets container logs, separating stdout and stderr (demux=True).
             logs_Unified = client.attach(container, logs=True, demux=True)
             return_Code = client.wait(container)
             logger.debug(
@@ -777,7 +781,8 @@ class Run:
         """Turns an absolute path inside our container, into what the path
         would be on the host machine. We also ensure that the directory exists,
         docker will create if necessary, but other container engines such as
-        podman may not."""
+        podman may not.
+        """
         # Take our list of paths and smash 'em together
         path = os.path.join(*paths)
 
@@ -829,7 +834,7 @@ class Run:
                 )
 
         logger.info(f"Metadata path is {os.path.join(program_dir, metadata_path)}")
-        with open(os.path.join(program_dir, metadata_path), "r") as metadata_file:
+        with open(os.path.join(program_dir, metadata_path)) as metadata_file:
             try:  # try to find a command in the metadata, in other cases set metadata to None
                 metadata = yaml.load(metadata_file.read(), Loader=yaml.FullLoader)
                 logger.info(f"Metadata contains:\n {metadata}")
@@ -1145,29 +1150,29 @@ class Run:
                 "is_scoring": self.is_scoring,
             }
             # Some cleanup
-            for kind, logs in self.logs.items():
-                containers_to_kill = []
-                containers_to_kill.append(self.ingestion_container_name)
-                containers_to_kill.append(self.program_container_name)
-                logger.debug(
-                    "Trying to kill and remove container " + str(containers_to_kill)
-                )
-                for container in containers_to_kill:
-                    try:
-                        client.remove_container(str(container), force=True)
-                    except docker.errors.APIError as e:
-                        logger.error(e)
-                    except Exception as e:
-                        logger.error(
-                            "There was a problem killing " + str(containers_to_kill) + e
-                        )
-                        if os.environ.get("LOG_LEVEL", "info").lower() == "debug":
-                            logger.exception(e)
+            containers_to_kill = [
+                self.ingestion_container_name,
+                self.program_container_name,
+            ]
+            logger.debug(
+                "Trying to kill and remove container " + str(containers_to_kill)
+            )
+            for container in containers_to_kill:
+                try:
+                    client.remove_container(str(container), force=True)
+                except docker.errors.APIError as err:
+                    logger.error(err)
+                except Exception as err:
+                    logger.error(
+                        "There was a problem killing " + str(containers_to_kill)
+                    )
+                    if os.environ.get("LOG_LEVEL", "info").lower() == "debug":
+                        logger.exception(err)
             # Send data to be written to ingestion/scoring std_err
             self._update_submission(execution_time_limit_exceeded_data)
             # Send error through web socket to the frontend
             asyncio.run(self._send_data_through_socket(error_message))
-            raise SubmissionException(error_message)
+            raise SubmissionException(error_message) from None
         finally:
             self.watch = False
             for kind, logs in self.logs.items():
@@ -1217,7 +1222,7 @@ class Run:
             self._update_status(STATUS_SCORING)
 
     def push_scores(self):
-        """This is only ran at the end of the scoring step"""
+        """Push scores produced by the scoring step."""
         # POST to some endpoint:
         # {
         #     "correct": 1.0
@@ -1227,10 +1232,11 @@ class Run:
             with open(scores_file) as f:
                 try:
                     scores = json.load(f)
-                except json.decoder.JSONDecodeError as e:
+                except json.decoder.JSONDecodeError as err:
                     raise SubmissionException(
-                        f"Could not decode scores json properly, it contains an error.\n{e.msg}"
-                    )
+                        "Could not decode scores json properly; "
+                        f"it contains an error.\n{err.msg}"
+                    ) from err
 
         elif os.path.exists(os.path.join(self.output_dir, "scores.txt")):
             scores_file = os.path.join(self.output_dir, "scores.txt")
@@ -1258,7 +1264,7 @@ class Run:
         # V1.5 compatibility, write program statuses to metadata file
         prog_status = {
             "exitCode": self.program_exit_code,
-            # for v1.5 compat, send `ingestion_elapsed_time` if no `program_elapsed_time`
+            # For v1.5 compatibility, fallback to ingestion elapsed time.
             "elapsedTime": self.program_elapsed_time or self.ingestion_elapsed_time,
             "ingestionExitCode": self.ingestion_program_exit_code,
             "ingestionElapsedTime": self.ingestion_elapsed_time,
@@ -1270,7 +1276,8 @@ class Run:
 
         if os.path.exists(metadata_path):
             raise SubmissionException(
-                "Error, the output directory already contains a metadata file. This file is used "
+                "Error, the output directory already contains a metadata file. "
+                "This file is used "
                 "to store exitCode and other data, do not write to this file manually."
             )
 
@@ -1283,9 +1290,11 @@ class Run:
             self._put_dir(self.scoring_result, self.output_dir)
 
     def clean_up(self):
+        """Remove the temporary submission directory unless cleanup is disabled."""
         if os.environ.get("CODALAB_IGNORE_CLEANUP_STEP"):
             logger.warning(
-                f"CODALAB_IGNORE_CLEANUP_STEP mode enabled, ignoring clean up of: {self.root_dir}"
+                "CODALAB_IGNORE_CLEANUP_STEP mode enabled, "
+                f"ignoring clean up of: {self.root_dir}"
             )
             return
 
