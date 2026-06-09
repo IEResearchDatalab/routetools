@@ -20,6 +20,7 @@ interpolation via ``jax.scipy.ndimage.map_coordinates`` works correctly.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from math import ceil
@@ -37,6 +38,10 @@ if TYPE_CHECKING:
     from routetools.land import Land
 
 logger = logging.getLogger(__name__)
+
+_ERA5_FILE_RE = re.compile(
+    r"^(?P<prefix>era5_[^_]+_[^_]+_)(?P<year>\d{4})(?:_(?P<suffix>\d{2}(?:-\d{2})?))?\.nc$"
+)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -74,6 +79,22 @@ def _load_dataset(path: str | Path) -> xr.Dataset:
         f"Failed to open ERA5 data file {path!s} with engines "
         "('scipy', 'netcdf4', None)"
     ) from last_exc
+
+
+def loadable_era5_paths(path: Path) -> list[Path]:
+    """Return the base ERA5 file plus any next-year continuation files."""
+    match = _ERA5_FILE_RE.match(path.name)
+    if match is None:
+        return [path]
+
+    prefix = match.group("prefix")
+    next_year = int(match.group("year")) + 1
+    exact_next_year = path.with_name(f"{prefix}{next_year}.nc")
+    if exact_next_year.exists():
+        return [path, exact_next_year]
+
+    continuation_paths = sorted(path.parent.glob(f"{prefix}{next_year}_*.nc"))
+    return [path, *continuation_paths]
 
 
 def _normalize_time_coord(ds: xr.Dataset) -> xr.Dataset:
