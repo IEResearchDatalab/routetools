@@ -83,3 +83,44 @@ def test_cost_function_rise_returns_energy_in_mwh(monkeypatch):
     )
 
     assert jnp.allclose(energy_mwh, jnp.array([5.0]), atol=1e-6)
+
+
+def test_evaluate_route_energy_uses_per_segment_speed(monkeypatch):
+    """Verify evaluate_route_energy passes per-segment speed, not average."""
+    recorded_speeds: list[np.ndarray] = []
+
+    def _record_speed(
+        tws,
+        twa,
+        hs,
+        mwa,
+        v_mps,
+        wps=False,
+    ):
+        recorded_speeds.append(np.array(v_mps).copy())
+        return np.full_like(tws, 100.0)
+
+    monkeypatch.setattr(cost_module, "predict_power_batch", _record_speed)
+
+    # Build a curve with unequal segment lengths:
+    # segment 0 spans 2 degrees, segment 1 spans 1 degree.
+    curve = jnp.array(
+        [
+            [0.0, 0.0],
+            [2.0, 0.0],
+            [3.0, 0.0],
+        ]
+    )
+
+    cost_module.evaluate_route_energy(
+        curve,
+        passage_hours=10.0,
+        wps=False,
+    )
+
+    assert len(recorded_speeds) == 1
+    v = recorded_speeds[0]
+    # Segment 0 is ~twice as long as segment 1 → speed must differ.
+    assert v.shape == (2,)
+    assert v[0] != v[1], f"Expected different per-segment speeds, got {v}"
+    assert v[0] > v[1], f"Segment 0 is longer, speed should be higher: {v}"

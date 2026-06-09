@@ -3,7 +3,7 @@
 import importlib.util
 import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import ModuleType
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -35,10 +35,6 @@ def _load_swopp3_analysis_module():
     sys.modules.setdefault("cartopy", cartopy)
     sys.modules.setdefault("cartopy.crs", cartopy_crs)
     sys.modules.setdefault("cartopy.feature", cartopy_feature)
-    sys.modules.setdefault(
-        "routetools.violations",
-        SimpleNamespace(find_team_prefix=lambda *_args, **_kwargs: "IEUniversity-1"),
-    )
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

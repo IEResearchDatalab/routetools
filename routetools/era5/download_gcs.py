@@ -110,7 +110,7 @@ def _select_corridor(
     corridor: str,
     year: str = "2024",
     months: list[int] | None = None,
-    time_step: int = 6,
+    time_step: int = 1,
 ) -> xr.Dataset:
     """Subset dataset to a corridor, year, and temporal step.
 

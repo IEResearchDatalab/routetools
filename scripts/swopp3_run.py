@@ -570,11 +570,6 @@ def main(
         "-n",
         help="Limit number of departures (for quick testing).",
     ),
-    weather_penalty_weight: float = typer.Option(  # noqa: B008
-        0.0,
-        "--weather-penalty-weight",
-        help="Hard weather penalty weight (step function). 0 to disable.",
-    ),
     wind_penalty_weight: float = typer.Option(  # noqa: B008
         0.0,
         "--wind-penalty-weight",
@@ -631,6 +626,34 @@ def main(
         "-q",
         help="Suppress progress output.",
     ),
+    control_points: int | None = typer.Option(  # noqa: B008
+        None,
+        "--control-points",
+        "-K",
+        help="Number of Bézier control points (K). Overrides runner default (10).",
+    ),
+    weather_penalty_type: str | None = typer.Option(  # noqa: B008
+        None,
+        "--weather-penalty-type",
+        help="Weather penalty: 'smooth' (squared-ReLU, default) or 'hard' (step).",
+    ),
+    weather_penalty_weight: float | None = typer.Option(  # noqa: B008
+        None,
+        "--weather-penalty-weight",
+        help=(
+            "Weather constraint penalty weight.  "
+            "Default (100) penalises TWS > 20 m/s and Hs > 7 m.  "
+            "Set to 0 to disable operational constraints entirely."
+        ),
+    ),
+    temporal_stride: int = typer.Option(  # noqa: B008
+        1,
+        "--temporal-stride",
+        help=(
+            "Keep every N-th ERA5 timestep (1 = all, 3 = every 3rd).  "
+            "Reduces GPU memory for hourly data."
+        ),
+    ),
 ) -> None:
     """Run SWOPP3 competition cases.
 
@@ -639,6 +662,64 @@ def main(
     loading any corridor and exits with a precise message if a required file
     is missing.
     """
+    import xarray as xr
+
+    from routetools.era5.loader import (
+        load_dataset_epoch,
+        load_era5_wavefield,
+        load_era5_windfield,
+        load_natural_earth_land_mask,
+    )
+    from routetools.swopp3 import SWOPP3_CASES, departures_2024
+    from routetools.swopp3_runner import run_case
+
+    # ---- Select cases ----
+    if cases is not None:
+        case_ids = cases
+        for cid in case_ids:
+            if cid not in SWOPP3_CASES:
+                typer.echo(f"Unknown case: {cid}", err=True)
+                raise typer.Exit(1)
+    else:
+        case_ids = list(SWOPP3_CASES.keys())
+
+    if strategy is not None:
+        case_ids = [
+            cid for cid in case_ids if SWOPP3_CASES[cid]["strategy"] == strategy
+        ]
+        if not case_ids:
+            typer.echo(f"No cases match strategy '{strategy}'", err=True)
+            raise typer.Exit(1)
+
+    # ---- Departures ----
+    departures = departures_2024()
+    if max_departures is not None:
+        departures = departures[:max_departures]
+
+    typer.echo(f"Running {len(case_ids)} case(s) × {len(departures)} departure(s)")
+
+    # ---- Build per-corridor field map ----
+    corridor_wind: dict[str, Path] = {}
+    corridor_wave: dict[str, Path] = {}
+
+    if wind_path_atlantic is not None:
+        corridor_wind["atlantic"] = wind_path_atlantic
+    if wave_path_atlantic is not None:
+        corridor_wave["atlantic"] = wave_path_atlantic
+    if wind_path_pacific is not None:
+        corridor_wind["pacific"] = wind_path_pacific
+    if wave_path_pacific is not None:
+        corridor_wave["pacific"] = wave_path_pacific
+
+    # Shared paths intentionally override the corridor defaults so the
+    # simplest one-flag workflow still works for single-corridor runs.
+    if wind_path is not None:
+        corridor_wind["atlantic"] = wind_path
+        corridor_wind["pacific"] = wind_path
+    if wave_path is not None:
+        corridor_wave["atlantic"] = wave_path
+        corridor_wave["pacific"] = wave_path
+
     try:
         if experiment is not None:
             profile = _load_experiment_profile(config_path, experiment)
@@ -709,31 +790,158 @@ def main(
                 )
             return
 
-        _run_swopp3_configuration(
-            cases=cases,
-            strategy=strategy,
-            wind_path=wind_path,
-            wave_path=wave_path,
-            wind_path_atlantic=wind_path_atlantic,
-            wave_path_atlantic=wave_path_atlantic,
-            wind_path_pacific=wind_path_pacific,
-            wave_path_pacific=wave_path_pacific,
-            output_dir=output_dir,
-            submission=submission,
-            n_points=n_points,
-            max_departures=max_departures,
-            weather_penalty_weight=weather_penalty_weight,
-            wind_penalty_weight=wind_penalty_weight,
-            wave_penalty_weight=wave_penalty_weight,
-            distance_penalty_weight=distance_penalty_weight,
-            dt_eval_minutes=dt_eval_minutes,
-            cmaes_k=cmaes_k,
-            sigma0=sigma0,
-            popsize=popsize,
-            maxfevals=maxfevals,
-            cmaes_verbose=cmaes_verbose,
-            quiet=quiet,
-        )
+        _loaded_wind: dict[str, tuple[FieldClosure, datetime]] = {}
+        _loaded_wave: dict[str, tuple[FieldClosure, datetime]] = {}
+        _loaded_vf: dict[str, FieldClosure] = {}  # corridor -> vectorfield
+        _loaded_land: dict[str, object] = {}  # corridor -> Land
+
+        def _get_wind(corridor: str) -> tuple[FieldClosure, datetime]:
+            """Return (windfield_closure, dataset_epoch) for corridor."""
+            if corridor in _loaded_wind:
+                return _loaded_wind[corridor]
+            wp = corridor_wind.get(corridor)
+            if wp is None:
+                raise ValueError(f"No wind path available for corridor '{corridor}'")
+            load_paths = _loadable_era5_paths(wp)
+            load_target = load_paths if len(load_paths) > 1 else load_paths[0]
+            typer.echo(
+                f"Loading wind field for {corridor} from "
+                f"{', '.join(str(path) for path in load_paths)} …"
+            )
+            epoch = load_dataset_epoch(load_target)
+            wf = load_era5_windfield(load_target, temporal_stride=temporal_stride)
+            _loaded_wind[corridor] = (wf, epoch)
+            return wf, epoch
+
+        def _get_vectorfield(corridor: str) -> FieldClosure:
+            """Return vectorfield closure for corridor.
+
+            Reuses the windfield closure since both load identical ERA5 10-m
+            wind data — avoids duplicating ~4 GB of GPU memory per corridor.
+            """
+            if corridor in _loaded_vf:
+                return _loaded_vf[corridor]
+            wf, _ = _get_wind(corridor)
+            _loaded_vf[corridor] = wf
+            return wf
+
+        def _get_wave(corridor: str) -> tuple[FieldClosure, datetime]:
+            """Return (wavefield_closure, dataset_epoch) for corridor."""
+            if corridor in _loaded_wave:
+                return _loaded_wave[corridor]
+            wp = corridor_wave.get(corridor)
+            if wp is None:
+                raise ValueError(f"No wave path available for corridor '{corridor}'")
+            load_paths = _loadable_era5_paths(wp)
+            load_target = load_paths if len(load_paths) > 1 else load_paths[0]
+            typer.echo(
+                f"Loading wave field for {corridor} from "
+                f"{', '.join(str(path) for path in load_paths)} …"
+            )
+            epoch = load_dataset_epoch(load_target)
+            wvf = load_era5_wavefield(load_target, temporal_stride=temporal_stride)
+            _loaded_wave[corridor] = (wvf, epoch)
+            return wvf, epoch
+
+        def _get_land(corridor: str):
+            """Return Land mask for corridor (Natural Earth shapefiles)."""
+            if corridor in _loaded_land:
+                return _loaded_land[corridor]
+            # Determine corridor extent from the ERA5 wave or wind file
+            wp = corridor_wave.get(corridor) or corridor_wind.get(corridor)
+            if wp is None:
+                raise ValueError(
+                    f"No wind/wave path available for corridor '{corridor}'"
+                )
+            wp = _loadable_era5_paths(wp)[0]
+
+            with xr.open_dataset(wp) as ds:
+                for cname in ("longitude", "lon"):
+                    if cname in ds.coords:
+                        lons = ds[cname].values
+                        break
+                else:
+                    raise KeyError(f"No longitude coordinate found in {wp}")
+                for cname in ("latitude", "lat"):
+                    if cname in ds.coords:
+                        lats = ds[cname].values
+                        break
+                else:
+                    raise KeyError(f"No latitude coordinate found in {wp}")
+            lon_range = (float(lons.min()), float(lons.max()))
+            lat_range = (float(lats.min()), float(lats.max()))
+            typer.echo(
+                f"Building Natural Earth land mask for {corridor} "
+                f"lon={lon_range}, lat={lat_range} …"
+            )
+            land = load_natural_earth_land_mask(lon_range, lat_range)
+            _loaded_land[corridor] = land
+            return land
+
+        # ---- Run ----
+        prev_corridor: str | None = None
+        for cid in case_ids:
+            case = SWOPP3_CASES[cid]
+            corridor = case["route"]  # "atlantic" or "pacific"
+
+            # Free previous corridor data when switching to a new one so that
+            # both corridors' arrays don't coexist on the GPU.
+            if prev_corridor is not None and corridor != prev_corridor:
+                _loaded_wind.pop(prev_corridor, None)
+                _loaded_wave.pop(prev_corridor, None)
+                _loaded_vf.pop(prev_corridor, None)
+                _loaded_land.pop(prev_corridor, None)
+                import gc
+
+                gc.collect()
+                import jax
+
+                jax.clear_caches()
+                typer.echo(
+                    f"[info] Freed {prev_corridor} corridor data before"
+                    f"loading {corridor}"
+                )
+            prev_corridor = corridor
+
+            typer.echo(f"\n{'=' * 60}")
+            typer.echo(f"Case {cid}: {case['label']}")
+            typer.echo(
+                f"  strategy={case['strategy']}  wps={case['wps']}  route={corridor}"
+            )
+            typer.echo(f"{'=' * 60}")
+
+            windfield, wind_epoch = _get_wind(corridor)
+            wavefield, wave_epoch = _get_wave(corridor)
+            vectorfield = _get_vectorfield(corridor)
+            land = _get_land(corridor)
+
+            # Use the wind field epoch as canonical dataset epoch (both fields
+            # share the same 2024-01-01 epoch from the ERA5 download).
+            dataset_epoch = wind_epoch
+
+            # Build extra CMA-ES keyword arguments from CLI flags.
+            cmaes_extra: dict[str, object] = {}
+            if control_points is not None:
+                cmaes_extra["K"] = control_points
+            if weather_penalty_type is not None:
+                cmaes_extra["weather_penalty_type"] = weather_penalty_type
+            if weather_penalty_weight is not None:
+                cmaes_extra["weather_penalty_weight"] = weather_penalty_weight
+
+            run_case(
+                cid,
+                departures,
+                vectorfield=vectorfield,
+                windfield=windfield,
+                wavefield=wavefield,
+                land=land,
+                output_dir=output_dir,
+                submission=submission,
+                n_points=n_points,
+                verbose=not quiet,
+                dataset_epoch=dataset_epoch,
+                **cmaes_extra,
+            )
     except (FileNotFoundError, KeyError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc

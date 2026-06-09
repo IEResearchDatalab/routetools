@@ -289,6 +289,7 @@ class Land:
         # Return the sum of the number of land intersections times the penalty
         return jnp.sum(is_land, axis=1) * penalty
 
+    @partial(jit, static_argnums=(0,))
     def distance_penalty(
         self,
         curve: jnp.ndarray,

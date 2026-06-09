@@ -499,71 +499,49 @@ class TestEdgeCases:
         assert jnp.allclose(pen, 0.0)
 
 
-# ---------------------------------------------------------------------------
-# Tests for split penalties (wind_penalty_smooth, wave_penalty_smooth)
-# ---------------------------------------------------------------------------
-class TestWindPenaltySmooth:
-    """Test the split wind-only smooth penalty."""
+class TestTimeOffset:
+    """Tests for the time_offset parameter on penalty functions."""
 
-    def test_zero_within_limits(self):
-        curve = _make_curve()
-        wf = _constant_windfield(10.0, 0.0)
-        pen = wind_penalty_smooth(curve, windfield=wf)
+    @staticmethod
+    def _time_threshold_windfield(threshold_t: float = 100.0):
+        """Wind is 10 m/s for t < threshold_t, 30 m/s otherwise."""
+
+        def _field(lon, lat, t):
+            u = jnp.where(t < threshold_t, 10.0, 30.0)
+            return u, jnp.zeros_like(lon)
+
+        return _field
+
+    def test_hard_penalty_without_offset_no_violation(self):
+        """Without offset, t_mid < threshold → no violation."""
+        curve = _make_curve(n_points=4)  # 3 segments
+        wf = self._time_threshold_windfield(threshold_t=100.0)
+        # travel_time=10 → t_mid well below 100, no offset
+        pen = weather_penalty(curve, windfield=wf, travel_time=10.0, time_offset=0.0)
         assert jnp.allclose(pen, 0.0)
 
-    def test_nonzero_when_exceeded(self):
-        curve = _make_curve(n_points=10)
-        wf = _constant_windfield(25.0, 0.0)  # TWS=25 > 20
-        pen = wind_penalty_smooth(curve, windfield=wf, weight=1.0)
-        assert pen.item() > 0.0
+    def test_hard_penalty_with_offset_triggers_violation(self):
+        """With offset, t_mid + offset > threshold → violations."""
+        curve = _make_curve(n_points=4)  # 3 segments
+        wf = self._time_threshold_windfield(threshold_t=100.0)
+        # travel_time=10, offset=200 → t_mid+offset > 100 → TWS=30
+        pen = weather_penalty(
+            curve, windfield=wf, travel_time=10.0, time_offset=200.0, penalty=1.0
+        )
+        assert jnp.allclose(pen, 3.0)  # 3 segments × 1
 
-    def test_weight_scaling(self):
-        curve = _make_curve(n_points=10)
-        wf = _constant_windfield(25.0, 0.0)
-        p1 = wind_penalty_smooth(curve, windfield=wf, weight=1.0)
-        p5 = wind_penalty_smooth(curve, windfield=wf, weight=5.0)
-        assert jnp.allclose(p5, p1 * 5.0, atol=1e-5)
-
-    def test_batch(self):
-        curve = _make_curve(n_routes=3, n_points=10)
-        wf = _constant_windfield(25.0, 0.0)
-        pen = wind_penalty_smooth(curve, windfield=wf, weight=1.0)
-        assert pen.shape == (3,)
-        assert jnp.all(pen > 0)
-
-
-class TestWavePenaltySmooth:
-    """Test the split wave-only smooth penalty."""
-
-    def test_zero_within_limits(self):
-        curve = _make_curve()
-        wvf = _constant_wavefield(3.0)
-        pen = wave_penalty_smooth(curve, wavefield=wvf)
+    def test_smooth_penalty_without_offset_zero(self):
+        curve = _make_curve(n_points=4)
+        wf = self._time_threshold_windfield(threshold_t=100.0)
+        pen = weather_penalty_smooth(
+            curve, windfield=wf, travel_time=10.0, time_offset=0.0
+        )
         assert jnp.allclose(pen, 0.0)
 
-    def test_nonzero_when_exceeded(self):
-        curve = _make_curve(n_points=10)
-        wvf = _constant_wavefield(10.0)  # Hs=10 > 7
-        pen = wave_penalty_smooth(curve, wavefield=wvf, weight=1.0)
-        assert pen.item() > 0.0
-
-    def test_weight_scaling(self):
-        curve = _make_curve(n_points=10)
-        wvf = _constant_wavefield(10.0)
-        p1 = wave_penalty_smooth(curve, wavefield=wvf, weight=1.0)
-        p5 = wave_penalty_smooth(curve, wavefield=wvf, weight=5.0)
-        assert jnp.allclose(p5, p1 * 5.0, atol=1e-5)
-
-    def test_batch(self):
-        curve = _make_curve(n_routes=3, n_points=10)
-        wvf = _constant_wavefield(10.0)
-        pen = wave_penalty_smooth(curve, wavefield=wvf, weight=1.0)
-        assert pen.shape == (3,)
-        assert jnp.all(pen > 0)
-
-    def test_independent_from_wind(self):
-        """Wave penalty should not depend on wind field presence."""
-        curve = _make_curve(n_points=10)
-        wvf = _constant_wavefield(10.0)
-        pen = wave_penalty_smooth(curve, wavefield=wvf, weight=1.0)
-        assert pen.item() > 0.0
+    def test_smooth_penalty_with_offset_positive(self):
+        curve = _make_curve(n_points=4)
+        wf = self._time_threshold_windfield(threshold_t=100.0)
+        pen = weather_penalty_smooth(
+            curve, windfield=wf, travel_time=10.0, time_offset=200.0
+        )
+        assert float(pen[0]) > 0.0

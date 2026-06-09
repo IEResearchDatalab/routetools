@@ -92,53 +92,83 @@ def test_distance_to_land():
 
 
 class TestDistancePenalty:
-    """Tests for the EDT-based distance_penalty method."""
+    """Tests for Land.distance_penalty (EDT-based smooth penalty)."""
 
     @staticmethod
-    def _make_land() -> Land:
-        """Create a land with a known land patch in the centre."""
-        xlim = [-5, 5]
+    def _land_with_strip():
+        """Create a land with a vertical strip of land at x=0."""
+        xlim = (-5, 5)
+        ylim = (-5, 5)
         land = Land(
-            xlim,
-            xlim,
-            water_level=0.5,
-            random_seed=1,
-            resolution=10,
-            interpolate=0,
+            xlim, ylim, water_level=0.5, random_seed=1, resolution=10, interpolate=0
         )
-        # All water, then add a land patch
+        # Overwrite: all water, then a vertical land strip centered at x≈0
         land._array = land._array.at[:, :].set(0)
-        land._array = land._array.at[45:55, 45:55].set(1)
-        # Recompute EDT after modifying the land array
+        # Determine the index along the first axis corresponding to x≈0
+        x_coords = getattr(land, "x", None)
+        if x_coords is None:
+            # Fallback: assume uniform spacing over xlim for the first axis
+            nx = land._array.shape[0]
+            x_coords = jnp.linspace(xlim[0], xlim[1], nx)
+        center_idx = int(jnp.argmin(jnp.abs(x_coords - 0.0)))
+        strip_half_width = 2  # total width = 2*half_width + 1 = 5 cells
+        start_idx = max(center_idx - strip_half_width, 0)
+        end_idx = min(center_idx + strip_half_width + 1, land._array.shape[0])
+        land._array = land._array.at[start_idx:end_idx, :].set(1)
+        # Recompute EDT
         import numpy as np
         from scipy.ndimage import distance_transform_edt
 
         binary_land = np.asarray(land._array > land.water_level)
-        land._edt = jnp.asarray(distance_transform_edt(~binary_land), dtype=jnp.float32)
+        land._edt = jnp.array(distance_transform_edt(~binary_land))
         return land
 
-    def test_penalty_on_land_higher(self):
-        """Points on land should get a higher penalty than points in water."""
-        land = self._make_land()
-        # Curve through land (centre)
-        on_land = jnp.array([[[0.0, 0.0], [0.0, 0.0]]])
-        # Curve far from land (corner)
-        far_water = jnp.array([[[-4.0, -4.0], [-4.0, -4.0]]])
-        p_land = land.distance_penalty(on_land, weight=1.0)
-        p_water = land.distance_penalty(far_water, weight=1.0)
-        assert p_land.item() > p_water.item()
+    def test_on_land_gives_large_penalty(self):
+        """Points directly on land should produce high penalty."""
+        land = self._land_with_strip()
+        # Route through the land strip at x≈0
+        curve = jnp.array([[[0.0, -2.0], [0.0, 0.0], [0.0, 2.0]]])
+        pen = land.distance_penalty(curve, weight=1.0, epsilon=1.0)
+        assert pen.shape == (1,)
+        assert pen[0] > 1.0  # EDT ≈ 0 → penalty ≈ 1/eps per point
 
-    def test_weight_scaling(self):
-        """Penalty should scale linearly with weight."""
-        land = self._make_land()
-        curve = jnp.array([[[-3.0, -3.0], [-2.0, -2.0]]])
-        p1 = land.distance_penalty(curve, weight=1.0)
-        p5 = land.distance_penalty(curve, weight=5.0)
-        assert p5.item() == pytest.approx(p1.item() * 5.0, rel=1e-5)
+    def test_far_from_land_gives_small_penalty(self):
+        """Points far from land should have very small penalty."""
+        land = self._land_with_strip()
+        # Route far away at x=-4
+        curve = jnp.array([[[-4.0, -2.0], [-4.0, 0.0], [-4.0, 2.0]]])
+        pen = land.distance_penalty(curve, weight=1.0, epsilon=1.0)
+        # EDT values large → 1/(edt+1) is small
+        assert pen[0] < 1.0
 
-    def test_non_negative(self):
-        """Penalty should always be non-negative."""
-        land = self._make_land()
-        curve = jnp.array([[[-4.5, -4.5], [4.5, 4.5]]])
-        p = land.distance_penalty(curve, weight=1.0)
-        assert p.item() >= 0.0
+    def test_closer_route_penalized_more(self):
+        """Route closer to land should get a higher penalty."""
+        land = self._land_with_strip()
+        # Near route (x ≈ -1) vs far route (x ≈ -4)
+        near = jnp.array([[[-1.0, -2.0], [-1.0, 0.0], [-1.0, 2.0]]])
+        far = jnp.array([[[-4.0, -2.0], [-4.0, 0.0], [-4.0, 2.0]]])
+        pen_near = land.distance_penalty(near, weight=1.0, epsilon=1.0)
+        pen_far = land.distance_penalty(far, weight=1.0, epsilon=1.0)
+        assert pen_near[0] > pen_far[0]
+
+    def test_weight_scales_penalty(self):
+        """Doubling weight should double penalty."""
+        land = self._land_with_strip()
+        curve = jnp.array([[[-2.0, 0.0], [-1.0, 0.0], [0.0, 0.0]]])
+        pen_w1 = land.distance_penalty(curve, weight=1.0, epsilon=1.0)
+        pen_w2 = land.distance_penalty(curve, weight=2.0, epsilon=1.0)
+        assert jnp.allclose(pen_w2, 2.0 * pen_w1)
+
+    def test_batch_dimension(self):
+        """distance_penalty handles batched curves correctly."""
+        land = self._land_with_strip()
+        curve = jnp.array(
+            [
+                [[-4.0, 0.0], [-3.0, 0.0], [-2.0, 0.0]],
+                [[-1.0, 0.0], [0.0, 0.0], [1.0, 0.0]],
+            ]
+        )
+        pen = land.distance_penalty(curve, weight=1.0, epsilon=1.0)
+        assert pen.shape == (2,)
+        # Second route is closer to / on land → higher penalty
+        assert pen[1] > pen[0]

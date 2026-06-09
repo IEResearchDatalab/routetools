@@ -342,12 +342,17 @@ def run_optimised_departure(
             curve0=gc_init,
             sigma0=0.1,
             cost_fn=_rise_cost,
-            penalty=1000,
+            penalty=1e6,
             land_margin=2,
             verbose=False,
-            time_offset=departure_offset_h,
+            # Operational weather constraints (SWOPP3: TWS < 20 m/s, Hs < 7 m)
             windfield=windfield,
             wavefield=wavefield,
+            weather_penalty_weight=100.0,
+            weather_penalty_type="smooth",
+            time_offset=departure_offset_h,
+            # Smooth distance-to-land repulsion via EDT
+            land_distance_weight=50.0,
         )
         if cmaes_kwargs.pop("cmaes_verbose", False):
             cmaes_kwargs["verbose"] = True

@@ -290,7 +290,7 @@ class TestValidateCasePairStrategy:
         assert errs == []
 
     def test_over_threshold_reports_error(self, tmp_path: Path):
-        """More than 10% worse departures → returns errors."""
+        """More than 10% worse departures → returns count error."""
         opt_energies = [110.0] * 10  # all worse
         gc_energies = [100.0] * 10
         opt = tmp_path / "opt.csv"
@@ -298,10 +298,50 @@ class TestValidateCasePairStrategy:
         _write_file_a_custom(opt, opt_energies)
         _write_file_a_custom(gc, gc_energies)
         errs = validate_case_pair_strategy(opt, gc)
-        assert len(errs) == 1
-        assert (
-            "worse" in errs[0].message.lower() or "optimised" in errs[0].message.lower()
+        assert any(
+            "worse" in e.message.lower() or "optimised" in e.message.lower()
+            for e in errs
         )
+
+    def test_large_excess_single_departure(self, tmp_path: Path):
+        """One departure 50% above GC → magnitude error even if count is low."""
+        # 1 out of 10 worse (10% count, under threshold)
+        # but 50% relative excess → triggers magnitude check
+        opt_energies = [90.0] * 9 + [150.0]
+        gc_energies = [100.0] * 10
+        opt = tmp_path / "opt.csv"
+        gc = tmp_path / "gc.csv"
+        _write_file_a_custom(opt, opt_energies)
+        _write_file_a_custom(gc, gc_energies)
+        errs = validate_case_pair_strategy(opt, gc)
+        assert len(errs) == 1
+        assert "excess" in errs[0].message.lower()
+        assert "50.0%" in errs[0].message
+
+    def test_small_excess_no_magnitude_error(self, tmp_path: Path):
+        """Single departure 5% above GC → under default 20% threshold."""
+        opt_energies = [90.0] * 9 + [105.0]  # 5% excess, 10% count
+        gc_energies = [100.0] * 10
+        opt = tmp_path / "opt.csv"
+        gc = tmp_path / "gc.csv"
+        _write_file_a_custom(opt, opt_energies)
+        _write_file_a_custom(gc, gc_energies)
+        errs = validate_case_pair_strategy(opt, gc)
+        assert errs == []
+
+    def test_both_count_and_magnitude_errors(self, tmp_path: Path):
+        """Many worse departures with large excess → both errors reported."""
+        opt_energies = [200.0] * 10  # all worse, 100% excess
+        gc_energies = [100.0] * 10
+        opt = tmp_path / "opt.csv"
+        gc = tmp_path / "gc.csv"
+        _write_file_a_custom(opt, opt_energies)
+        _write_file_a_custom(gc, gc_energies)
+        errs = validate_case_pair_strategy(opt, gc)
+        assert len(errs) == 2
+        messages = [e.message.lower() for e in errs]
+        assert any("worse" in m or "optimised" in m for m in messages)
+        assert any("excess" in m for m in messages)
 
     def test_missing_file_returns_validation_error(self, tmp_path: Path):
         """Missing baseline file should be reported as ValidationError."""
