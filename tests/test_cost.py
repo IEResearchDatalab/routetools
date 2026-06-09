@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 
+import routetools.cost as cost_module
 from routetools.cost import interpolate_to_constant_cost
 from routetools.vectorfield import vectorfield_zero
 
@@ -37,3 +38,89 @@ def test_interpolate_to_constant_cost():
     assert jnp.allclose(
         distances, avg_distance, atol=1e-2
     ), f"distances: {distances}, avg_distance: {avg_distance}"
+
+
+def _field_zero(
+    lon: jnp.ndarray,
+    lat: jnp.ndarray,
+    t: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    del lat, t
+    return jnp.zeros_like(lon), jnp.zeros_like(lon)
+
+
+def test_cost_function_rise_returns_energy_in_mwh(monkeypatch):
+    """A constant 500 kW profile over 10 h and 2 segments yields 5 MWh."""
+
+    def _predict_power_constant(
+        tws: jnp.ndarray,
+        twa: jnp.ndarray,
+        hs: jnp.ndarray,
+        mwa: jnp.ndarray,
+        v_mps: jnp.ndarray,
+        wps: bool = False,
+    ) -> jnp.ndarray:
+        del twa, hs, mwa, v_mps, wps
+        return jnp.full_like(tws, 500.0)
+
+    monkeypatch.setattr(cost_module, "predict_power_jax", _predict_power_constant)
+
+    curve = jnp.array(
+        [
+            [
+                [0.0, 0.0],
+                [1.0, 0.0],
+                [2.0, 0.0],
+            ]
+        ]
+    )
+
+    energy_mwh = cost_module.cost_function_rise(
+        windfield=_field_zero,
+        curve=curve,
+        travel_time=10.0,
+        wavefield=_field_zero,
+    )
+
+    assert jnp.allclose(energy_mwh, jnp.array([5.0]), atol=1e-6)
+
+
+def test_evaluate_route_energy_uses_per_segment_speed(monkeypatch):
+    """Verify evaluate_route_energy passes per-segment speed, not average."""
+    recorded_speeds: list[np.ndarray] = []
+
+    def _record_speed(
+        tws,
+        twa,
+        hs,
+        mwa,
+        v_mps,
+        wps=False,
+    ):
+        recorded_speeds.append(np.array(v_mps).copy())
+        return np.full_like(tws, 100.0)
+
+    monkeypatch.setattr(cost_module, "predict_power_batch", _record_speed)
+
+    # Build a curve with unequal segment lengths:
+    # segment 0 spans 2 degrees, segment 1 spans 1 degree.
+    curve = jnp.array(
+        [
+            [0.0, 0.0],
+            [2.0, 0.0],
+            [3.0, 0.0],
+        ]
+    )
+
+    cost_module.evaluate_route_energy(
+        curve,
+        passage_hours=10.0,
+        wps=False,
+    )
+
+    assert len(recorded_speeds) == 1
+    v = recorded_speeds[0]
+    # Segment 0 is ~twice as long as segment 1 → speed must differ.
+    assert v.shape == (2,)
+    assert v[0] != v[1], f"Expected different per-segment speeds, got {v}"
+    assert v[0] > v[1], f"Segment 0 is longer, speed should be higher: {v}"

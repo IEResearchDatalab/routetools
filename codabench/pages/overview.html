@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+table { border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+th { background-color: #f5f5f5; }
+code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+pre { background-color: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 4px solid #ddd; margin: 1em 0; padding: 0.5em 1em; color: #555; }
+h1 { color: #2c3e50; }
+h2 { color: #34495e; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+h3 { color: #7f8c8d; }
+</style>
+</head>
+<body>
+<h1>SWOPP3 Weather Routing Benchmark</h1>
+<h2>Overview</h2>
+<p>The <strong>SWOPP3 Weather Routing Benchmark</strong> evaluates weather routing optimizers on real ERA5 weather data using the RISE performance model for an 88 m cargo ship with optional wingsails.</p>
+<h3>The Challenge</h3>
+<p>Participants must find minimum-energy routes across <strong>two ocean corridors</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>From</th>
+<th>To</th>
+<th>Passage Time</th>
+<th>GC Distance</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Trans-Atlantic</strong></td>
+<td>Santander (ESSDR)</td>
+<td>New York (USNYC)</td>
+<td>354 hours</td>
+<td>2,833 nm</td>
+</tr>
+<tr>
+<td><strong>Trans-Pacific</strong></td>
+<td>Tokyo (JPTYO)</td>
+<td>Los Angeles (USLAX)</td>
+<td>583 hours</td>
+<td>4,663 nm</td>
+</tr>
+</tbody>
+</table>
+<p>For each route, there are <strong>4 cases</strong> combining route optimisation strategy and wingsail configuration:</p>
+<table>
+<thead>
+<tr>
+<th>Case</th>
+<th>Strategy</th>
+<th>Wingsails (WPS)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>*O_WPS</code></td>
+<td><strong>Optimised</strong> route and speed</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>*O_noWPS</code></td>
+<td><strong>Optimised</strong> route and speed</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>*GC_WPS</code></td>
+<td><strong>Great Circle</strong>, fixed speed</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><code>*GC_noWPS</code></td>
+<td><strong>Great Circle</strong>, fixed speed</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<p>This gives <strong>8 cases total</strong> × <strong>366 daily departures</strong> (every day of 2024, noon UTC) = <strong>2,928 route evaluations per submission</strong>.</p>
+<h3>Port Coordinates</h3>
+<table>
+<thead>
+<tr>
+<th>Port Code</th>
+<th>City</th>
+<th>Latitude</th>
+<th>Longitude</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ESSDR</td>
+<td>Santander, Spain</td>
+<td>43.60° N</td>
+<td>4.00° W</td>
+</tr>
+<tr>
+<td>USNYC</td>
+<td>New York, USA</td>
+<td>40.53° N</td>
+<td>73.80° W</td>
+</tr>
+<tr>
+<td>JPTYO</td>
+<td>Tokyo, Japan</td>
+<td>34.80° N</td>
+<td>140.00° E</td>
+</tr>
+<tr>
+<td>USLAX</td>
+<td>Los Angeles, USA</td>
+<td>34.40° N</td>
+<td>121.00° W</td>
+</tr>
+</tbody>
+</table>
+<h3>Operational Constraints</h3>
+<p><strong>Optimised cases</strong> (<code>*O_*</code>) must respect these weather safety limits along the entire path:</p>
+<table>
+<thead>
+<tr>
+<th>Constraint</th>
+<th>Limit</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Significant wave height</strong></td>
+<td>Hs &lt; <strong>7 m</strong></td>
+<td>Maximum wave height along the route</td>
+</tr>
+<tr>
+<td><strong>True wind speed</strong></td>
+<td>TWS &lt; <strong>20 m/s</strong></td>
+<td>Maximum wind speed along the route</td>
+</tr>
+<tr>
+<td><strong>Land avoidance</strong></td>
+<td>No crossings</td>
+<td>Route waypoints must not cross land</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Note on Great Circle cases:</strong> GC cases follow a fixed geodesic path that participants cannot modify. Because the great circle may cross land (e.g. the Atlantic route clips Newfoundland) and traverse severe weather, <strong>operational and land-crossing checks are not enforced</strong> for GC cases.</p>
+</blockquote>
+<h3>What Makes This Different</h3>
+<p>Unlike the original SWOPP3 competition, <strong>all participants use the same weather data and the same performance model</strong>. This ensures results are directly comparable — the only differentiator is the optimization algorithm.</p>
+<h3>Ranking</h3>
+<p>Submissions are ranked by <strong>total energy consumption (MWh)</strong> summed across all 8 cases and 366 departures. Lower is better.</p>
+<h3>Getting Started</h3>
+<p>You can choose between two approaches to obtain the ERA5 data:</p>
+<p><strong>Option A — Download from CodaBench</strong> (recommended):
+1. Download the pre-built ERA5 <code>.nc</code> files from the <strong>Files</strong> tab of this competition
+2. Implement the RISE performance model (formulas provided in the <strong>Data</strong> tab)
+3. Submit a zip file with your CSV results</p>
+<p><strong>Option B — Download via CDS API</strong>:
+1. Register at the Copernicus Climate Data Store and download ERA5 data with the <code>cdsapi</code> package
+2. Implement the RISE performance model (formulas provided in the <strong>Data</strong> tab)
+3. Submit a zip file with your CSV results</p>
+<p>See the <strong>Data &amp; Performance Model</strong> tab for details on both options.</p>
+</body>
+</html>

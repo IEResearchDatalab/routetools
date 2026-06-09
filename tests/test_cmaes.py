@@ -233,3 +233,113 @@ def test_curve_to_control_piecewise(L: int = 127, K: int = 10, num_pieces: int =
     assert jnp.allclose(
         reconstructed_curve, curve, atol=1e-1
     ), "Reconstructed curve does not match original curve"
+
+
+def test_optimize_with_bounds():
+    """CMA-ES respects geographic bounds on control points."""
+    src = jnp.array([0.0, 0.0])
+    dst = jnp.array([6.0, 2.0])
+    L = 32
+    K = 6  # 4 free interior control points → 8 parameters
+
+    # Tight bounds: lon in [0, 6], lat in [-1, 3]
+    n_free = (K - 2) * 2
+    lower = [0.0 if i % 2 == 0 else -1.0 for i in range(n_free)]
+    upper = [6.0 if i % 2 == 0 else 3.0 for i in range(n_free)]
+
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        curve, info = optimize(
+            vectorfield_fourvortices,
+            src=src,
+            dst=dst,
+            travel_stw=1,
+            K=K,
+            L=L,
+            popsize=10,
+            sigma0=1,
+            seed=1,
+            maxfevals=500,
+            verbose=False,
+            bounds=[lower, upper],
+        )
+
+    # All waypoints must stay within the prescribed corridor
+    assert curve[:, 0].min() >= -1.0, "Longitude below lower bound"
+    assert curve[:, 0].max() <= 7.0, "Longitude above upper bound"
+    assert curve[:, 1].min() >= -2.0, "Latitude below lower bound"
+    assert curve[:, 1].max() <= 4.0, "Latitude above upper bound"
+
+
+@pytest.mark.parametrize("penalty_type", ["hard", "smooth"])
+def test_optimize_weather_penalty_type(penalty_type):
+    """``optimize`` accepts both ``weather_penalty_type`` values."""
+    src = jnp.array([0.0, 0.0])
+    dst = jnp.array([6.0, 2.0])
+
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        curve, info = optimize(
+            vectorfield_fourvortices,
+            src=src,
+            dst=dst,
+            travel_stw=1,
+            K=6,
+            L=32,
+            popsize=10,
+            sigma0=1,
+            seed=1,
+            maxfevals=200,
+            verbose=False,
+            weather_penalty_type=penalty_type,
+        )
+
+    assert curve.shape == (32, 2)
+    assert info["cost"] > 0
+
+
+def test_cmaes_snapshot_callback_receives_iteration_population():
+    """CMA-ES snapshot callback should receive per-iteration route batches."""
+    src = jnp.array([0.0, 0.0])
+    dst = jnp.array([6.0, 2.0])
+    snapshots: list[dict[str, object]] = []
+
+    def callback(snapshot):
+        snapshots.append(
+            {
+                "iteration": snapshot["iteration"],
+                "population_shape": tuple(snapshot["population_curves"].shape),
+                "cost_shape": tuple(snapshot["population_costs"].shape),
+                "generation_best_index": snapshot["generation_best_index"],
+                "generation_best_shape": tuple(snapshot["generation_best_curve"].shape),
+                "best_shape": tuple(snapshot["best_curve"].shape),
+                "best_cost": float(snapshot["best_cost"]),
+            }
+        )
+
+    optimize(
+        vectorfield_fourvortices,
+        src=src,
+        dst=dst,
+        travel_stw=1,
+        L=20,
+        popsize=4,
+        sigma0=1,
+        maxfevals=12,
+        seed=1,
+        verbose=False,
+        snapshot_callback=callback,
+    )
+
+    assert snapshots
+    assert snapshots[0]["iteration"] == 1
+    assert all(item["population_shape"] == (4, 20, 2) for item in snapshots)
+    assert all(item["cost_shape"] == (4,) for item in snapshots)
+    assert all(item["generation_best_shape"] == (20, 2) for item in snapshots)
+    assert all(item["best_shape"] == (20, 2) for item in snapshots)
+    assert all(isinstance(item["generation_best_index"], int) for item in snapshots)
+    assert all(item["best_cost"] >= 0 for item in snapshots)

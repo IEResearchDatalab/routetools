@@ -16,7 +16,7 @@ def run_single_simulation(
     land_waterlevel: float = 0.7,
     land_resolution: int = 20,
     land_seed: int = 0,
-    land_penalty: float = 100,
+    land_penalty: float = 1e10,
     outbounds_is_land: bool = False,
     cmaes_K: int = 7,
     cmaes_L: int = 211,
