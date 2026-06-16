@@ -181,3 +181,7 @@ codabench/test_submission/
 # Separate repo
 routingviz/
 *.whl
+
+# SLURM monitoring files
+*.err
+*.out
