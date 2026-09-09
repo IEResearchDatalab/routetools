@@ -1453,6 +1453,15 @@ def score_submission() -> dict:
             if submission_dir.is_dir()
             else []
         )
+        nested_submission_dirs = (
+            sorted(
+                entry.name
+                for entry in submission_dir.iterdir()
+                if entry.is_dir() and any(entry.glob("*.csv"))
+            )
+            if submission_dir.is_dir()
+            else []
+        )
         msg = (
             "Cannot detect team prefix from CSV filenames. "
             "Expected File-A CSVs named <TeamName>-<N>-<CaseName>.csv "
@@ -1462,6 +1471,11 @@ def score_submission() -> dict:
             "Common fix: zip files from *inside* the directory, not the "
             "directory itself (cd into it, then zip)."
         )
+        if nested_submission_dirs:
+            msg += (
+                " Found File-A CSVs inside nested director"
+                f"y/directories: {nested_submission_dirs}."
+            )
         all_errors.append(msg)
         print(f"ERROR: {msg}", file=sys.stderr)
         scores["total_energy_mwh"] = 1e12
@@ -1479,6 +1493,16 @@ def score_submission() -> dict:
             for k, v in scores.items():
                 f.write(f"  {k}: {v}\n")
 
+        _write_detailed_results(
+            output_dir,
+            scores,
+            all_errors,
+            all_warnings,
+            case_energies,
+            case_routes,
+            case_violations,
+            data_dir=data_dir,
+        )
         return scores
 
     # Try to load land checker
@@ -1538,6 +1562,8 @@ def score_submission() -> dict:
                 if tracks_dir.is_dir()
                 else submission_dir / fb_name
             )
+            if not fb_path.exists():
+                missing_tracks += 1
 
             # Parse departure/arrival for endpoint time checks
             dep_dt = arr_dt = None
