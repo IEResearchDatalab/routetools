@@ -61,9 +61,9 @@ Submissions are ranked by **total energy consumption (MWh)** summed across all 8
 
 You can choose between two approaches to obtain the ERA5 data:
 
-**Option A — Download from CodaBench** (recommended):
+**Option A — Download the frozen release** (recommended):
 
-1. Download the pre-built ERA5 `.nc` files from the **Files** tab of this competition
+1. Download the pre-built ERA5 `.nc` files from the link on the **Data** tab, and verify them against the published `SHA256SUMS`
 2. Implement the RISE performance model (formulas provided in the **Data** tab)
 3. Submit a zip file with your CSV results
 

@@ -6,9 +6,14 @@ release; its SHA-256 checksums are published with the data files.
 
 ---
 
-## Option A — Download ERA5 from CodaBench (Recommended)
+## Option A — Download the frozen release (Recommended)
 
-The ERA5 NetCDF files are available for direct download from the **Files** tab of this competition. You need 2024 data plus January 2025 (late-December departures extend into January 2025):
+The release is hosted externally: at 19.57 GB it exceeds the 15 GB CodaBench
+storage quota, so it cannot be attached to this benchmark directly.
+
+**Download:** _link published on the Overview page._
+
+You need 2024 data plus January 2025 (late-December departures extend into January 2025):
 
 | File                             | Size (approx.) | Contents                                                  |
 | -------------------------------- | -------------- | --------------------------------------------------------- |
@@ -27,9 +32,10 @@ These are the exact same files produced by the `routetools` downloader. The NetC
 - **Waves:** `swh` (significant wave height in m), `mwd` (mean wave direction in degrees)
 - **Grid:** 0.25° × 0.25°, hourly time steps (00:00 through 23:00 UTC)
 
-The eight NetCDF files total 19.57 GB uncompressed. Verify each downloaded
-file against `SHA256SUMS` before using it. With these files in hand, implement
-the RISE performance model from the formulas below.
+The eight NetCDF files total 19.57 GB uncompressed. Verify each downloaded file
+against the published `SHA256SUMS` before using it — this is the only way to
+confirm you hold the same release the scorer uses. With these files in hand,
+implement the RISE performance model from the formulas below.
 
 ---
 

@@ -70,9 +70,11 @@ not bundled. They live on the compute worker at `/codabench/data`, which the
 worker mounts into each submission container as `/app/data`. The scorer looks
 there first and falls back to `reference_data/` only if that mount is absent.
 
-Publish the participant copy of the weather files separately (Files tab or an
-external download) alongside `SHA256SUMS`, so entrants can verify they hold the
-same frozen release the scorer uses.
+Publish the participant copy of the weather files **externally**. A CodaBench
+account has a 15 GB storage quota covering all datasets, programs and
+submissions, so the 19.57 GB release cannot be hosted on the platform. Publish
+`SHA256SUMS` alongside it so entrants can confirm they hold the same frozen
+release the scorer uses, then link the download from the Overview page.
 
 The scoring program is **self-contained** — it uses only `numpy`, `netCDF4`,
 `pyshp`, `shapely`, and `matplotlib` (listed in `scoring_program/requirements.txt`).
