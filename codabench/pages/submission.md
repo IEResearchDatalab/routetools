@@ -23,6 +23,23 @@ submission.zip
 
 Replace `TeamName` with your team name and `1` with your submission number.
 
+## Build and Check the ZIP
+
+The File A CSVs and `tracks/` directory must be at the **root of the ZIP**.
+Do not zip the enclosing submission directory.
+
+```bash
+python starting_kit.py --output-dir submission --team TeamName --submission 1
+python validate_submission.py submission
+
+(cd submission && zip -r ../TeamName-1.zip .)
+python validate_submission.py TeamName-1.zip
+```
+
+Upload `TeamName-1.zip` only after the validator reports that its structure is
+valid. The `validate_submission.py` tool is included with the starting kit and
+checks the ZIP root, all File A CSVs, and the File B tracks they reference.
+
 ## File A — Energy Summary (one per case)
 
 **Filename:** `TeamName-{submission}-{casename}.csv`
