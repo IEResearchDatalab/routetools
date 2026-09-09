@@ -1,4 +1,7 @@
 {
   "mode": "re_evaluation",
-  "note": "ERA5 6-hourly data + Natural Earth shapefile for server-side re-evaluation"
+  "benchmark": "Weather Routing Benchmark 001",
+  "weather_resolution": "hourly",
+  "weather_coverage": "2024-01-01T00:00:00Z through 2025-01-31T23:00:00Z",
+  "note": "Fixed hourly ERA5 data + Natural Earth shapefile for server-side re-evaluation. Verify files against SHA256SUMS."
 }

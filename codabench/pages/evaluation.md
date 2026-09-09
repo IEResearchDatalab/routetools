@@ -63,7 +63,7 @@ Submissions may be disqualified if:
 
 All participants use:
 
-- **The same ERA5 weather data** (0.25° grid, 6-hourly, 2024)
+- **The same fixed ERA5 weather-data release** (0.25° grid, hourly, 2024 plus January 2025)
 - **The same RISE performance model** (formulas provided in the **Data** tab)
 - **The same route definitions** (ports, passage times, departure schedule)
 
