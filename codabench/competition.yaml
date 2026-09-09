@@ -1,17 +1,42 @@
 # ─────────────────────────────────────────────────────────────────────
-# SWOPP3 Weather Routing Benchmark — CodaBench Competition Bundle
+# Weather Routing Benchmark 001 — CodaBench Competition Bundle
 # ─────────────────────────────────────────────────────────────────────
-# Upload this bundle at https://www.codabench.org/competitions/create/
+# Build with build_bundle.sh, then upload competition_bundle.zip at
+# https://www.codabench.org/competitions/create/
 # See README.md in this directory for setup instructions.
 # ─────────────────────────────────────────────────────────────────────
 
 version: 2
 
-title: "SWOPP3 Weather Routing Benchmark"
-description: "Minimize total energy consumption for an 88 m cargo ship across 366 daily departures on two ocean routes (Trans-Atlantic and Trans-Pacific) using ERA5 weather data and the RISE performance model."
+title: "Weather Routing Benchmark 001"
+description: "Ongoing benchmark for weather-routing optimisation. Benchmark 001 fixes the evaluation conditions: an 88 m cargo ship with optional wingsails (RISE performance model), a frozen hourly ERA5 weather release, and 366 daily departures across a Trans-Atlantic and a Trans-Pacific corridor. Submissions are ranked by total energy consumption."
 image: logo.png
-docker_image: "fjsuarez/swopp3-scorer:latest"
 registration_auto_approve: true
+
+# Dependencies only (numpy, netCDF4, pyshp, shapely, matplotlib, RISE wheel).
+# scoring.py ships in scoring_program/, so scorer changes need no image rebuild.
+docker_image: "fjsuarez/swopp3-scorer:latest"
+
+# Route submissions to the lab compute worker holding the hourly ERA5 release at
+# /codabench/data. Without this they land on the shared public queue, which has
+# no weather data and would silently fall back to self-reported energy.
+# Vhost is shown in Queue Management -> View Queue Detail.
+# queue: "<queue-vhost-uuid>"
+
+contact_email: "francisco.suarez@ie.edu"
+
+# Keep the scorer and its reference metadata private.
+make_programs_available: false
+make_input_data_available: false
+
+# Submitters see their own diagnostics; route details stay off the public board.
+enable_detailed_results: true
+show_detailed_results_in_submission_panel: true
+show_detailed_results_in_leaderboard: false
+
+auto_run_submissions: true
+can_participants_make_submissions_public: false
+forum_enabled: true
 
 # ── Pages (Markdown files in pages/) ─────────────────────────────────
 terms: pages/terms.md
@@ -28,21 +53,26 @@ pages:
 # ── Tasks ─────────────────────────────────────────────────────────────
 tasks:
   - index: 0
-    name: "SWOPP3 Evaluation"
-    description: "Evaluate optimised routes against ERA5 weather data using the RISE performance model."
+    name: "Benchmark 001 Evaluation"
+    description: "Re-evaluate submitted routes against the fixed hourly ERA5 release using the RISE wingsail performance model."
     is_public: false
+    # Small metadata only (config.json + SHA256SUMS). The 19.57 GB weather
+    # release reaches the scorer from the worker at /app/data.
     reference_data: reference_data
     scoring_program: scoring_program
 
 # ── Phases ────────────────────────────────────────────────────────────
+# Omitting `end` on the final phase makes it run indefinitely, which is what
+# keeps this a permanent benchmark rather than a deadline-based competition.
 phases:
   - index: 0
-    name: "Main Phase"
-    description: "Submit optimised routes for all 8 SWOPP3 cases."
-    start: 4-1-2026
-    end: 4-1-2027
+    name: "Benchmark 001"
+    description: "Submit optimised routes for all 8 cases across 366 daily 2024 departures."
+    start: 2026-09-09 00:00:00
     max_submissions_per_day: 3
     max_submissions: 100
+    execution_time_limit: 3600
+    starting_kit: starting_kit
     tasks:
       - 0
 
@@ -51,13 +81,13 @@ leaderboards:
   - index: 0
     title: "Overall"
     key: "Results"
+    submission_rule: "Force_Best"
     columns:
       - title: "Total Energy (MWh)"
         key: "total_energy_mwh"
         index: 0
         sorting: asc
-        computation: null
-        computation_indexes: null
+        precision: 2
 
       - title: "Atlantic Opt WPS (MWh)"
         key: "AO_WPS_energy_mwh"

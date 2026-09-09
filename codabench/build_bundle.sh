@@ -17,34 +17,23 @@ echo "Building CodaBench bundles..."
 
 # Scoring program
 echo "  → scoring_program.zip"
-(cd scoring_program && zip -r ../scoring_program.zip . -x '__pycache__/*' '*.pyc')
+(cd scoring_program && zip -r ../scoring_program.zip . -x '*__pycache__/*' '*__pycache__' '*.pyc')
 
 # Starting kit
 echo "  → starting_kit.zip"
-(cd starting_kit && zip -r ../starting_kit.zip . -x '__pycache__/*' '*.pyc')
+(cd starting_kit && zip -r ../starting_kit.zip . -x '*__pycache__/*' '*__pycache__' '*.pyc')
 
-# Reference data — ERA5 NetCDF files + Natural Earth land shapefile
-# These files must be placed in reference_data/ before building.
-# See the list below for required files.
-echo "  → reference_data.zip"
+# Reference data — metadata only.
+# The ~19.6 GB hourly ERA5 release and the Natural Earth shapefile are NOT
+# bundled: the compute worker serves them from /codabench/data, mounted into
+# each submission container as /app/data. Only the manifest travels here so the
+# scorer can confirm which release it scored against.
+echo "  → reference_data.zip (metadata only)"
 mkdir -p reference_data
 
 REQUIRED_FILES=(
-    # ERA5 weather data (2024)
-    "era5_wind_atlantic_2024.nc"
-    "era5_waves_atlantic_2024.nc"
-    "era5_wind_pacific_2024.nc"
-    "era5_waves_pacific_2024.nc"
-    # ERA5 weather data (January 2025, for late-2024 departures)
-    "era5_wind_atlantic_2025_01.nc"
-    "era5_waves_atlantic_2025_01.nc"
-    "era5_wind_pacific_2025_01.nc"
-    "era5_waves_pacific_2025_01.nc"
-    # Natural Earth land shapefile (for land crossing checks)
-    "ne_10m_land.shp"
-    "ne_10m_land.shx"
-    "ne_10m_land.dbf"
-    "ne_10m_land.prj"
+    "config.json"
+    "SHA256SUMS"
 )
 
 MISSING=0
@@ -56,17 +45,24 @@ for f in "${REQUIRED_FILES[@]}"; do
 done
 if [[ $MISSING -eq 1 ]]; then
     echo ""
-    echo "    Some reference data files are missing."
-    echo "    Place them in codabench/reference_data/ and re-run."
-    echo "    The bundle will be built without them (scoring will use self-reported values)."
+    echo "    Reference metadata is incomplete — the scorer cannot report which"
+    echo "    weather release it used. Restore the files and re-run."
     echo ""
+fi
+
+# If a full data directory happens to be staged here, verify it matches the
+# frozen Benchmark 001 release before it can be published anywhere.
+if [[ -f "reference_data/SHA256SUMS" ]] && compgen -G "reference_data/*.nc" > /dev/null; then
+    echo "    Verifying Benchmark 001 checksums..."
+    (cd reference_data && sha256sum --check SHA256SUMS)
 fi
 
 (cd reference_data && zip -r ../reference_data.zip . -x '__pycache__/*' '*.pyc')
 
-# Lightweight bundle (no ERA5 .nc files — upload reference_data.zip separately)
 # CodaBench v2 expects directories, not nested zips.
-echo "  → competition_bundle.zip (lightweight, no ERA5 data)"
+# Stale *.html page exports are excluded: competition.yaml serves the Markdown
+# pages, and the old exports still describe superseded conditions.
+echo "  → competition_bundle.zip"
 rm -f competition_bundle.zip
 zip -r competition_bundle.zip \
     competition.yaml \
@@ -75,18 +71,19 @@ zip -r competition_bundle.zip \
     starting_kit/ \
     reference_data/ \
     pages/ \
-    -x '__pycache__/*' '*.pyc' '*.nc'
+    -x '*__pycache__/*' '*__pycache__' '*.pyc' '*.nc' 'pages/*.html'
 
 echo ""
 echo "Done!"
 echo ""
-echo "Lightweight bundle (for CodaBench upload wizard):"
-echo "  competition_bundle.zip  — everything except ERA5 .nc files"
+echo "Upload to CodaBench:"
+echo "  competition_bundle.zip  → Benchmarks → Create → upload bundle"
 echo ""
-echo "After the competition is created, upload the full reference data:"
-echo "  reference_data.zip      → Edit Competition → Tasks tab → Reference Data"
+echo "The hourly ERA5 release is NOT in the bundle. It is already on the compute"
+echo "worker at /codabench/data. Publish the participant copy separately via the"
+echo "Files tab or an external download, alongside reference_data/SHA256SUMS."
 echo ""
-echo "Individual zips (for manual upload via competition editor):"
+echo "Individual zips (for manual upload via the competition editor):"
 echo "  scoring_program.zip     → Tasks tab → Scoring Program"
-echo "  reference_data.zip      → Tasks tab → Reference Data"
+echo "  reference_data.zip      → Tasks tab → Reference Data (metadata only)"
 echo "  starting_kit.zip        → Participation tab → Starting Kit"

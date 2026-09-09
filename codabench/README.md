@@ -62,9 +62,17 @@ and a combined `competition_bundle.zip`. See `build_bundle.sh` for details.
 
 ### 3. Reference Data
 
-The `reference_data/` directory must contain the 6-hourly ERA5 NetCDF files
-(~3.1 GB total) and the Natural Earth land shapefile before building the
-bundle. See `build_bundle.sh` for the full list of required files.
+The `reference_data/` directory holds **metadata only** (`config.json` and
+`SHA256SUMS`), so the bundle stays small enough to upload.
+
+The hourly ERA5 NetCDF files (~19.6 GB) and the Natural Earth land shapefile are
+not bundled. They live on the compute worker at `/codabench/data`, which the
+worker mounts into each submission container as `/app/data`. The scorer looks
+there first and falls back to `reference_data/` only if that mount is absent.
+
+Publish the participant copy of the weather files separately (Files tab or an
+external download) alongside `SHA256SUMS`, so entrants can verify they hold the
+same frozen release the scorer uses.
 
 The scoring program is **self-contained** — it uses only `numpy`, `netCDF4`,
 `pyshp`, `shapely`, and `matplotlib` (listed in `scoring_program/requirements.txt`).
@@ -75,7 +83,9 @@ The Docker image `fjsuarez/swopp3-scorer:latest` has all dependencies pre-instal
 
 Upload `starting_kit.zip` to CodaBench so participants can download a working
 baseline. The `starting_kit.py` script generates a valid submission using
-great-circle routes.
+great-circle routes. It also contains `validate_submission.py`, which checks a
+submission directory or ZIP before upload and explicitly rejects a ZIP that
+contains an extra top-level directory.
 
 ## Scoring
 
@@ -115,7 +125,7 @@ cat /tmp/codabench_output/scoring_log.txt
 | ------------------- | ------------------------------------------------------ |
 | **Phase**           | Single evaluation phase (all 366 departures × 8 cases) |
 | **Scoring Program** | `scoring.py` — validates and scores submissions        |
-| **Reference Data**  | ERA5 NetCDF files + Natural Earth shapefile (~3.1 GB)  |
+| **Reference Data**  | Metadata only; weather served from the worker          |
 | **Input Data**      | The submission zip uploaded by participants            |
 | **Starting Kit**    | `starting_kit.py` — great-circle baseline code         |
 | **Leaderboard**     | Ranked by total energy (MWh), lower = better           |
