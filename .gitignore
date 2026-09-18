@@ -168,6 +168,8 @@ output*
 nohup.out
 *.zip
 output/
+logs/
+.opencode/HUMAN_REQUIRED
 
 # CodaBench competition — large data & build artifacts
 codabench/reference_data/*.nc
@@ -181,3 +183,12 @@ codabench/test_submission/
 # Separate repo
 routingviz/
 *.whl
+
+# Local logs for experiment summaries
+logs/
+
+# Revision results
+revision/*.csv
+revision/*.pdf
+revision/*.tex
+revision/*.txt
