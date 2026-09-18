@@ -156,6 +156,107 @@ def _build_custom_evaluate_cost(
     )
 
 
+def _resolve_evaluate_cost(
+    *,
+    vectorfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ],
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None,
+    costfun: FmsCostFunction | None,
+    costfun_kwargs: dict[str, Any] | None,
+    weight_l1: float,
+    weight_l2: float,
+    spherical_correction: bool,
+) -> tuple[
+    FmsCostFunction,
+    bool,
+    tuple[tuple[str, Any], ...] | None,
+    Callable[..., jnp.ndarray],
+]:
+    """Normalize the user-facing cost configuration to ``_evaluate_cost``."""
+    user_costfun = cost_function if costfun is None else costfun
+    use_builtin_costfun = user_costfun is cost_function
+    resolved_costfun_kwargs = {} if costfun_kwargs is None else dict(costfun_kwargs)
+    costfun_kwargs_items: tuple[tuple[str, Any], ...] | None = None
+
+    if use_builtin_costfun and resolved_costfun_kwargs:
+        raise ValueError("costfun_kwargs requires a custom costfun")
+
+    custom_cost_signature: inspect.Signature | None = None
+    custom_cost_accepts_kwargs = False
+    custom_cost_accepts_curve_keyword = False
+    custom_cost_parameter_names: set[str] = set()
+    if not use_builtin_costfun:
+        try:
+            custom_cost_signature = inspect.signature(user_costfun)
+        except (TypeError, ValueError):
+            custom_cost_signature = None
+        if custom_cost_signature is not None:
+            custom_cost_parameter_names = set(custom_cost_signature.parameters)
+            custom_cost_accepts_kwargs = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in custom_cost_signature.parameters.values()
+            )
+            custom_cost_accepts_curve_keyword = (
+                "curve" in custom_cost_parameter_names or custom_cost_accepts_kwargs
+            )
+
+    if use_builtin_costfun:
+
+        def _evaluate_cost(
+            curve_eval: jnp.ndarray,
+            *,
+            travel_stw_eval: float | None = None,
+            travel_time_eval: float | None = None,
+            time_offset_eval: float = 0.0,
+        ) -> jnp.ndarray:
+            return user_costfun(
+                vectorfield=vectorfield,
+                curve=curve_eval,
+                wavefield=wavefield,
+                travel_stw=travel_stw_eval,
+                travel_time=travel_time_eval,
+                weight_l1=weight_l1,
+                weight_l2=weight_l2,
+                spherical_correction=spherical_correction,
+                time_offset=time_offset_eval,
+                **resolved_costfun_kwargs,
+            )
+
+        return user_costfun, use_builtin_costfun, costfun_kwargs_items, _evaluate_cost
+
+    costfun_kwargs_items = _sorted_costfun_kwargs_items(resolved_costfun_kwargs)
+    custom_cost_parameter_names_tuple = tuple(sorted(custom_cost_parameter_names))
+
+    if costfun_kwargs_items is not None:
+        _evaluate_cost = _build_custom_evaluate_cost(
+            user_costfun,
+            costfun_kwargs_items,
+            custom_cost_accepts_kwargs,
+            custom_cost_accepts_curve_keyword,
+            custom_cost_parameter_names_tuple,
+            weight_l1,
+            weight_l2,
+            spherical_correction,
+        )
+    else:
+        _evaluate_cost = _make_custom_evaluate_cost(
+            user_costfun,
+            resolved_costfun_kwargs,
+            custom_cost_accepts_kwargs,
+            custom_cost_accepts_curve_keyword,
+            custom_cost_parameter_names,
+            weight_l1,
+            weight_l2,
+            spherical_correction,
+        )
+
+    return user_costfun, use_builtin_costfun, costfun_kwargs_items, _evaluate_cost
+
+
 @lru_cache(maxsize=32)
 def _build_travel_time_custom_solver(
     evaluate_cost: Callable[..., jnp.ndarray],
@@ -646,6 +747,116 @@ def hessian(
     return jacfwd(jacrev(f, argnums=argnums), argnums=argnums)
 
 
+def discrete_action_fixed_time(
+    vectorfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ],
+    curve: jnp.ndarray,
+    travel_time: float,
+    *,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
+    spherical_correction: bool = False,
+    costfun: FmsCostFunction | None = None,
+    costfun_kwargs: dict[str, Any] | None = None,
+    time_offset: float = 0.0,
+) -> jnp.ndarray:
+    """Compute the fixed-time discrete action used by the FMS travel-time solver.
+
+    This assembles the same per-segment quantity used in the travel-time FMS
+    update: for each segment, the helper evaluates the configured route cost on
+    the two-point segment over a segment duration ``h = travel_time / (L-1)``
+    and sums ``h * cost`` across segments.
+    """
+    if travel_time <= 0:
+        raise ValueError("travel_time must be positive")
+    if curve.ndim != 2 or curve.shape[-1] != 2:
+        raise ValueError("curve must have shape (L, 2)")
+    if curve.shape[0] < 2:
+        raise ValueError("curve must contain at least two waypoints")
+
+    _, _, _, evaluate_cost = _resolve_evaluate_cost(
+        vectorfield=vectorfield,
+        wavefield=wavefield,
+        costfun=costfun,
+        costfun_kwargs=costfun_kwargs,
+        weight_l1=weight_l1,
+        weight_l2=weight_l2,
+        spherical_correction=spherical_correction,
+    )
+
+    n_seg = curve.shape[0] - 1
+    h = travel_time / n_seg
+    segment_time_offsets = time_offset + jnp.arange(n_seg, dtype=curve.dtype) * h
+
+    terms = []
+    for idx in range(n_seg):
+        q = curve[idx : idx + 2][None, ...]
+        lag = evaluate_cost(
+            q,
+            travel_time_eval=h,
+            time_offset_eval=segment_time_offsets[idx],
+        )
+        terms.append(jnp.sum(h * lag))
+
+    return jnp.sum(jnp.stack(terms))
+
+
+def discrete_action_fixed_time_hessian(
+    vectorfield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ],
+    curve: jnp.ndarray,
+    travel_time: float,
+    *,
+    wavefield: Callable[
+        [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
+    ]
+    | None = None,
+    weight_l1: float = 1.0,
+    weight_l2: float = 0.0,
+    spherical_correction: bool = False,
+    costfun: FmsCostFunction | None = None,
+    costfun_kwargs: dict[str, Any] | None = None,
+    time_offset: float = 0.0,
+) -> jnp.ndarray:
+    """Return the exact fixed-endpoint Hessian of the FMS fixed-time action.
+
+    The Hessian is taken with respect to the flattened interior waypoint vector
+    of a single route with fixed endpoints.
+    """
+    if curve.ndim != 2 or curve.shape[-1] != 2:
+        raise ValueError("curve must have shape (L, 2)")
+    if curve.shape[0] < 3:
+        raise ValueError("curve must contain at least one interior waypoint")
+
+    src = curve[0]
+    dst = curve[-1]
+    interior0 = curve[1:-1].reshape(-1)
+
+    def _action_from_interior(interior_flat: jnp.ndarray) -> jnp.ndarray:
+        interior = interior_flat.reshape((-1, 2))
+        curve_eval = jnp.concatenate([src[None, :], interior, dst[None, :]], axis=0)
+        return discrete_action_fixed_time(
+            vectorfield,
+            curve_eval,
+            travel_time,
+            wavefield=wavefield,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
+            costfun=costfun,
+            costfun_kwargs=costfun_kwargs,
+            time_offset=time_offset,
+        )
+
+    return jax.hessian(_action_from_interior)(interior0)
+
+
 def optimize_fms(
     vectorfield: Callable[
         [jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]
@@ -788,82 +999,17 @@ def optimize_fms(
     assert curve.shape[-1] == 2, "Last dimension must be 2 (X, Y)"
 
     # Normalize costfun to the internal call signature used by _evaluate_cost.
-    user_costfun = cost_function if costfun is None else costfun
-    use_builtin_costfun = user_costfun is cost_function
-    resolved_costfun_kwargs = {} if costfun_kwargs is None else dict(costfun_kwargs)
-    costfun_kwargs_items: tuple[tuple[str, Any], ...] | None = None
-
-    if use_builtin_costfun and resolved_costfun_kwargs:
-        raise ValueError("costfun_kwargs requires a custom costfun")
-
-    custom_cost_signature: inspect.Signature | None = None
-    custom_cost_accepts_kwargs = False
-    custom_cost_accepts_curve_keyword = False
-    custom_cost_parameter_names: set[str] = set()
-    if not use_builtin_costfun:
-        try:
-            custom_cost_signature = inspect.signature(user_costfun)
-        except (TypeError, ValueError):
-            custom_cost_signature = None
-        if custom_cost_signature is not None:
-            custom_cost_parameter_names = set(custom_cost_signature.parameters)
-            custom_cost_accepts_kwargs = any(
-                parameter.kind == inspect.Parameter.VAR_KEYWORD
-                for parameter in custom_cost_signature.parameters.values()
-            )
-            custom_cost_accepts_curve_keyword = (
-                "curve" in custom_cost_parameter_names or custom_cost_accepts_kwargs
-            )
-
-    if use_builtin_costfun:
-
-        def _evaluate_cost(
-            curve_eval: jnp.ndarray,
-            *,
-            travel_stw_eval: float | None = None,
-            travel_time_eval: float | None = None,
-            time_offset_eval: float = 0.0,
-        ) -> jnp.ndarray:
-            return user_costfun(
-                vectorfield=vectorfield,
-                curve=curve_eval,
-                wavefield=wavefield,
-                travel_stw=travel_stw_eval,
-                travel_time=travel_time_eval,
-                weight_l1=weight_l1,
-                weight_l2=weight_l2,
-                spherical_correction=spherical_correction,
-                time_offset=time_offset_eval,
-                **resolved_costfun_kwargs,
-            )
-    else:
-        costfun_kwargs_items = _sorted_costfun_kwargs_items(resolved_costfun_kwargs)
-        custom_cost_parameter_names_tuple = tuple(sorted(custom_cost_parameter_names))
-
-        if costfun_kwargs_items is not None:
-            _evaluate_cost = _build_custom_evaluate_cost(
-                user_costfun,
-                costfun_kwargs_items,
-                custom_cost_accepts_kwargs,
-                custom_cost_accepts_curve_keyword,
-                custom_cost_parameter_names_tuple,
-                weight_l1,
-                weight_l2,
-                spherical_correction,
-            )
-        else:
-            # costfun_kwargs contain unhashable values so caching is not
-            # possible. Build the wrapper directly without caching.
-            _evaluate_cost = _make_custom_evaluate_cost(
-                user_costfun,
-                resolved_costfun_kwargs,
-                custom_cost_accepts_kwargs,
-                custom_cost_accepts_curve_keyword,
-                custom_cost_parameter_names,
-                weight_l1,
-                weight_l2,
-                spherical_correction,
-            )
+    user_costfun, use_builtin_costfun, costfun_kwargs_items, _evaluate_cost = (
+        _resolve_evaluate_cost(
+            vectorfield=vectorfield,
+            wavefield=wavefield,
+            costfun=costfun,
+            costfun_kwargs=costfun_kwargs,
+            weight_l1=weight_l1,
+            weight_l2=weight_l2,
+            spherical_correction=spherical_correction,
+        )
+    )
 
     # Initialize lagrangians
     if travel_stw is not None:

@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import math
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from numpy.typing import ArrayLike
@@ -56,6 +57,9 @@ from numpy.typing import ArrayLike
 __all__ = [
     "predict_power",
     "predict_power_batch",
+    "predict_power_raw_jax",
+    "predict_power_raw_velocity_jax",
+    "predict_power_velocity_hessian_jax",
     "predict_power_no_wps",
     "predict_power_with_wps",
     "K_H",
@@ -309,7 +313,7 @@ def predict_power_batch(
 # ---------------------------------------------------------------------------
 # JAX-compatible (JIT / autodiff) entry point
 # ---------------------------------------------------------------------------
-def predict_power_jax(
+def predict_power_raw_jax(
     tws: jnp.ndarray,
     twa: jnp.ndarray,
     swh: jnp.ndarray,
@@ -318,7 +322,7 @@ def predict_power_jax(
     *,
     wps: bool = False,
 ) -> jnp.ndarray:
-    """JAX-compatible vectorized power prediction.
+    """JAX-compatible vectorized raw power prediction.
 
     Identical physics to :func:`predict_power_batch` but uses ``jax.numpy``
     throughout.  Fully compatible with ``jax.jit``, ``jax.vmap``, and
@@ -343,7 +347,7 @@ def predict_power_jax(
     Returns
     -------
     jnp.ndarray
-        Propulsive power in kW.
+        Unclipped propulsive power in kW.
     """
     twa_rad = jnp.radians(twa)
     mwa_rad = jnp.radians(jnp.mod(mwa + 180.0, 360.0) - 180.0)
@@ -367,4 +371,122 @@ def predict_power_jax(
         p_sail = c_awa * vr2 * v
         total = total - p_sail
 
-    return jnp.maximum(total, 0.0)
+    return total
+
+
+def predict_power_jax(
+    tws: jnp.ndarray,
+    twa: jnp.ndarray,
+    swh: jnp.ndarray,
+    mwa: jnp.ndarray,
+    v: jnp.ndarray,
+    *,
+    wps: bool = False,
+) -> jnp.ndarray:
+    """JAX-compatible vectorized power prediction.
+
+    This is the clipped form of :func:`predict_power_raw_jax`.
+
+    Parameters
+    ----------
+    tws : jnp.ndarray
+        True wind speed (m/s).
+    twa : jnp.ndarray
+        True wind angle (degrees), 0 = headwind, 180 = tailwind.
+    swh : jnp.ndarray
+        Significant wave height (m).
+    mwa : jnp.ndarray
+        Mean wave angle (degrees), same convention as TWA.
+    v : jnp.ndarray
+        Ship speed through water (m/s).
+    wps : bool
+        Whether to include wingsail thrust.  **Must be a static
+        (compile-time) value** when used inside ``jax.jit``.
+
+    Returns
+    -------
+    jnp.ndarray
+        Propulsive power in kW.
+    """
+    return jnp.maximum(
+        predict_power_raw_jax(tws, twa, swh, mwa, v, wps=wps),
+        0.0,
+    )
+
+
+def predict_power_raw_velocity_jax(
+    u10: jnp.ndarray,
+    v10: jnp.ndarray,
+    swh: jnp.ndarray,
+    mwd: jnp.ndarray,
+    ve: jnp.ndarray,
+    vn: jnp.ndarray,
+    *,
+    wps: bool = False,
+) -> jnp.ndarray:
+    """Evaluate unclipped RISE power from earth-frame velocity components.
+
+    Parameters
+    ----------
+    u10, v10 : jnp.ndarray
+        Wind components in east/north coordinates (m/s), matching the
+        weather fields consumed by :func:`routetools.cost.cost_function_rise`.
+    swh : jnp.ndarray
+        Significant wave height (m).
+    mwd : jnp.ndarray
+        Mean wave direction in degrees from North.
+    ve, vn : jnp.ndarray
+        Ship velocity components in east/north coordinates (m/s).
+    wps : bool
+        Whether to include wingsail thrust.
+
+    Returns
+    -------
+    jnp.ndarray
+        Unclipped propulsive power in kW.
+    """
+    speed = jnp.sqrt(ve**2 + vn**2)
+    bearing_deg = jnp.mod(jnp.degrees(jnp.arctan2(ve, vn)), 360.0)
+
+    tws = jnp.sqrt(u10**2 + v10**2)
+    wind_from_deg = jnp.mod(180.0 + jnp.degrees(jnp.arctan2(u10, v10)), 360.0)
+    twa = jnp.mod(wind_from_deg - bearing_deg, 360.0)
+    mwa = jnp.mod(mwd - bearing_deg, 360.0)
+
+    return predict_power_raw_jax(tws, twa, swh, mwa, speed, wps=wps)
+
+
+def predict_power_velocity_hessian_jax(
+    u10: jnp.ndarray,
+    v10: jnp.ndarray,
+    swh: jnp.ndarray,
+    mwd: jnp.ndarray,
+    ve: jnp.ndarray,
+    vn: jnp.ndarray,
+    *,
+    wps: bool = False,
+) -> jnp.ndarray:
+    """Compute the exact 2x2 Hessian of raw power w.r.t. velocity.
+
+    The Hessian is taken with respect to earth-frame ship velocity
+    components ``(ve, vn)`` while holding the environmental inputs fixed.
+
+    Returns
+    -------
+    jnp.ndarray
+        Hessian matrix with shape ``(2, 2)``.
+    """
+
+    def _power_from_velocity(velocity: jnp.ndarray) -> jnp.ndarray:
+        return predict_power_raw_velocity_jax(
+            u10,
+            v10,
+            swh,
+            mwd,
+            velocity[0],
+            velocity[1],
+            wps=wps,
+        )
+
+    velocity = jnp.stack([ve, vn])
+    return jax.hessian(_power_from_velocity)(velocity)
