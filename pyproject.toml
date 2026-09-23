@@ -15,7 +15,7 @@ version = "0.1.0"
 dependencies = [
     "pandas",
     "typer-slim",
-    "jax[cuda]==0.8.1",
+    "jax==0.8.1",
     "jaxlib==0.8.1",
     "matplotlib>=3.9.2",
     "cma>=4.0.0",
@@ -25,7 +25,6 @@ dependencies = [
     "perlin-numpy>=0.0.1",
     "seaborn>=0.13.2",
     "typer>=0.19.2",
-    "h3==4.0.0b2",
     "borb @ https://files.pythonhosted.org/packages/7a/4e/b193d894ffb0fde0f773b0476d8b041528302fa86bccf2cc8006c79404e4/borb-3.0.1.tar.gz",
     "jupyter-server>=2.17.0",
     "statsmodels>=0.14.6",
@@ -42,6 +41,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda = ["jax[cuda]==0.8.1"]
+h3 = ["h3==4.0.0b2"]
 era5-cds = ["cdsapi>=0.7.0"]
 era5-gcs = ["gcsfs>=2024.1.0", "zarr>=2.17.0"]
 # swopp3 = ["swopp3-performance-model==0.1.0"]

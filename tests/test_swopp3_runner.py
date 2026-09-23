@@ -388,13 +388,17 @@ class TestRunOptimisedDeparture:
         assert isinstance(result, DepartureResult)
         assert captured["calls"] == ["cmaes", "fms"]
         assert jnp.allclose(result.curve, captured["refined_curve"])
+        assert result.cmaes_result is not None
+        assert jnp.allclose(result.cmaes_result.curve, captured["cmaes_curve"])
         assert jnp.allclose(captured["evaluated_curve"], captured["refined_curve"])
         assert captured["fms_cost_travel_time"] == pytest.approx(354.0)
         assert captured["fms_time_offset"] == pytest.approx(12.0)
         assert captured["time_offsets"][-1] == pytest.approx(12.0)
 
-    def test_fms_route_is_rejected_when_weather_limit_is_exceeded(self, monkeypatch):
-        """FMS should be discarded when the refined route violates weather limits."""
+    def test_fms_route_is_retained_when_soft_weather_threshold_is_exceeded(
+        self, monkeypatch
+    ):
+        """Soft weather thresholds must not replace the final FMS stage."""
         captured: dict[str, object] = {}
 
         def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
@@ -449,9 +453,11 @@ class TestRunOptimisedDeparture:
         )
 
         assert isinstance(result, DepartureResult)
-        assert jnp.allclose(result.curve, captured["cmaes_curve"])
-        assert not jnp.allclose(result.curve, captured["refined_curve"])
-        assert result.energy_mwh == pytest.approx(12.0)
+        assert jnp.allclose(result.curve, captured["refined_curve"])
+        assert result.energy_mwh == pytest.approx(10.0)
+        assert result.max_hs_m == pytest.approx(8.0)
+        assert result.cmaes_result is not None
+        assert jnp.allclose(result.cmaes_result.curve, captured["cmaes_curve"])
 
     def test_cmaes_and_fms_share_penalized_cost(self, monkeypatch):
         """CMA-ES and FMS should optimize the exact same penalized objective."""
@@ -521,6 +527,14 @@ class TestRunOptimisedDeparture:
             )
             return jnp.full(curve.shape[0], penalty + sharpness)
 
+        def fake_wind_penalty_smooth(curve, *, weight, **kwargs):
+            captured.setdefault("wind_penalty_weights", []).append(weight)
+            return jnp.full(curve.shape[0], weight)
+
+        def fake_wave_penalty_smooth(curve, *, weight, **kwargs):
+            captured.setdefault("wave_penalty_weights", []).append(weight)
+            return jnp.full(curve.shape[0], weight)
+
         def fake_optimize_fms(
             *,
             vectorfield,
@@ -578,6 +592,14 @@ class TestRunOptimisedDeparture:
             "routetools.swopp3_runner.weather_penalty_smooth",
             fake_weather_penalty_smooth,
         )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.wind_penalty_smooth",
+            fake_wind_penalty_smooth,
+        )
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.wave_penalty_smooth",
+            fake_wave_penalty_smooth,
+        )
         monkeypatch.setattr("routetools.cmaes.optimize", fake_optimize)
         monkeypatch.setattr("routetools.fms.optimize_fms", fake_optimize_fms)
         monkeypatch.setattr(
@@ -590,10 +612,14 @@ class TestRunOptimisedDeparture:
             _DEP,
             vectorfield=_zero_windfield,
             windfield=_zero_windfield,
+            wavefield=_constant_wavefield(),
             land=_FakeLand(),
             n_points=20,
             weather_penalty_weight=12.0,
             weather_penalty_sharpness=7.0,
+            wind_penalty_weight=3.0,
+            wave_penalty_weight=4.0,
+            land_distance_weight=100.0,
             tws_limit=19.0,
             hs_limit=6.5,
             verbosity=0,
@@ -601,13 +627,14 @@ class TestRunOptimisedDeparture:
 
         assert isinstance(result, DepartureResult)
         assert jnp.allclose(result.curve, captured["cmaes_curve"])
+        assert result.cmaes_result is not None
         assert captured["windfield"] is _zero_windfield
-        assert jnp.allclose(captured["cmaes_cost"], jnp.array([31.0]))
-        assert jnp.allclose(captured["fms_cost"], jnp.array([31.0]))
-        assert captured["enforce_weather_limits"] is True
+        assert jnp.allclose(captured["cmaes_cost"], jnp.array([38.0]))
+        assert jnp.allclose(captured["fms_cost"], jnp.array([38.0]))
+        assert captured["enforce_weather_limits"] is False
         assert captured["costfun_kwargs"] is not None
         assert captured["costfun_kwargs"]["windfield"] is _zero_windfield
-        assert captured["costfun_kwargs"]["wavefield"] is None
+        assert captured["costfun_kwargs"]["wavefield"] is not None
         assert captured["costfun_kwargs"]["wps"] is True
         assert captured["costfun_kwargs"]["land"] is not None
         assert captured["costfun_kwargs"]["weather_penalty_weight"] == pytest.approx(
@@ -628,9 +655,11 @@ class TestRunOptimisedDeparture:
         assert captured["penalty_calls"][-1]["hs_limit"] == pytest.approx(6.5)
         assert captured["penalty_calls"][-1]["penalty"] == pytest.approx(12.0)
         assert captured["penalty_calls"][-1]["sharpness"] == pytest.approx(7.0)
+        assert captured["wind_penalty_weights"] == [3.0, 3.0]
+        assert captured["wave_penalty_weights"] == [4.0, 4.0]
         assert captured["land_penalty_calls"] == [
-            {"curve_shape": (1, 20, 2), "weight": 50.0, "epsilon": 1.0},
-            {"curve_shape": (1, 20, 2), "weight": 50.0, "epsilon": 1.0},
+            {"curve_shape": (1, 20, 2), "weight": 100.0, "epsilon": 1.0},
+            {"curve_shape": (1, 20, 2), "weight": 100.0, "epsilon": 1.0},
         ]
 
     def test_feasible_fms_beats_infeasible_cmaes(self, monkeypatch):
@@ -734,6 +763,67 @@ class TestRunCase:
         assert fb_dir.exists()
         fb_files = list(fb_dir.glob("*.csv"))
         assert len(fb_files) == 2
+
+    def test_optimised_case_writes_final_and_pre_fms_outputs(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """One run should persist distinct BERS and CMA-ES analysis roots."""
+        curve_cmaes = great_circle_route(
+            jnp.array([-4.0, 43.6]),
+            jnp.array([-73.8, 40.53]),
+            n_points=20,
+        )
+        curve_fms = curve_cmaes + jnp.array([0.1, 0.0])
+
+        def fake_run_optimised_departure(*args, **kwargs):
+            cmaes_result = DepartureResult(
+                departure=_DEP,
+                curve=curve_cmaes,
+                energy_mwh=120.0,
+                max_tws_mps=18.0,
+                max_hs_m=6.0,
+                distance_nm=3000.0,
+                comp_time_s=2.0,
+            )
+            return DepartureResult(
+                departure=_DEP,
+                curve=curve_fms,
+                energy_mwh=110.0,
+                max_tws_mps=19.0,
+                max_hs_m=6.5,
+                distance_nm=3010.0,
+                comp_time_s=3.0,
+                cmaes_result=cmaes_result,
+            )
+
+        monkeypatch.setattr(
+            "routetools.swopp3_runner.run_optimised_departure",
+            fake_run_optimised_departure,
+        )
+
+        bers_dir = tmp_path / "bers"
+        cmaes_dir = tmp_path / "cmaes"
+        run_case(
+            "AO_WPS",
+            [_DEP],
+            vectorfield=_zero_windfield,
+            output_dir=bers_dir,
+            cmaes_output_dir=cmaes_dir,
+            n_points=20,
+            verbose=False,
+        )
+
+        with (bers_dir / "IEUniversity-1-AO_WPS.csv").open() as handle:
+            bers_rows = list(csv.DictReader(handle))
+        with (cmaes_dir / "IEUniversity-1-AO_WPS.csv").open() as handle:
+            cmaes_rows = list(csv.DictReader(handle))
+
+        assert float(bers_rows[0]["energy_cons_mwh"]) == pytest.approx(110.0)
+        assert float(cmaes_rows[0]["energy_cons_mwh"]) == pytest.approx(120.0)
+        assert len(list((bers_dir / "tracks").glob("*.csv"))) == 1
+        assert len(list((cmaes_dir / "tracks").glob("*.csv"))) == 1
 
     def test_incremental_output_replaces_stale_summary_and_appends_rows(
         self,

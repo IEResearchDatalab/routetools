@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from routetools.fms import _apply_curve_constraints, optimize_fms
+from routetools.cost import cost_function_rise
+from routetools.fms import (
+    _apply_curve_constraints,
+    discrete_action_fixed_time_hessian,
+    hessian,
+    optimize_fms,
+)
 from routetools.vectorfield import vectorfield_fourvortices
 
 
@@ -20,6 +28,11 @@ def _violating_windfield(lon, lat, t):
 def _banded_windfield(lon, lat, t):
     tws = jnp.where(lat > 0.25, 25.0, 5.0)
     return tws, jnp.zeros_like(lon)
+
+
+def _zero_field(lon, lat, t):
+    del lat, t
+    return jnp.zeros_like(lon), jnp.zeros_like(lon)
 
 
 class _BandLand:
@@ -307,3 +320,87 @@ class TestFmsConvergence:
         # All interior y-coordinates should be near 0 (straight line y = 0)
         interior_y = curve_out[0, 1:-1, 1]
         assert float(jnp.abs(interior_y).max()) < 0.05
+
+
+class TestFmsDiscreteActionHessian:
+    def test_fixed_time_hessian_matches_single_waypoint_block_sum(self):
+        """For one interior waypoint, the full Hessian equals D22(left)+D11(right)."""
+        with jax.enable_x64(True):
+            curve = jnp.array(
+                [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0]],
+                dtype=jnp.float64,
+            )
+            travel_time = 2.0
+            h = travel_time / (curve.shape[0] - 1)
+
+            full_hessian = np.asarray(
+                discrete_action_fixed_time_hessian(
+                    _zero_field,
+                    curve,
+                    travel_time,
+                    wavefield=_zero_field,
+                    costfun=cost_function_rise,
+                    costfun_kwargs={"windfield": _zero_field, "wavefield": _zero_field},
+                )
+            )
+
+            def lagrangian(
+                q0: jnp.ndarray,
+                q1: jnp.ndarray,
+                segment_time_offset: float,
+            ) -> jnp.ndarray:
+                q = jnp.vstack([q0, q1])[None, ...]
+                lag = cost_function_rise(
+                    windfield=_zero_field,
+                    curve=q,
+                    travel_time=h,
+                    wavefield=_zero_field,
+                    time_offset=segment_time_offset,
+                )
+                return jnp.sum(h * lag)
+
+            d11ld = hessian(lagrangian, argnums=0)
+            d22ld = hessian(lagrangian, argnums=1)
+            block_sum = np.asarray(
+                d22ld(curve[0], curve[1], 0.0) + d11ld(curve[1], curve[2], h)
+            )
+
+        np.testing.assert_allclose(full_hessian, block_sum, rtol=1e-10, atol=1e-10)
+
+    def test_fixed_time_hessian_is_positive_at_converged_rise_route(self):
+        """The exact fixed-time discrete Hessian is positive.
+
+        The check uses a simple converged fixed-time RISE route.
+        """
+        with jax.enable_x64(True):
+            curve_init = jnp.array(
+                [[[0.0, 0.0], [1.0, 0.5], [2.0, 0.0]]],
+                dtype=jnp.float64,
+            )
+
+            curve_out, info = optimize_fms(
+                _zero_field,
+                curve=curve_init,
+                travel_time=2.0,
+                damping=0.0,
+                maxfevals=25,
+                patience=10,
+                verbose=False,
+                costfun=cost_function_rise,
+                costfun_kwargs={"windfield": _zero_field, "wavefield": _zero_field},
+            )
+
+            assert info["niter"] > 0
+
+            hess = np.asarray(
+                discrete_action_fixed_time_hessian(
+                    _zero_field,
+                    curve_out[0].astype(jnp.float64),
+                    2.0,
+                    wavefield=_zero_field,
+                    costfun=cost_function_rise,
+                    costfun_kwargs={"windfield": _zero_field, "wavefield": _zero_field},
+                )
+            )
+
+        assert np.all(np.linalg.eigvalsh(hess) > 0.0)

@@ -552,6 +552,19 @@ class TestTimeOffset:
         )
         assert jnp.allclose(pen, 3.0)  # 3 segments × 1
 
+    def test_hard_penalty_applies_offset_once(self):
+        """The departure offset is added once to segment-relative times."""
+        curve = _make_curve(n_points=4)  # segment midpoints: 5, 15, 25
+        wf = self._time_threshold_windfield(threshold_t=20.0)
+        pen = weather_penalty(
+            curve,
+            windfield=wf,
+            travel_time=30.0,
+            time_offset=10.0,
+            penalty=1.0,
+        )
+        assert jnp.allclose(pen, 2.0)  # absolute midpoints: 15, 25, 35
+
     def test_smooth_penalty_without_offset_zero(self):
         curve = _make_curve(n_points=4)
         wf = self._time_threshold_windfield(threshold_t=100.0)
@@ -567,3 +580,21 @@ class TestTimeOffset:
             curve, windfield=wf, travel_time=10.0, time_offset=200.0
         )
         assert float(pen[0]) > 0.0
+
+    def test_smooth_penalty_applies_offset_once(self):
+        """Smooth penalties query weather at one-offset absolute times."""
+
+        def time_as_wind(lon, lat, t):
+            return t, jnp.zeros_like(lon)
+
+        curve = _make_curve(n_points=4)  # segment midpoints: 5, 15, 25
+        pen = weather_penalty_smooth(
+            curve,
+            windfield=time_as_wind,
+            travel_time=30.0,
+            time_offset=10.0,
+            penalty=1.0,
+            sharpness=1.0,
+        )
+        # Absolute midpoint times are 15, 25, 35. The max wind excess is 15.
+        assert jnp.allclose(pen, 15.0**2)
