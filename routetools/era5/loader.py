@@ -455,7 +455,11 @@ def load_era5_windfield(
     Callable
         ``(lon, lat, t) -> (u10, v10)`` with ``.is_time_variant = True``.
     """
-    ds = _load_datasets(path, temporal_stride=temporal_stride)
+    ds = _slice_dataset_time(
+        _load_datasets(path, temporal_stride=temporal_stride),
+        time_start=time_start,
+        time_end=time_end,
+    )
 
     # Auto-detect variable names
     if u_var is None:
@@ -618,7 +622,11 @@ def load_era5_wavefield(
     Callable
         ``(lon, lat, t) -> (hs, mwd)``.
     """
-    ds = _load_datasets(path, temporal_stride=temporal_stride)
+    ds = _slice_dataset_time(
+        _load_datasets(path, temporal_stride=temporal_stride),
+        time_start=time_start,
+        time_end=time_end,
+    )
 
     # Auto-detect variable names
     if hs_var is None:

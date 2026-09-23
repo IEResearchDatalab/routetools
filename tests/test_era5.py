@@ -213,6 +213,27 @@ class TestLoadERA5Windfield:
             # At t=12h (index 2): u10 = -50/10 + 2*0.1 = -4.8
             np.testing.assert_allclose(float(u[0]), -4.8, atol=0.15)
 
+    def test_time_window_is_applied_before_loading(self) -> None:
+        """A requested time window changes the closure epoch and contents."""
+        from routetools.era5.loader import load_era5_windfield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nc_path = Path(tmpdir) / "wind.nc"
+            _make_wind_nc(nc_path)
+
+            wf = load_era5_windfield(
+                nc_path,
+                time_start="2024-01-15T06:00",
+                time_end="2024-01-15T12:00",
+            )
+
+            lon = jnp.array([-50.0])
+            lat = jnp.array([40.0])
+            u, _ = wf(lon, lat, jnp.array([0.0]))
+
+            # The sliced field starts at the original index 1, not index 0.
+            np.testing.assert_allclose(float(u[0]), -4.9, atol=0.15)
+
     def test_descending_latitude(self) -> None:
         """Loader handles ERA5 files with descending latitudes."""
         from routetools.era5.loader import load_era5_windfield
@@ -257,6 +278,21 @@ class TestLoadERA5Wavefield:
             hs, mwd = wf(lon, lat, t)
             np.testing.assert_allclose(float(hs[0]), 2.0, atol=0.1)
             np.testing.assert_allclose(float(mwd[0]), 180.0, atol=0.1)
+
+    def test_time_window_is_applied_before_loading(self) -> None:
+        """An empty requested wave window is rejected rather than ignored."""
+        from routetools.era5.loader import load_era5_wavefield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nc_path = Path(tmpdir) / "waves.nc"
+            _make_wave_nc(nc_path)
+
+            with pytest.raises(ValueError, match="time window is empty"):
+                load_era5_wavefield(
+                    nc_path,
+                    time_start="2025-01-01T00:00",
+                    time_end="2025-01-02T00:00",
+                )
 
     def test_wavefield_not_time_variant(self) -> None:
         """Wavefield should NOT have is_time_variant=True."""

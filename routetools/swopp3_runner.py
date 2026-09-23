@@ -23,7 +23,7 @@ import csv
 import logging
 import time as _time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -49,8 +49,10 @@ from routetools.swopp3_output import (
 from routetools.weather import (
     DEFAULT_HS_LIMIT,
     DEFAULT_TWS_LIMIT,
+    wave_penalty_smooth,
     weather_penalty,
     weather_penalty_smooth,
+    wind_penalty_smooth,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,9 +108,12 @@ def _penalized_rise_cost(
     weather_penalty_weight: float = 10.0,
     weather_penalty_type: str = "smooth",
     weather_penalty_sharpness: float = 5.0,
+    wind_penalty_weight: float = 0.0,
+    wave_penalty_weight: float = 0.0,
     land: Any | None = None,
     land_distance_weight: float = 0.0,
     land_distance_epsilon: float = 1.0,
+    distance_penalty_weight: float = 0.0,
 ) -> jnp.ndarray:
     """Return the SWOPP3 optimisation objective used by CMA-ES and FMS."""
     total_cost = cost_function_rise(
@@ -143,11 +148,39 @@ def _penalized_rise_cost(
             raise ValueError("weather_penalty_type must be 'hard' or 'smooth'")
         total_cost = total_cost + penalty_fn(**penalty_kwargs)
 
+    if wind_penalty_weight > 0:
+        total_cost = total_cost + wind_penalty_smooth(
+            curve,
+            windfield=windfield,
+            tws_limit=tws_limit,
+            weight=wind_penalty_weight,
+            travel_time=travel_time,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+        )
+
+    if wavefield is not None and wave_penalty_weight > 0:
+        total_cost = total_cost + wave_penalty_smooth(
+            curve,
+            wavefield=wavefield,
+            hs_limit=hs_limit,
+            weight=wave_penalty_weight,
+            travel_time=travel_time,
+            spherical_correction=spherical_correction,
+            time_offset=time_offset,
+        )
+
     if land is not None and land_distance_weight > 0:
         total_cost = total_cost + land.distance_penalty(
             curve,
             weight=land_distance_weight,
             epsilon=land_distance_epsilon,
+        )
+
+    if land is not None and distance_penalty_weight > 0:
+        total_cost = total_cost + land.distance_penalty(
+            curve,
+            weight=distance_penalty_weight,
         )
 
     return total_cost
@@ -276,6 +309,10 @@ class DepartureResult:
         Total sailed distance in nautical miles.
     comp_time_s : float
         Computation time in seconds.
+    cmaes_result : DepartureResult, optional
+        Pre-FMS CMA-ES result for an optimised departure. This is retained so
+        the CMA-ES ablation and final BERS result can be written separately
+        from the same run. It is ``None`` for GC results.
     """
 
     departure: datetime
@@ -285,6 +322,11 @@ class DepartureResult:
     max_hs_m: float
     distance_nm: float
     comp_time_s: float = 0.0
+    cmaes_result: DepartureResult | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -553,8 +595,13 @@ def run_optimised_departure(
         weather_penalty_sharpness = float(
             defaults_cmaes.pop("weather_penalty_sharpness", 5.0)
         )
+        wind_penalty_weight = float(defaults_cmaes.pop("wind_penalty_weight", 0.0))
+        wave_penalty_weight = float(defaults_cmaes.pop("wave_penalty_weight", 0.0))
         land_distance_weight = float(defaults_cmaes.pop("land_distance_weight", 50.0))
         land_distance_epsilon = float(defaults_cmaes.pop("land_distance_epsilon", 1.0))
+        distance_penalty_weight = float(
+            defaults_cmaes.pop("distance_penalty_weight", 0.0)
+        )
 
         def _shared_cost(
             curve: jnp.ndarray,
@@ -585,9 +632,12 @@ def run_optimised_departure(
                 weather_penalty_weight=weather_penalty_weight,
                 weather_penalty_type=weather_penalty_type,
                 weather_penalty_sharpness=weather_penalty_sharpness,
+                wind_penalty_weight=wind_penalty_weight,
+                wave_penalty_weight=wave_penalty_weight,
                 land=land,
                 land_distance_weight=land_distance_weight,
                 land_distance_epsilon=land_distance_epsilon,
+                distance_penalty_weight=distance_penalty_weight,
             )
 
         defaults_cmaes["cost_fn"] = _shared_cost
@@ -601,9 +651,12 @@ def run_optimised_departure(
             "weather_penalty_weight": weather_penalty_weight,
             "weather_penalty_type": weather_penalty_type,
             "weather_penalty_sharpness": weather_penalty_sharpness,
+            "wind_penalty_weight": wind_penalty_weight,
+            "wave_penalty_weight": wave_penalty_weight,
             "land": land,
             "land_distance_weight": land_distance_weight,
             "land_distance_epsilon": land_distance_epsilon,
+            "distance_penalty_weight": distance_penalty_weight,
         }
 
         with warnings.catch_warnings():
@@ -640,6 +693,15 @@ def run_optimised_departure(
             departure_offset_h=departure_offset_h,
         )
         cmaes_comp_time_s = _time.time() - cmaes_t0
+        cmaes_result = DepartureResult(
+            departure=departure,
+            curve=curve_cmaes,
+            energy_mwh=energy_cmaes,
+            max_tws_mps=max_tws_cmaes,
+            max_hs_m=max_hs_cmaes,
+            distance_nm=cmaes_distance_nm,
+            comp_time_s=cmaes_comp_time_s,
+        )
         fms_t0 = _time.time()
         curve_fms, _ = optimize_fms(
             vectorfield=vectorfield,
@@ -650,7 +712,10 @@ def run_optimised_departure(
             travel_time=objective_travel_time,
             spherical_correction=objective_spherical_correction,
             time_offset=objective_time_offset,
-            enforce_weather_limits=True,  # revert steps that newly violate limits
+            # TWS and Hs are soft objective penalties in BERS, not hard
+            # feasibility constraints. Land-increasing updates remain rolled
+            # back by optimize_fms independently of this flag.
+            enforce_weather_limits=False,
             tws_limit=tws_limit,
             hs_limit=hs_limit,
             costfun=_penalized_rise_cost,
@@ -681,55 +746,30 @@ def run_optimised_departure(
                 f"d={fms_distance_nm:.0f} nm  "
                 f"t={fms_comp_time_s:.1f}s"
             )
-        cmaes_is_valid = max_tws_cmaes <= tws_limit and max_hs_cmaes <= hs_limit
-        fms_is_valid = max_tws_fms <= tws_limit and max_hs_fms <= hs_limit
+        # BERS is defined as CMA-ES followed by FMS. Always retain the FMS
+        # stage as the final BERS result, even when its raw energy is higher or
+        # a soft weather threshold is exceeded. The pre-FMS result is attached
+        # separately for the CMA-ES ablation output.
+        if resolved_verbosity >= 1 and energy_fms >= energy_cmaes:
+            print(
+                f"FMS energy change: {energy_fms - energy_cmaes:+.2f} MWh "
+                "(retained as the final BERS stage)."
+            )
+        if resolved_verbosity >= 1 and max_tws_fms > tws_limit:
+            print(
+                f"FMS route exceeded the soft TWS threshold: "
+                f"{max_tws_fms:.1f} m/s > {tws_limit:.1f} m/s."
+            )
+        if resolved_verbosity >= 1 and max_hs_fms > hs_limit:
+            print(
+                f"FMS route exceeded the soft Hs threshold: "
+                f"{max_hs_fms:.1f} m > {hs_limit:.1f} m."
+            )
 
-        if fms_is_valid and (not cmaes_is_valid or energy_fms < energy_cmaes):
-            if resolved_verbosity >= 1 and not cmaes_is_valid:
-                print(
-                    "Selected FMS refinement because the CMA-ES route "
-                    "exceeded weather limits."
-                )
-            curve = curve_fms
-            energy_mwh = energy_fms
-            max_tws = max_tws_fms
-            max_hs = max_hs_fms
-        else:
-            # Warn if FMS refinement fails to improve energy
-            # or violates weather constraints
-            if (
-                resolved_verbosity >= 1
-                and cmaes_is_valid
-                and energy_fms >= energy_cmaes
-            ):
-                print(
-                    f"FMS refinement did not reduce energy: "
-                    f"{energy_fms:.2f} MWh (FMS) vs {energy_cmaes:.2f} MWh (CMA-ES)."
-                )
-            if resolved_verbosity >= 1 and max_tws_fms > tws_limit:
-                print(
-                    f"FMS refinement exceeded TWS limit: "
-                    f"{max_tws_fms:.1f} m/s > {tws_limit:.1f} m/s."
-                )
-            if resolved_verbosity >= 1 and max_hs_fms > hs_limit:
-                print(
-                    f"FMS refinement exceeded Hs limit: "
-                    f"{max_hs_fms:.1f} m > {hs_limit:.1f} m."
-                )
-            if resolved_verbosity >= 1 and max_tws_cmaes > tws_limit:
-                print(
-                    f"CMA-ES route exceeded TWS limit: "
-                    f"{max_tws_cmaes:.1f} m/s > {tws_limit:.1f} m/s."
-                )
-            if resolved_verbosity >= 1 and max_hs_cmaes > hs_limit:
-                print(
-                    f"CMA-ES route exceeded Hs limit: "
-                    f"{max_hs_cmaes:.1f} m > {hs_limit:.1f} m."
-                )
-            curve = curve_cmaes
-            energy_mwh = energy_cmaes
-            max_tws = max_tws_cmaes
-            max_hs = max_hs_cmaes
+        curve = curve_fms
+        energy_mwh = energy_fms
+        max_tws = max_tws_fms
+        max_hs = max_hs_fms
     else:
         # No vectorfield → raise error
         raise ValueError(
@@ -748,6 +788,7 @@ def run_optimised_departure(
         max_hs_m=max_hs,
         distance_nm=distance_nm,
         comp_time_s=comp_time,
+        cmaes_result=cmaes_result,
     )
 
 
@@ -762,6 +803,7 @@ def run_case(
     wavefield: FieldClosure | None = None,
     land=None,
     output_dir: str | Path | None = None,
+    cmaes_output_dir: str | Path | None = None,
     submission: int = 1,
     n_points: int = 100,
     verbose: bool | None = True,
@@ -774,8 +816,10 @@ def run_case(
     """Run all departures for a single SWOPP3 case.
 
     Dispatches to :func:`run_gc_departure` or :func:`run_optimised_departure`
-    depending on the case strategy.  When *output_dir* is provided, writes
-    File A and File B CSVs.
+    depending on the case strategy. When *output_dir* is provided, writes
+    final BERS File A and File B CSVs. When *cmaes_output_dir* is also
+    provided, writes the pre-FMS CMA-ES results there; GC results are mirrored
+    unchanged so both output roots are complete analysis inputs.
 
     Parameters
     ----------
@@ -791,6 +835,8 @@ def run_case(
         Land mask for penalisation.
     output_dir : str or Path, optional
         If provided, writes output CSVs to this directory.
+    cmaes_output_dir : str or Path, optional
+        If provided, writes pre-FMS CMA-ES outputs to this directory.
     submission : int
         Submission number for file naming.
     n_points : int
@@ -828,6 +874,7 @@ def run_case(
     resolved_verbosity = _resolve_runner_verbosity(verbose, verbosity)
 
     output_path: Path | None = None
+    cmaes_output_path: Path | None = None
     completed_departures: set[datetime] = set()
     if output_dir is not None:
         output_path = Path(output_dir)
@@ -837,6 +884,39 @@ def run_case(
             submission=submission,
             resume=resume,
         )
+    if cmaes_output_dir is not None:
+        cmaes_output_path = Path(cmaes_output_dir)
+        if (
+            output_path is not None
+            and cmaes_output_path.resolve() == output_path.resolve()
+        ):
+            raise ValueError("cmaes_output_dir must differ from output_dir")
+        cmaes_completed = _prepare_case_output(
+            case_id,
+            cmaes_output_path,
+            submission=submission,
+            resume=resume,
+        )
+        if output_path is not None and resume:
+            if completed_departures == cmaes_completed:
+                completed_departures &= cmaes_completed
+            else:
+                # The stage pair must remain departure-aligned. Rebuild this
+                # case if one root is incomplete rather than appending
+                # duplicate rows to the more-complete root.
+                _prepare_case_output(
+                    case_id,
+                    output_path,
+                    submission=submission,
+                    resume=False,
+                )
+                _prepare_case_output(
+                    case_id,
+                    cmaes_output_path,
+                    submission=submission,
+                    resume=False,
+                )
+                completed_departures = set()
 
     if verbose:
         log_run_parameters(
@@ -910,6 +990,13 @@ def run_case(
                 submission=submission,
             )
             completed_departures.add(dep_key)
+        if cmaes_output_path is not None:
+            _append_case_output(
+                case_id,
+                result.cmaes_result or result,
+                cmaes_output_path,
+                submission=submission,
+            )
         if resolved_verbosity >= 1:
             # Flag constraint violations
             tws_flag = " [TWS!]" if result.max_tws_mps > 20.0 else ""

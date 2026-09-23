@@ -38,6 +38,7 @@ import shapely.affinity
 import typer
 from shapely.geometry import LineString, shape
 from shapely.ops import unary_union
+from shapely.prepared import prep
 
 from routetools.cmaes import optimize
 from routetools.fms import optimize_fms
@@ -88,7 +89,7 @@ def _load_tiled_natural_earth_land() -> shapely.geometry.base.BaseGeometry:
 
 
 def _route_crosses_land(
-    lon: np.ndarray, lat: np.ndarray, land_polygon
+    lon: np.ndarray, lat: np.ndarray, land_polygon, prepared_land=None
 ) -> tuple[bool, float]:
     """Return (crosses_land, intersection_extent) for a route vs ``land_polygon``.
 
@@ -101,6 +102,8 @@ def _route_crosses_land(
     if len(lon) < 2:
         return False, 0.0
     line = LineString(list(zip(lon.tolist(), lat.tolist(), strict=False)))
+    if prepared_land is not None and not prepared_land.intersects(line):
+        return False, 0.0
     inter = land_polygon.intersection(line)
     if inter.is_empty:
         return False, 0.0
@@ -116,6 +119,7 @@ def verify_real_ocean_routes(
     """Verify every BERS-optimised real-ocean track for land crossings."""
     team_prefix = find_team_prefix(input_dir)
     tracks_dir = input_dir / "tracks"
+    prepared_land = prep(land_polygon)
     rows: list[dict[str, object]] = []
 
     for case_id in OPTIMISED_CASES:
@@ -132,7 +136,9 @@ def verify_real_ocean_routes(
                 curve = read_track_curve(track_path)
                 lon = np.asarray(curve[:, 0])
                 lat = np.asarray(curve[:, 1])
-                crosses, extent_deg = _route_crosses_land(lon, lat, land_polygon)
+                crosses, extent_deg = _route_crosses_land(
+                    lon, lat, land_polygon, prepared_land
+                )
                 # Rough deg-to-km conversion for reporting only (not for testing).
                 extent_km = extent_deg * 111.0
                 rows.append(
@@ -281,8 +287,9 @@ def main(
     real_ocean_dir: str = "output/sweep_combined_fms",
     config_path: str = "config.toml",
     output_dir: str = "revision",
+    include_synthetic: bool = True,
 ) -> None:
-    """Run the full Task 7 land verification and write the report."""
+    """Run Task 7 and optionally skip synthetic route generation."""
     out_dir = REPO_ROOT / output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -292,8 +299,12 @@ def main(
     print(f"Verifying real-ocean BERS routes in {real_ocean_dir} ...")
     real_rows = verify_real_ocean_routes(REPO_ROOT / real_ocean_dir, land_polygon)
 
-    print("Verifying synthetic BERS routes ...")
-    synthetic_rows = verify_synthetic_routes(REPO_ROOT / config_path)
+    if include_synthetic:
+        print("Verifying synthetic BERS routes ...")
+        synthetic_rows = verify_synthetic_routes(REPO_ROOT / config_path)
+    else:
+        print("Skipping synthetic route generation; checking stored routes only.")
+        synthetic_rows = []
 
     all_rows = real_rows + synthetic_rows
     csv_path = out_dir / "task7_route_results.csv"
@@ -324,9 +335,13 @@ def main(
         "=" * 60,
         f"Real-ocean BERS routes tested: {n_real} "
         f"(cases: {', '.join(OPTIMISED_CASES)})",
-        f"Synthetic BERS routes tested: {n_synth} "
-        f"(fields: {', '.join(SYNTHETIC_FIELDS)}; "
-        f"water levels: {SYNTHETIC_WATER_LEVELS}; seeds: {SYNTHETIC_SEEDS})",
+        (
+            f"Synthetic BERS routes tested: {n_synth} "
+            f"(fields: {', '.join(SYNTHETIC_FIELDS)}; "
+            f"water levels: {SYNTHETIC_WATER_LEVELS}; seeds: {SYNTHETIC_SEEDS})"
+            if include_synthetic
+            else "Synthetic BERS routes tested: skipped by request"
+        ),
         f"Total routes tested: {n_total}",
         "",
         f"Land-crossing routes found (real-ocean): {n_crossing_real}",
@@ -359,7 +374,9 @@ def main(
 
     report_text = "\n".join(report_lines)
     print("\n" + report_text)
-    (out_dir / "task7_verification_report.txt").write_text(report_text + "\n")
+    (out_dir / "task7_verification_report.txt").write_text(
+        report_text + "\n", encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":
