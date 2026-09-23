@@ -319,16 +319,10 @@ def weather_penalty(
         travel_stw : float, optional
             Constant speed through water (m/s) for elapsed-time estimation.
         travel_time : float, optional
-    <<<<<<< HEAD
             Total travel time with arbitrary time units; distributed
             proportionally by distance. Units must match those used by
             ``time_offset`` and the time coordinate expected by the field
             closures.
-    =======
-            Total travel time with arbitrary time units. Each segment is assumed
-            to occupy ``travel_time / (L - 1)``. Units must match those used by
-            ``time_offset`` and the time coordinate expected by the field closures.
-    >>>>>>> swopp
         spherical_correction : bool
             Use haversine distances (default ``True``).
         time_offset : float
@@ -349,8 +343,6 @@ def weather_penalty(
         spherical_correction=spherical_correction,
         time_offset=time_offset,
     )
-    t_mid = t_mid + time_offset
-
     violations = jnp.zeros(curve.shape[0])
 
     if windfield is not None:
@@ -445,8 +437,6 @@ def weather_penalty_smooth(
         spherical_correction=spherical_correction,
         time_offset=time_offset,
     )
-    t_mid = t_mid + time_offset
-
     total = jnp.zeros(curve.shape[0])
 
     if windfield is not None:

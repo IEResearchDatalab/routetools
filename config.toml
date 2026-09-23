@@ -425,6 +425,40 @@ name = "pacific"
 cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
 n_points = 293
 
+[swopp3.experiments.bers_revision_final]
+description = "Final corrected 2024 BERS run: shared soft weather objective, post-FMS BERS output, and stronger coast-distance penalty."
+source_script = "scripts/run_bers_revision_2024_timefix.sh"
+output_dir = "output/bers_revision_2024_final/bers"
+
+[swopp3.experiments.bers_revision_final.defaults]
+cmaes_output_dir = "output/bers_revision_2024_final/cmaes"
+dt_eval_minutes = 30.0
+weather_penalty_weight = 0.0
+wind_penalty_weight = 50.0
+wave_penalty_weight = 50.0
+distance_penalty_weight = 0.0
+land_distance_weight = 100.0
+land_distance_epsilon = 1.0
+land_crossing_penalty = 1000000.0
+cmaes_k = 10
+sigma0 = 0.1
+popsize = 200
+maxfevals = 25000
+fms_patience = 50
+fms_damping = 0.9
+fms_maxfevals = 5000
+dataload_limit = 1
+
+[[swopp3.experiments.bers_revision_final.runs]]
+name = "atlantic"
+cases = ["AO_WPS", "AO_noWPS", "AGC_WPS", "AGC_noWPS"]
+n_points = 178
+
+[[swopp3.experiments.bers_revision_final.runs]]
+name = "pacific"
+cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
+n_points = 293
+
 [swopp3.experiments.sweep_w50]
 description = "Normalized-mean penalty sweep experiment with wind and wave weights set to 50."
 source_script = "scripts/swopp3_slurm_penalty_sweep.sh"

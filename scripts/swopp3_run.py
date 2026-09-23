@@ -71,6 +71,7 @@ _ERA5_FILE_RE = re.compile(
     r"^(?P<prefix>era5_[^_]+_[^_]+_)(?P<year>\d{4})(?:_(?P<suffix>\d{2}(?:-\d{2})?))?\.nc$"
 )
 _CONFIG_PATH_KEYS = {
+    "cmaes_output_dir",
     "output_dir",
     "wind_path",
     "wave_path",
@@ -356,6 +357,7 @@ def _run_swopp3_configuration(
     wind_path_pacific: Path | None,
     wave_path_pacific: Path | None,
     output_dir: Path,
+    cmaes_output_dir: Path | None,
     submission: int,
     n_points: int,
     max_departures: int | None,
@@ -363,11 +365,17 @@ def _run_swopp3_configuration(
     wind_penalty_weight: float,
     wave_penalty_weight: float,
     distance_penalty_weight: float,
+    land_distance_weight: float,
+    land_distance_epsilon: float,
+    land_crossing_penalty: float,
     dt_eval_minutes: float,
     cmaes_k: int,
     sigma0: float,
     popsize: int,
     maxfevals: int,
+    fms_patience: int,
+    fms_damping: float,
+    fms_maxfevals: int,
     dataload_limit: int,
     cmaes_verbose: bool,
     quiet: bool,
@@ -377,13 +385,18 @@ def _run_swopp3_configuration(
 
     from routetools.era5.loader import (
         load_dataset_epoch,
-        load_era5_vectorfield,
         load_era5_wavefield,
         load_era5_windfield,
         load_natural_earth_land_mask,
     )
     from routetools.swopp3 import SWOPP3_CASES, departures_2024
     from routetools.swopp3_runner import run_case
+
+    if (
+        cmaes_output_dir is not None
+        and cmaes_output_dir.resolve() == output_dir.resolve()
+    ):
+        raise ValueError("cmaes_output_dir must differ from output_dir")
 
     case_ids = _resolve_case_ids(cases, strategy)
 
@@ -461,24 +474,16 @@ def _run_swopp3_configuration(
         time_start: datetime | None,
         time_end: datetime | None,
     ) -> FieldClosure:
-        """Return the ERA5 vectorfield closure for one corridor."""
+        """Return the wind closure through the vectorfield interface.
+
+        ``load_era5_vectorfield`` is an alias of ``load_era5_windfield``.
+        Reusing the already-loaded closure avoids putting a second copy of
+        the same high-resolution ERA5 arrays into each JAX executable.
+        """
         key = (corridor, time_start, time_end)
         if key in _loaded_vf:
             return _loaded_vf[key]
-        wp = corridor_wind.get(corridor)
-        if wp is None:
-            raise ValueError(f"No wind path available for corridor '{corridor}'")
-        load_paths = _loadable_era5_paths(wp)
-        load_target = load_paths if len(load_paths) > 1 else load_paths[0]
-        typer.echo(
-            f"Loading vectorfield for {corridor} from "
-            f"{', '.join(str(path) for path in load_paths)} …"
-        )
-        vf = load_era5_vectorfield(
-            load_target,
-            time_start=time_start,
-            time_end=time_end,
-        )
+        vf, _ = _get_wind(corridor, time_start, time_end)
         _loaded_vf[key] = vf
         return vf
 
@@ -547,9 +552,29 @@ def _run_swopp3_configuration(
         _loaded_land[corridor] = land
         return land
 
+    def _release_weather_batch(
+        corridor: str,
+        time_start: datetime | None,
+        time_end: datetime | None,
+    ) -> None:
+        """Release one completed weather window and its JAX executables."""
+        key = (corridor, time_start, time_end)
+        _loaded_vf.pop(key, None)
+        _loaded_wind.pop(key, None)
+        _loaded_wave.pop(key, None)
+
+        import gc
+
+        import jax
+
+        gc.collect()
+        if hasattr(jax, "clear_caches"):
+            jax.clear_caches()
+
     for cid in case_ids:
         case = SWOPP3_CASES[cid]
         corridor = case["route"]
+        is_gc = case["strategy"] == "gc"
         typer.echo(f"\n{'=' * 60}")
         typer.echo(f"Case {cid}: {case['label']}")
         typer.echo(
@@ -584,9 +609,11 @@ def _run_swopp3_configuration(
                     f"'{corridor}': {wind_epoch.isoformat()} "
                     f"!= {wave_epoch.isoformat()}"
                 )
-            if land is None:
+            if not is_gc and land is None:
                 land = _get_land(corridor)
-            vectorfield = _get_vectorfield(corridor, batch_start, batch_end)
+            vectorfield = (
+                None if is_gc else _get_vectorfield(corridor, batch_start, batch_end)
+            )
 
             batch_results = run_case(
                 cid,
@@ -604,14 +631,26 @@ def _run_swopp3_configuration(
                 wind_penalty_weight=wind_penalty_weight,
                 wave_penalty_weight=wave_penalty_weight,
                 distance_penalty_weight=distance_penalty_weight,
+                land_distance_weight=land_distance_weight,
+                land_distance_epsilon=land_distance_epsilon,
+                penalty=land_crossing_penalty,
                 dt_eval_minutes=dt_eval_minutes,
                 K=cmaes_k,
                 sigma0=sigma0,
                 popsize=popsize,
                 maxfevals=maxfevals,
+                fms_patience=fms_patience,
+                fms_damping=fms_damping,
+                fms_maxfevals=fms_maxfevals,
                 cmaes_verbose=cmaes_verbose,
             )
             results.extend(batch_results)
+
+            # The high-resolution arrays are captured in JAX executables.
+            # Keep only the active monthly window so the full year does not
+            # accumulate on the host/GPU across batches and cases.
+            del batch_results, vectorfield, windfield, wavefield
+            _release_weather_batch(corridor, batch_start, batch_end)
 
         # Persist outputs once per case after all monthly batches complete.
         from routetools.swopp3_runner import _write_case_outputs
@@ -622,6 +661,14 @@ def _run_swopp3_configuration(
             output_dir,
             submission=submission,
         )
+        if cmaes_output_dir is not None:
+            cmaes_results = [result.cmaes_result or result for result in results]
+            _write_case_outputs(
+                cid,
+                cmaes_results,
+                cmaes_output_dir,
+                submission=submission,
+            )
 
         energies = [r.energy_mwh for r in results]
         total_time = sum(r.comp_time_s for r in results)
@@ -632,6 +679,8 @@ def _run_swopp3_configuration(
         )
 
     typer.echo(f"\nOutputs written to {output_dir}")
+    if cmaes_output_dir is not None:
+        typer.echo(f"Pre-FMS CMA-ES outputs written to {cmaes_output_dir}")
 
 
 @app.command()
@@ -714,6 +763,14 @@ def main(
         "-o",
         help="Output directory for CSV files.",
     ),
+    cmaes_output_dir: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--cmaes-output-dir",
+        help=(
+            "Optional directory for pre-FMS CMA-ES outputs. GC outputs are "
+            "mirrored so this is a complete analysis root."
+        ),
+    ),
     submission: int = typer.Option(  # noqa: B008
         1,
         "--submission",
@@ -744,6 +801,26 @@ def main(
         0.0,
         "--distance-penalty-weight",
         help="EDT distance-to-land penalty weight. 0 to disable.",
+    ),
+    land_distance_weight: float = typer.Option(  # noqa: B008
+        50.0,
+        "--land-distance-weight",
+        help=(
+            "Shared CMA-ES/FMS inverse-distance coast penalty weight. "
+            "The final BERS revision run uses 100."
+        ),
+    ),
+    land_distance_epsilon: float = typer.Option(  # noqa: B008
+        1.0,
+        "--land-distance-epsilon",
+        min=0.000001,
+        help="Regularisation epsilon for the inverse-distance coast penalty.",
+    ),
+    land_crossing_penalty: float = typer.Option(  # noqa: B008
+        1e6,
+        "--land-crossing-penalty",
+        min=0.0,
+        help="Finite CMA-ES penalty assigned to routes intersecting the land mask.",
     ),
     dt_eval_minutes: float = typer.Option(  # noqa: B008
         0.0,
@@ -968,6 +1045,11 @@ def main(
                         wave_path_pacific,
                     ),
                     output_dir=Path(profile["output_dir"]),
+                    cmaes_output_dir=(
+                        Path(run["cmaes_output_dir"])
+                        if run.get("cmaes_output_dir") is not None
+                        else cmaes_output_dir
+                    ),
                     submission=int(run.get("submission", submission)),
                     n_points=int(run.get("n_points", n_points)),
                     max_departures=run.get("max_departures", max_departures),
@@ -986,11 +1068,23 @@ def main(
                             distance_penalty_weight,
                         )
                     ),
+                    land_distance_weight=float(
+                        run.get("land_distance_weight", land_distance_weight)
+                    ),
+                    land_distance_epsilon=float(
+                        run.get("land_distance_epsilon", land_distance_epsilon)
+                    ),
+                    land_crossing_penalty=float(
+                        run.get("land_crossing_penalty", land_crossing_penalty)
+                    ),
                     dt_eval_minutes=float(run.get("dt_eval_minutes", dt_eval_minutes)),
                     cmaes_k=int(run.get("cmaes_k", cmaes_k)),
                     sigma0=float(run.get("sigma0", sigma0)),
                     popsize=int(run.get("popsize", popsize)),
                     maxfevals=int(run.get("maxfevals", maxfevals)),
+                    fms_patience=int(run.get("fms_patience", 50)),
+                    fms_damping=float(run.get("fms_damping", 0.9)),
+                    fms_maxfevals=int(run.get("fms_maxfevals", 5000)),
                     dataload_limit=int(run.get("dataload_limit", dataload_limit)),
                     cmaes_verbose=bool(run.get("cmaes_verbose", cmaes_verbose)),
                     quiet=quiet,
@@ -1140,12 +1234,25 @@ def main(
 
             # Build extra CMA-ES keyword arguments from CLI flags.
             cmaes_extra: dict[str, object] = {}
-            if control_points is not None:
-                cmaes_extra["K"] = control_points
             if weather_penalty_type is not None:
                 cmaes_extra["weather_penalty_type"] = weather_penalty_type
             if weather_penalty_weight is not None:
                 cmaes_extra["weather_penalty_weight"] = weather_penalty_weight
+            cmaes_extra.update(
+                {
+                    "wind_penalty_weight": wind_penalty_weight,
+                    "wave_penalty_weight": wave_penalty_weight,
+                    "distance_penalty_weight": distance_penalty_weight,
+                    "land_distance_weight": land_distance_weight,
+                    "land_distance_epsilon": land_distance_epsilon,
+                    "penalty": land_crossing_penalty,
+                    "dt_eval_minutes": dt_eval_minutes,
+                    "K": control_points if control_points is not None else cmaes_k,
+                    "sigma0": sigma0,
+                    "popsize": popsize,
+                    "maxfevals": maxfevals,
+                }
+            )
 
             run_case(
                 cid,
@@ -1155,6 +1262,7 @@ def main(
                 wavefield=wavefield,
                 land=land,
                 output_dir=output_dir,
+                cmaes_output_dir=cmaes_output_dir,
                 submission=submission,
                 n_points=n_points,
                 verbose=None,

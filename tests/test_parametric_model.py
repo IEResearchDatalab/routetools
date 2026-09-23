@@ -8,6 +8,9 @@ stress tests.
 
 from __future__ import annotations
 
+import itertools
+
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -16,6 +19,9 @@ from routetools.performance import (
     K_H,
     predict_power,
     predict_power_batch,
+    predict_power_raw_jax,
+    predict_power_raw_velocity_jax,
+    predict_power_velocity_hessian_jax,
 )
 from routetools.performance import (
     predict_power_no_wps as parametric_no_wps,
@@ -360,8 +366,8 @@ class TestDecomposition:
         p4 = swopp3.predict_no_wps(0, 0, 4.0, mwa, v) - swopp3.predict_no_wps(
             0, 0, 0, 0, v
         )
-        assert abs(p2 / p1 - 4.0) < 1e-6, f"ratio p2/p1 = {p2/p1:.6f}, expected 4"
-        assert abs(p4 / p1 - 16.0) < 1e-6, f"ratio p4/p1 = {p4/p1:.6f}, expected 16"
+        assert abs(p2 / p1 - 4.0) < 1e-6, f"ratio p2/p1 = {p2 / p1:.6f}, expected 4"
+        assert abs(p4 / p1 - 16.0) < 1e-6, f"ratio p4/p1 = {p4 / p1:.6f}, expected 16"
 
     def test_wave_speed_exponent(self) -> None:
         """Wave power ∝ v^1.5 at fixed (swh, mwa)."""
@@ -555,6 +561,285 @@ class TestJaxParity:
         )
 
 
+class TestJaxVelocityHessian:
+    """Focused checks for the continuous velocity-Hessian helpers."""
+
+    @staticmethod
+    def _wind_components(tws: float, wind_from_deg: float) -> tuple[float, float]:
+        theta = np.radians(wind_from_deg)
+        return -tws * np.sin(theta), -tws * np.cos(theta)
+
+    @classmethod
+    def _case_metrics(
+        cls,
+        *,
+        speed: float,
+        heading_deg: float,
+        tws: float,
+        wind_from_deg: float,
+        swh: float,
+        mwd: float,
+        wps: bool,
+    ) -> tuple[float, float, float, float]:
+        ve = speed * np.sin(np.radians(heading_deg))
+        vn = speed * np.cos(np.radians(heading_deg))
+        u10, v10 = cls._wind_components(tws, wind_from_deg)
+
+        with jax.enable_x64(True):
+            raw = float(
+                predict_power_raw_velocity_jax(
+                    jnp.array(u10),
+                    jnp.array(v10),
+                    jnp.array(swh),
+                    jnp.array(mwd),
+                    jnp.array(ve),
+                    jnp.array(vn),
+                    wps=wps,
+                )
+            )
+            hessian = np.asarray(
+                predict_power_velocity_hessian_jax(
+                    jnp.array(u10),
+                    jnp.array(v10),
+                    jnp.array(swh),
+                    jnp.array(mwd),
+                    jnp.array(ve),
+                    jnp.array(vn),
+                    wps=wps,
+                )
+            )
+
+        bearing_deg = np.mod(np.degrees(np.arctan2(ve, vn)), 360.0)
+        twa = np.mod(wind_from_deg - bearing_deg, 360.0)
+        uy = tws * np.sin(np.radians(twa))
+        ux = tws * np.cos(np.radians(twa)) + speed
+        awa = np.degrees(np.arctan2(abs(uy), ux))
+        return raw, awa, uy, float(np.linalg.eigvalsh(hessian).min())
+
+    @classmethod
+    def _coarse_envelope_minimum(
+        cls,
+        *,
+        speeds: list[float],
+        headings: list[float],
+        tws_values: list[float],
+        swh_values: list[float],
+        wave_misalignments: list[float],
+        wps: bool,
+    ) -> tuple[int, float]:
+        wind_from_deg = 40.0
+
+        cases = list(
+            itertools.product(
+                speeds,
+                headings,
+                tws_values,
+                swh_values,
+                wave_misalignments,
+            )
+        )
+        speeds_arr = np.array([case[0] for case in cases], dtype=np.float64)
+        headings_arr = np.array([case[1] for case in cases], dtype=np.float64)
+        tws_arr = np.array([case[2] for case in cases], dtype=np.float64)
+        swh_arr = np.array([case[3] for case in cases], dtype=np.float64)
+        mwd_arr = np.mod(
+            wind_from_deg + np.array([case[4] for case in cases], dtype=np.float64),
+            360.0,
+        )
+
+        ve_arr = speeds_arr * np.sin(np.radians(headings_arr))
+        vn_arr = speeds_arr * np.cos(np.radians(headings_arr))
+        u10_arr, v10_arr = cls._wind_components(tws_arr, wind_from_deg)
+
+        batched_raw = jax.jit(
+            jax.vmap(
+                lambda u10, v10, swh, mwd, ve, vn: predict_power_raw_velocity_jax(
+                    u10,
+                    v10,
+                    swh,
+                    mwd,
+                    ve,
+                    vn,
+                    wps=wps,
+                )
+            )
+        )
+        batched_hessian = jax.jit(
+            jax.vmap(
+                lambda u10, v10, swh, mwd, ve, vn: predict_power_velocity_hessian_jax(
+                    u10,
+                    v10,
+                    swh,
+                    mwd,
+                    ve,
+                    vn,
+                    wps=wps,
+                )
+            )
+        )
+
+        with jax.enable_x64(True):
+            raw_arr = np.asarray(
+                batched_raw(
+                    jnp.array(u10_arr),
+                    jnp.array(v10_arr),
+                    jnp.array(swh_arr),
+                    jnp.array(mwd_arr),
+                    jnp.array(ve_arr),
+                    jnp.array(vn_arr),
+                )
+            )
+            hessian_arr = np.asarray(
+                batched_hessian(
+                    jnp.array(u10_arr),
+                    jnp.array(v10_arr),
+                    jnp.array(swh_arr),
+                    jnp.array(mwd_arr),
+                    jnp.array(ve_arr),
+                    jnp.array(vn_arr),
+                )
+            )
+
+        bearing_arr = np.mod(np.degrees(np.arctan2(ve_arr, vn_arr)), 360.0)
+        twa_arr = np.mod(wind_from_deg - bearing_arr, 360.0)
+        uy_arr = tws_arr * np.sin(np.radians(twa_arr))
+        ux_arr = tws_arr * np.cos(np.radians(twa_arr)) + speeds_arr
+        awa_arr = np.degrees(np.arctan2(np.abs(uy_arr), ux_arr))
+        min_eig_arr = np.linalg.eigvalsh(hessian_arr).min(axis=1)
+
+        smooth_mask = raw_arr >= 1.0
+        if wps:
+            smooth_mask &= np.abs(awa_arr - 10.0) >= 1.0
+            smooth_mask &= np.abs(uy_arr) >= 0.05
+
+        checked = int(np.count_nonzero(smooth_mask))
+        worst_min_eig = float(np.min(min_eig_arr[smooth_mask]))
+
+        return checked, worst_min_eig
+
+    def test_raw_velocity_form_matches_speed_angle_form(self) -> None:
+        """Earth-frame velocity helper reduces to the existing speed-angle form."""
+        cases = [
+            dict(tws=12.0, wind_from=35.0, swh=2.0, mwd=80.0, ve=3.0, vn=7.0),
+            dict(tws=18.0, wind_from=120.0, swh=4.0, mwd=210.0, ve=-4.5, vn=6.0),
+        ]
+
+        for wps in (False, True):
+            for case in cases:
+                u10, v10 = self._wind_components(case["tws"], case["wind_from"])
+                speed = np.hypot(case["ve"], case["vn"])
+                bearing_deg = np.mod(
+                    np.degrees(np.arctan2(case["ve"], case["vn"])),
+                    360.0,
+                )
+                twa = np.mod(case["wind_from"] - bearing_deg, 360.0)
+                mwa = np.mod(case["mwd"] - bearing_deg, 360.0)
+
+                raw_from_angles = float(
+                    predict_power_raw_jax(
+                        jnp.array(case["tws"]),
+                        jnp.array(twa),
+                        jnp.array(case["swh"]),
+                        jnp.array(mwa),
+                        jnp.array(speed),
+                        wps=wps,
+                    )
+                )
+                raw_from_velocity = float(
+                    predict_power_raw_velocity_jax(
+                        jnp.array(u10),
+                        jnp.array(v10),
+                        jnp.array(case["swh"]),
+                        jnp.array(case["mwd"]),
+                        jnp.array(case["ve"]),
+                        jnp.array(case["vn"]),
+                        wps=wps,
+                    )
+                )
+
+                np.testing.assert_allclose(
+                    raw_from_velocity,
+                    raw_from_angles,
+                    rtol=1e-5,
+                    atol=1e-4,
+                )
+
+    def test_velocity_hessian_matches_calm_analytic_form(self) -> None:
+        """Calm no-WPS raw power reduces to K_H * ||v||^3 with known Hessian."""
+        ve = 3.0
+        vn = 4.0
+        speed = np.hypot(ve, vn)
+
+        hessian = np.asarray(
+            predict_power_velocity_hessian_jax(
+                jnp.array(0.0),
+                jnp.array(0.0),
+                jnp.array(0.0),
+                jnp.array(0.0),
+                jnp.array(ve),
+                jnp.array(vn),
+                wps=False,
+            )
+        )
+
+        expected = (3.0 * K_H / speed) * np.array(
+            [
+                [2.0 * ve**2 + vn**2, ve * vn],
+                [ve * vn, ve**2 + 2.0 * vn**2],
+            ]
+        )
+
+        np.testing.assert_allclose(hessian, expected, rtol=5e-5, atol=5e-4)
+        assert np.all(np.linalg.eigvalsh(hessian) > 0.0)
+
+    def test_velocity_hessian_no_wps_positive_on_coarse_grid(self) -> None:
+        """No-WPS raw velocity Hessian stays positive on a coarse smooth grid."""
+        checked, worst_min_eig = self._coarse_envelope_minimum(
+            speeds=[1.0, 4.0, 8.0, 12.0],
+            headings=[0.0, 45.0, 90.0, 180.0, 270.0],
+            tws_values=[0.0, 20.0, 30.0],
+            swh_values=[0.0, 6.0, 10.0],
+            wave_misalignments=[0.0, 90.0, 180.0],
+            wps=False,
+        )
+
+        assert checked > 0
+        assert worst_min_eig > 0.0
+
+    def test_velocity_hessian_wps_positive_on_coarse_grid_above_speed_floor(
+        self,
+    ) -> None:
+        """With WPS, the coarse smooth grid stays positive for speeds >= 2 m/s."""
+        checked, worst_min_eig = self._coarse_envelope_minimum(
+            speeds=[2.0, 4.0, 8.0, 12.0],
+            headings=[0.0, 45.0, 90.0, 180.0, 270.0],
+            tws_values=[0.0, 20.0, 30.0],
+            swh_values=[0.0, 6.0, 10.0],
+            wave_misalignments=[0.0, 90.0, 180.0],
+            wps=True,
+        )
+
+        assert checked > 0
+        assert worst_min_eig > 0.0
+
+    def test_velocity_hessian_wps_has_low_speed_counterexample(self) -> None:
+        """With WPS, a low-speed strong-wind case can be indefinite."""
+        raw, awa, uy, min_eig = self._case_metrics(
+            speed=1.0,
+            heading_deg=0.0,
+            tws=30.0,
+            wind_from_deg=40.0,
+            swh=6.0,
+            mwd=40.0,
+            wps=True,
+        )
+
+        assert raw > 1.0
+        assert abs(awa - 10.0) >= 1.0
+        assert abs(uy) >= 0.05
+        assert min_eig < 0.0
+
+
 # ===================================================================
 #  MWA wrapping regression test
 # ===================================================================
@@ -580,10 +865,9 @@ class TestMWAWrapping:
             fn = parametric_with_wps if wps else parametric_no_wps
             pa = fn(10.0, 60.0, 4.0, mwa_a, 6.0)
             pb = fn(10.0, 60.0, 4.0, mwa_b, 6.0)
-            assert abs(pa - pb) < 1e-10, (
-                f"wps={wps}, mwa={mwa_a} vs {mwa_b}: "
-                f"power_a={pa:.4f}, power_b={pb:.4f}"
-            )
+            assert (
+                abs(pa - pb) < 1e-10
+            ), f"wps={wps}, mwa={mwa_a} vs {mwa_b}: power_a={pa:.4f}, power_b={pb:.4f}"
 
     def test_mwa_near_360_has_wave_contribution(self) -> None:
         """MWA=356° (nearly following seas) must have non-zero wave power."""

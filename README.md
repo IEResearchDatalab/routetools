@@ -42,6 +42,20 @@ Install package and pinned dependencies with the [`uv`](https://docs.astral.sh/u
    uv sync
    ```
 
+   This installs the cross-platform CPU build of JAX. On a supported Linux
+   CUDA host, install the optional GPU runtime explicitly instead:
+
+   ```{bash}
+   uv sync --extra cuda
+   ```
+
+   The circumnavigation and H3 polygon utilities use a separate optional
+   dependency:
+
+   ```{bash}
+   uv sync --extra h3
+   ```
+
 4. (Optional) Install the SWOPP3 performance model:
 
    ```{bash}
