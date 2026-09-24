@@ -1,8 +1,12 @@
-# SWOPP3 Weather Routing Benchmark
+# Weather Routing Benchmark 001
 
 ## Overview
 
-The **SWOPP3 Weather Routing Benchmark** evaluates weather routing optimizers on real ERA5 weather data using the RISE performance model for an 88 m cargo ship with optional wingsails.
+The **Weather Routing Benchmark** is an ongoing, open benchmark for weather-routing optimisation. Each benchmark number fixes one complete set of evaluation conditions, so results stay comparable over time.
+
+**Benchmark 001** evaluates optimisers on real ERA5 weather data using the RISE performance model for an 88 m cargo ship with optional wingsails. Its conditions are frozen: the RISE wingsail performance model, a fixed hourly ERA5 release, and deterministic route definitions. Future benchmark numbers may define different conditions, such as probabilistic weather or a different performance model.
+
+> Benchmark 001 reuses the scenarios and data first used for the SWOPP3 workshop challenge, so results remain directly comparable with that earlier evaluation.
 
 ### The Challenge
 
@@ -47,7 +51,7 @@ This gives **8 cases total** × **366 daily departures** (every day of 2024, noo
 
 ### What Makes This Different
 
-Unlike the original SWOPP3 competition, **all participants use the same weather data and the same performance model**. This ensures results are directly comparable — the only differentiator is the optimization algorithm.
+**All participants use the same weather data and the same performance model.** This ensures results are directly comparable — the only differentiator is the optimization algorithm.
 
 ### Ranking
 
@@ -57,9 +61,9 @@ Submissions are ranked by **total energy consumption (MWh)** summed across all 8
 
 You can choose between two approaches to obtain the ERA5 data:
 
-**Option A — Download from CodaBench** (recommended):
+**Option A — Download the frozen release** (recommended):
 
-1. Download the pre-built ERA5 `.nc` files from the **Files** tab of this competition
+1. Download the pre-built ERA5 `.nc` files from the link on the **Data** tab, and verify them against the published `SHA256SUMS`
 2. Implement the RISE performance model (formulas provided in the **Data** tab)
 3. Submit a zip file with your CSV results
 

@@ -1,33 +1,41 @@
 # Data & Performance Model
 
-All participants use the **same ERA5 weather data** and the **same RISE performance model**. You can choose between two approaches to obtain the data.
+Benchmark 001 uses a fixed hourly ERA5 weather-data release and the RISE
+performance model. All participants and the scoring worker must use this exact
+release; its SHA-256 checksums are published with the data files.
 
 ---
 
-## Option A — Download ERA5 from CodaBench (Recommended)
+## Option A — Download the frozen release (Recommended)
 
-The ERA5 NetCDF files are available for direct download from the **Files** tab of this competition. You need 2024 data plus January 2025 (late-December departures extend into January 2025):
+The release is hosted externally: at 19.57 GB it exceeds the 15 GB CodaBench
+storage quota, so it cannot be attached to this benchmark directly.
+
+**Download:** _link published on the Overview page._
+
+You need 2024 data plus January 2025 (late-December departures extend into January 2025):
 
 | File                             | Size (approx.) | Contents                                                  |
 | -------------------------------- | -------------- | --------------------------------------------------------- |
-| `era5_wind_atlantic_2024.nc`     | ~570 MB        | 10 m wind (u10, v10) — Atlantic corridor                  |
-| `era5_waves_atlantic_2024.nc`    | ~570 MB        | Wave height (swh) and direction (mwd) — Atlantic corridor |
-| `era5_wind_pacific_2024.nc`      | ~865 MB        | 10 m wind (u10, v10) — Pacific corridor                   |
-| `era5_waves_pacific_2024.nc`     | ~865 MB        | Wave height (swh) and direction (mwd) — Pacific corridor  |
-| `era5_wind_atlantic_2025_01.nc`  | ~49 MB         | 10 m wind — January 2025, Atlantic                        |
-| `era5_waves_atlantic_2025_01.nc` | ~49 MB         | Waves — January 2025, Atlantic                            |
-| `era5_wind_pacific_2025_01.nc`   | ~74 MB         | 10 m wind — January 2025, Pacific                         |
-| `era5_waves_pacific_2025_01.nc`  | ~74 MB         | Waves — January 2025, Pacific                             |
+| `era5_wind_atlantic_2024.nc`     | ~3.58 GB       | 10 m wind (u10, v10) — Atlantic corridor                  |
+| `era5_waves_atlantic_2024.nc`    | ~3.58 GB       | Wave height (swh) and direction (mwd) — Atlantic corridor |
+| `era5_wind_pacific_2024.nc`      | ~5.44 GB       | 10 m wind (u10, v10) — Pacific corridor                   |
+| `era5_waves_pacific_2024.nc`     | ~5.44 GB       | Wave height (swh) and direction (mwd) — Pacific corridor  |
+| `era5_wind_atlantic_2025_01.nc`  | ~303 MB        | 10 m wind — January 2025, Atlantic                        |
+| `era5_waves_atlantic_2025_01.nc` | ~303 MB        | Waves — January 2025, Atlantic                            |
+| `era5_wind_pacific_2025_01.nc`   | ~461 MB        | 10 m wind — January 2025, Pacific                         |
+| `era5_waves_pacific_2025_01.nc`  | ~461 MB        | Waves — January 2025, Pacific                             |
 
 These are the exact same files produced by the `routetools` downloader. The NetCDF variables are:
 
 - **Wind:** `u10` (eastward), `v10` (northward) in m/s
 - **Waves:** `swh` (significant wave height in m), `mwd` (mean wave direction in degrees)
-- **Grid:** 0.25° × 0.25°, 6-hourly time steps (00:00, 06:00, 12:00, 18:00 UTC)
+- **Grid:** 0.25° × 0.25°, hourly time steps (00:00 through 23:00 UTC)
 
-With these files in hand, implement the RISE performance model from the formulas below.
-
-> **Tip:** For higher temporal resolution, you can download hourly ERA5 data yourself via the CDS API (Option B) or by using the `routetools` downloader with `--time-step 1`.
+The eight NetCDF files total 19.57 GB uncompressed. Verify each downloaded file
+against the published `SHA256SUMS` before using it — this is the only way to
+confirm you hold the same release the scorer uses. With these files in hand,
+implement the RISE performance model from the formulas below.
 
 ---
 
@@ -48,7 +56,7 @@ client = cdsapi.Client()
 
 MONTHS = [f"{m:02d}" for m in range(1, 13)]
 DAYS = [f"{d:02d}" for d in range(1, 32)]
-TIMES = ["00:00", "06:00", "12:00", "18:00"]
+TIMES = [f"{hour:02d}:00" for hour in range(24)]
 
 CORRIDORS = {
     "atlantic": [60, -80, 25, 10],     # [N, W, S, E]
@@ -81,9 +89,10 @@ for year in ["2024", "2025"]:
             )
 ```
 
-The resulting NetCDF files contain variables named `u10`, `v10` (wind) and `swh`, `mwd` (waves), on a 0.25° grid at 6-hourly intervals.
-
-> **Note:** To download hourly data instead, change `TIMES` to `[f"{h:02d}:00" for h in range(24)]`.
+The resulting NetCDF files contain variables named `u10`, `v10` (wind) and
+`swh`, `mwd` (waves), on a 0.25° grid at hourly intervals. A fresh CDS export
+must match the published `SHA256SUMS` before it can be considered equivalent to
+the Benchmark 001 release.
 
 ### RISE Performance Model — Full Specification
 

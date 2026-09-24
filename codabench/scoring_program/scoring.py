@@ -689,12 +689,23 @@ def _interp_era5(
     fi_lon = np.clip(fi_lon, 0, len(lon) - 1)
 
     if order > 1:
-        from scipy.ndimage import map_coordinates
+        from scipy.ndimage import map_coordinates, spline_filter
+
+        # map_coordinates re-derives spline coefficients on every call, which
+        # costs seconds per call on hourly ERA5 arrays. They depend only on the
+        # array, so filter once in place and reuse.
+        prefiltered = grid.setdefault("_prefiltered", set())
+        if var_name not in prefiltered:
+            grid["data"][var_name] = spline_filter(
+                arr, order=order, output=np.float32
+            )
+            prefiltered.add(var_name)
+        arr = grid["data"][var_name]
 
         coords = np.array([fi_t, fi_lat, fi_lon])
-        return map_coordinates(arr, coords, order=order, mode="nearest").astype(
-            np.float64
-        )
+        return map_coordinates(
+            arr, coords, order=order, mode="nearest", prefilter=False
+        ).astype(np.float64)
 
     # Fallback: manual trilinear (order=1)
     i0_t = np.clip(np.floor(fi_t).astype(int), 0, len(times_h) - 2)
@@ -1041,7 +1052,22 @@ def try_load_era5_scorer(ref_dir: Path):
         # E_i = (P_start + P_end) / 2 * dt
         power_avg = (power_start + power_end) / 2.0
         energy_mwh = float(np.sum(power_avg * seg_dt_h) / 1000.0)
-        return energy_mwh, wind_violations, wave_violations
+
+        n_segs = int(len(tws_all))
+        return {
+            "energy_mwh": energy_mwh,
+            "max_tws": float(np.max(tws_all)) if n_segs else 0.0,
+            "max_hs": float(np.max(swh)) if len(swh) > 0 else 0.0,
+            "wind_violation_segs": wind_violations,
+            "wave_violation_segs": wave_violations,
+            "total_segs": n_segs,
+            "wind_violation_pct": (
+                round(wind_violations / n_segs * 100.0, 3) if n_segs else 0.0
+            ),
+            "wave_violation_pct": (
+                round(wave_violations / n_segs * 100.0, 3) if n_segs else 0.0
+            ),
+        }
 
     return evaluate_route
 
@@ -1453,6 +1479,15 @@ def score_submission() -> dict:
             if submission_dir.is_dir()
             else []
         )
+        nested_submission_dirs = (
+            sorted(
+                entry.name
+                for entry in submission_dir.iterdir()
+                if entry.is_dir() and any(entry.glob("*.csv"))
+            )
+            if submission_dir.is_dir()
+            else []
+        )
         msg = (
             "Cannot detect team prefix from CSV filenames. "
             "Expected File-A CSVs named <TeamName>-<N>-<CaseName>.csv "
@@ -1462,6 +1497,11 @@ def score_submission() -> dict:
             "Common fix: zip files from *inside* the directory, not the "
             "directory itself (cd into it, then zip)."
         )
+        if nested_submission_dirs:
+            msg += (
+                " Found File-A CSVs inside nested director"
+                f"y/directories: {nested_submission_dirs}."
+            )
         all_errors.append(msg)
         print(f"ERROR: {msg}", file=sys.stderr)
         scores["total_energy_mwh"] = 1e12
@@ -1479,6 +1519,16 @@ def score_submission() -> dict:
             for k, v in scores.items():
                 f.write(f"  {k}: {v}\n")
 
+        _write_detailed_results(
+            output_dir,
+            scores,
+            all_errors,
+            all_warnings,
+            case_energies,
+            case_routes,
+            case_violations,
+            data_dir=data_dir,
+        )
         return scores
 
     # Try to load land checker
@@ -1521,6 +1571,7 @@ def score_submission() -> dict:
         tracks_dir = submission_dir / "tracks"
         re_eval_energy = 0.0
         re_eval_ok = era5_scorer is not None
+        re_eval_error: str | None = None
         missing_tracks = 0
         total_tracks = len(fa_rows)
         case_wind_violations = 0
@@ -1538,6 +1589,8 @@ def score_submission() -> dict:
                 if tracks_dir.is_dir()
                 else submission_dir / fb_name
             )
+            if not fb_path.exists():
+                missing_tracks += 1
 
             # Parse departure/arrival for endpoint time checks
             dep_dt = arr_dt = None
@@ -1604,7 +1657,9 @@ def score_submission() -> dict:
                     dep_str = dep_dt.strftime(DTFMT)
                     result = era5_scorer(case, waypoints_resampled, dep_str)
                     if result is not None:
-                        e, wv, wav = result
+                        e = result["energy_mwh"]
+                        wv = result["wind_violation_segs"]
+                        wav = result["wave_violation_segs"]
                         re_eval_energy += e
                         case_wind_violations += wv
                         case_wave_violations += wav
@@ -1635,7 +1690,11 @@ def score_submission() -> dict:
                         )
                     else:
                         re_eval_ok = False
-                except Exception:
+                except Exception as error:
+                    # Record the cause: a scorer-side fault here is otherwise
+                    # indistinguishable from a bad submission.
+                    if re_eval_error is None:
+                        re_eval_error = f"{type(error).__name__}: {error}"
                     re_eval_ok = False
             elif re_eval_ok:
                 re_eval_ok = False
@@ -1666,11 +1725,15 @@ def score_submission() -> dict:
                     f"corresponding track files for ERA5 re-evaluation."
                 )
             else:
+                detail = (
+                    f" Internal error: {re_eval_error}"
+                    if re_eval_error
+                    else " Check that track files have valid waypoints "
+                    "(time_utc, lat_deg, lon_deg columns)."
+                )
                 all_errors.append(
                     f"{case}: PENALTY — energy set to 1e12 because "
-                    f"ERA5 re-evaluation could not be completed. "
-                    f"Check that track files have valid waypoints "
-                    f"(time_utc, lat_deg, lon_deg columns)."
+                    f"ERA5 re-evaluation could not be completed.{detail}"
                 )
 
         scores[f"{case}_energy_mwh"] = round(case_energy_final, 4)
