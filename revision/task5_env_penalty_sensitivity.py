@@ -1,12 +1,12 @@
 """Task 5 (R1-7) — fast, targeted weather-penalty sensitivity test.
 
 This test starts from the preserved CMA-ES routes in ``output/sweep_combined``
-and reruns only FMS.  It therefore isolates the actual split squared-excess
-weather penalty used in the paper without repeating the expensive global
-search.  Eight deliberately difficult departures are used: two from each
-corridor/WPS configuration, selected from the largest weather exposures found
-by the annual Task 4 audit.  Both wind and wave weights are varied together at
-25, 50 (the reported setting), and 100.
+and reruns only FMS with an equal 2,000-sweep budget.  It therefore isolates
+the actual split squared-excess weather penalty used in the paper without
+repeating the expensive global search.  Eight deliberately difficult
+departures are used: two from each corridor/WPS configuration, selected from
+the largest weather exposures found by the annual Task 4 audit.  Both wind and
+wave weights are varied together at 25, 50 (the reported setting), and 100.
 
 The environmental penalty is quadratic in threshold excess; there is no
 separate exponential-sharpness parameter in this implementation.
@@ -40,6 +40,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 WEATHER_PENALTY_WEIGHTS = (25.0, 50.0, 100.0)
 STRICT_TWS_LIMIT = 19.9
 STRICT_HS_LIMIT = 6.9
+FMS_MAXFEVALS = 2000
 
 # Two stress departures per configuration, selected from the annual Task 4
 # audit of output/sweep_combined_fms_strict.  These dates intentionally target
@@ -101,7 +102,7 @@ def run_weight_sweep(
     output_dir: Path,
     weights: tuple[float, ...] = WEATHER_PENALTY_WEIGHTS,
 ) -> list[Path]:
-    """Run strict FMS on the same stress routes at each penalty weight."""
+    """Run equal-budget FMS on the same stress routes at each penalty weight."""
     from scripts.swopp3_apply_fms import apply_fms_to_outputs
 
     subset_dir = prepare_stress_subset(input_dir, output_dir / "_input_subset")
@@ -125,7 +126,7 @@ def run_weight_sweep(
             / "data/era5/era5_waves_pacific_2024.nc",
             fms_patience=200,
             fms_damping=0.95,
-            fms_maxfevals=10000,
+            fms_maxfevals=FMS_MAXFEVALS,
             tws_limit=STRICT_TWS_LIMIT,
             hs_limit=STRICT_HS_LIMIT,
             wind_penalty_weight=weight,
@@ -166,6 +167,7 @@ def collect_run_rows(
                         "case_id": case_id,
                         "departure": date,
                         "weather_penalty_weight": weight,
+                        "fms_maxfevals": FMS_MAXFEVALS,
                         "energy_mwh": energy,
                         "energy_change_vs_cmaes_pct": 100.0
                         * (energy - baseline)
