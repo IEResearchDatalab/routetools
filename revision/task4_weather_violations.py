@@ -25,9 +25,6 @@ Outputs
   wind/wave distributions with the benchmark thresholds marked.
 - ``revision/task4_weather_distribution_bins.csv``: plotted bin values, so the
   figure can be reconstructed without reading pixels from the PDF.
-- ``revision/task4_violation_exceedance_curves.pdf``: route-level empirical
-  exceedance curves for GC, CMA-ES, and BERS in every configuration.
-- ``revision/task4_violation_curve_points.csv``: exact plotted curve points.
 """
 
 from __future__ import annotations
@@ -69,13 +66,7 @@ CASES = [
     "PGC_noWPS",
 ]
 
-_SERIES = (
-    ("GC", "noWPS", "Great circle", "#666666", "--"),
-    ("BERS", "noWPS", "BERS, no WPS", "#1f77b4", "-"),
-    ("BERS", "WPS", "BERS, WPS", "#2ca02c", "-"),
-)
-
-_VIOLATION_SERIES = (
+_METHOD_SERIES = (
     ("GC", "Great circle", "#666666", "--"),
     ("CMA-ES", "CMA-ES", "#e07a1f", "-."),
     ("BERS", "BERS", "#1f77b4", "-"),
@@ -219,110 +210,6 @@ def compute_route_metrics(
     return route_rows
 
 
-def _empirical_exceedance_curve(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return route-level excess and percentage with a strictly larger excess."""
-    values = np.asarray(values, dtype=float)
-    if values.size == 0:
-        raise ValueError("Cannot build an exceedance curve from no routes")
-    positive = np.unique(values[values > 0.0])
-    x_values = np.concatenate(([0.0], positive))
-    y_values = np.asarray(
-        [100.0 * float(np.mean(values > threshold)) for threshold in x_values]
-    )
-    return x_values, y_values
-
-
-def plot_violation_exceedance_curves(
-    route_rows: list[dict[str, object]],
-    out_path: Path,
-    points_csv_path: Path,
-) -> None:
-    """Plot empirical peak-excess curves for GC, CMA-ES, and BERS."""
-    if not route_rows:
-        raise ValueError("No route rows were provided")
-
-    hazards = (
-        ("wind", "wind_max_exceedance", "Peak wind-speed excess (m/s)"),
-        ("wave", "wave_max_exceedance", "Peak wave-height excess (m)"),
-    )
-    fig, axes = plt.subplots(2, 4, figsize=(13.2, 6.3), sharey=True)
-    plotted_rows: list[dict[str, object]] = []
-
-    for col_index, (corridor, wps, title) in enumerate(_CONFIGURATIONS):
-        for row_index, (hazard, key, xlabel) in enumerate(hazards):
-            ax = axes[row_index, col_index]
-            for strategy, label, color, linestyle in _VIOLATION_SERIES:
-                selected = [
-                    float(row[key])
-                    for row in route_rows
-                    if row["corridor"] == corridor
-                    and row["wps"] == wps
-                    and row["strategy"] == strategy
-                ]
-                if not selected:
-                    continue
-                x_values, y_values = _empirical_exceedance_curve(
-                    np.asarray(selected, dtype=float)
-                )
-                ax.step(
-                    x_values,
-                    y_values,
-                    where="post",
-                    label=label,
-                    color=color,
-                    linestyle=linestyle,
-                    linewidth=1.7,
-                )
-                ax.scatter(
-                    x_values,
-                    y_values,
-                    color=color,
-                    s=9,
-                    alpha=0.65,
-                    zorder=3,
-                )
-                for point_index, (excess, percentage) in enumerate(
-                    zip(x_values, y_values, strict=True)
-                ):
-                    plotted_rows.append(
-                        {
-                            "corridor": corridor,
-                            "wps": wps,
-                            "hazard": hazard,
-                            "strategy": strategy,
-                            "point_index": point_index,
-                            "excess": float(excess),
-                            "departures_above_pct": float(percentage),
-                            "n_departures": len(selected),
-                        }
-                    )
-
-            if row_index == 0:
-                ax.set_title(title)
-            ax.set_xlabel(xlabel)
-            if col_index == 0:
-                ax.set_ylabel("Departures exceeding x (%)")
-            ax.set_ylim(-0.5, 20.5)
-            ax.set_xlim(left=0.0)
-            ax.grid(alpha=0.22, linewidth=0.6)
-            if row_index == 0 and col_index == 0:
-                ax.legend(frameon=False, fontsize=8)
-
-    fig.suptitle(
-        "Weather-threshold exceedance across 366 departures",
-        fontsize=13,
-        fontweight="bold",
-    )
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    fig.savefig(out_path, bbox_inches="tight")
-    plt.close(fig)
-
-    with points_csv_path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(plotted_rows[0]))
-        writer.writeheader()
-        writer.writerows(plotted_rows)
-
-
 def _agg_stats(values: list[float]) -> tuple[float, float]:
     """Return (mean, max) of a list, or (0.0, 0.0) if empty."""
     if not values:
@@ -463,7 +350,7 @@ def plot_weather_distributions(
     out_path: Path,
     bins_csv_path: Path,
 ) -> None:
-    """Plot time-weighted segment exposure for GC and both BERS variants."""
+    """Plot wind/wave curves for GC, CMA-ES, and BERS in each configuration."""
     if not segment_rows:
         raise ValueError("No segment rows were provided")
 
@@ -482,11 +369,11 @@ def plot_weather_distributions(
         for key, _, _, step, minimum_upper in variables
     }
 
-    fig, axes = plt.subplots(2, 2, figsize=(11.0, 7.2), sharey="col")
+    fig, axes = plt.subplots(2, 4, figsize=(13.2, 6.3), sharey="row")
     plotted_rows: list[dict[str, object]] = []
 
-    for row_index, corridor in enumerate(("atlantic", "pacific")):
-        for col_index, (key, xlabel, limit, _, _) in enumerate(variables):
+    for col_index, (corridor, wps, title) in enumerate(_CONFIGURATIONS):
+        for row_index, (key, xlabel, limit, _, _) in enumerate(variables):
             ax = axes[row_index, col_index]
             bins = bins_by_key[key]
             ax.axvspan(limit, bins[-1], color="#d62728", alpha=0.055, zorder=0)
@@ -495,10 +382,19 @@ def plot_weather_distributions(
                 color="#b22222",
                 linestyle=":",
                 linewidth=1.5,
-                label=f"Threshold ({limit:g})",
+            )
+            ax.text(
+                limit,
+                1.01,
+                f"Threshold {limit:g}",
+                color="#b22222",
+                fontsize=7.5,
+                ha="center",
+                va="bottom",
+                transform=ax.get_xaxis_transform(),
             )
 
-            for strategy, wps, label, color, linestyle in _SERIES:
+            for strategy, label, color, linestyle in _METHOD_SERIES:
                 selected = [
                     row
                     for row in segment_rows
@@ -511,12 +407,13 @@ def plot_weather_distributions(
                 values = np.asarray([float(row[key]) for row in selected])
                 durations = np.asarray([float(row["dt_hours"]) for row in selected])
                 percentages = _weighted_histogram(values, durations, bins)
+                centres = (bins[:-1] + bins[1:]) / 2.0
                 exceedance_hours = float(np.sum(durations[values > limit]))
                 exceedance_pct = 100.0 * exceedance_hours / float(np.sum(durations))
-                ax.stairs(
+                ax.plot(
+                    centres,
                     percentages,
-                    bins,
-                    label=f"{label} ({exceedance_pct:.2f}% above)",
+                    label=f"{label}: {exceedance_pct:.2f}% above",
                     color=color,
                     linestyle=linestyle,
                     linewidth=1.55,
@@ -538,16 +435,17 @@ def plot_weather_distributions(
                         }
                     )
 
-            ax.set_title(f"{corridor.capitalize()} — {xlabel.lower()}")
+            if row_index == 0:
+                ax.set_title(title)
             ax.set_xlabel(xlabel)
             ax.grid(axis="y", alpha=0.22, linewidth=0.6)
             ax.set_xlim(bins[0], bins[-1])
             if col_index == 0:
                 ax.set_ylabel("Exposure time per bin (%)")
-            ax.legend(frameon=False, fontsize=8, loc="upper right")
+            ax.legend(frameon=False, fontsize=7.2, loc="upper right")
 
     fig.suptitle(
-        "Segment-level environmental exposure across 366 departures",
+        "Wind-speed and wave-height exposure across 366 departures",
         fontsize=13,
         fontweight="bold",
     )
@@ -623,16 +521,6 @@ def main(
     plot_weather_distributions(segment_rows, figure_path, bins_csv_path)
     print(f"Wrote weather-distribution figure to {figure_path}")
     print(f"Wrote plotted distribution bins to {bins_csv_path}")
-
-    violation_curve_path = out_dir / "task4_violation_exceedance_curves.pdf"
-    violation_points_path = out_dir / "task4_violation_curve_points.csv"
-    plot_violation_exceedance_curves(
-        rows,
-        violation_curve_path,
-        violation_points_path,
-    )
-    print(f"Wrote violation-exceedance curves to {violation_curve_path}")
-    print(f"Wrote plotted violation points to {violation_points_path}")
 
     print("\nSummary:")
     for s in summary:
