@@ -1,8 +1,8 @@
 """Task 4 (R1-7) — weather threshold violation statistics.
 
 For every SWOPP3 real-ocean route (366 departures x 4 corridor/WPS
-configurations), compares the BERS-optimised route (``AO``/``PO``) against
-the great-circle baseline (``AGC``/``PGC``) in terms of:
+configurations), compares the BERS-refined route, its CMA-ES precursor, and
+the great-circle baseline in terms of:
 
 - Frequency: % of departures with at least one wind (TWS > 20 m/s) or wave
   (Hs > 7 m) violation.
@@ -25,6 +25,9 @@ Outputs
   wind/wave distributions with the benchmark thresholds marked.
 - ``revision/task4_weather_distribution_bins.csv``: plotted bin values, so the
   figure can be reconstructed without reading pixels from the PDF.
+- ``revision/task4_violation_exceedance_curves.pdf``: route-level empirical
+  exceedance curves for GC, CMA-ES, and BERS in every configuration.
+- ``revision/task4_violation_curve_points.csv``: exact plotted curve points.
 """
 
 from __future__ import annotations
@@ -72,6 +75,19 @@ _SERIES = (
     ("BERS", "WPS", "BERS, WPS", "#2ca02c", "-"),
 )
 
+_VIOLATION_SERIES = (
+    ("GC", "Great circle", "#666666", "--"),
+    ("CMA-ES", "CMA-ES", "#e07a1f", "-."),
+    ("BERS", "BERS", "#1f77b4", "-"),
+)
+
+_CONFIGURATIONS = (
+    ("atlantic", "noWPS", "Atlantic, no WPS"),
+    ("atlantic", "WPS", "Atlantic, WPS"),
+    ("pacific", "noWPS", "Pacific, no WPS"),
+    ("pacific", "WPS", "Pacific, WPS"),
+)
+
 
 def _segment_midpoint_stats(
     curve: jnp.ndarray,
@@ -113,14 +129,19 @@ def _read_track_times(track_path: Path) -> list[datetime]:
 def compute_weather_metrics(
     input_dir: Path,
     weather_resources: dict[str, CorridorWeatherResources],
+    *,
+    optimised_strategy: str = "BERS",
+    include_gc: bool = True,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    """Compute route- and segment-level weather metrics for all cases."""
+    """Compute route- and segment-level weather metrics for selected cases."""
     team_prefix = find_team_prefix(input_dir)
     tracks_dir = input_dir / "tracks"
     route_rows: list[dict[str, object]] = []
     segment_rows: list[dict[str, object]] = []
 
     for case_id in CASES:
+        if is_gc_case(case_id) and not include_gc:
+            continue
         summary_path = input_dir / f"{team_prefix}-{case_id}.csv"
         if not summary_path.exists():
             print(f"  [skip] missing summary CSV: {summary_path}")
@@ -129,7 +150,7 @@ def compute_weather_metrics(
         case = SWOPP3_CASES[case_id]
         corridor = str(case["route"])
         resources = weather_resources[corridor]
-        strategy = "GC" if is_gc_case(case_id) else "BERS"
+        strategy = "GC" if is_gc_case(case_id) else optimised_strategy
         wps = "WPS" if case["wps"] else "noWPS"
 
         with summary_path.open(newline="") as handle:
@@ -196,6 +217,110 @@ def compute_route_metrics(
     """Backward-compatible route-only wrapper around ``compute_weather_metrics``."""
     route_rows, _ = compute_weather_metrics(input_dir, weather_resources)
     return route_rows
+
+
+def _empirical_exceedance_curve(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return route-level excess and percentage with a strictly larger excess."""
+    values = np.asarray(values, dtype=float)
+    if values.size == 0:
+        raise ValueError("Cannot build an exceedance curve from no routes")
+    positive = np.unique(values[values > 0.0])
+    x_values = np.concatenate(([0.0], positive))
+    y_values = np.asarray(
+        [100.0 * float(np.mean(values > threshold)) for threshold in x_values]
+    )
+    return x_values, y_values
+
+
+def plot_violation_exceedance_curves(
+    route_rows: list[dict[str, object]],
+    out_path: Path,
+    points_csv_path: Path,
+) -> None:
+    """Plot empirical peak-excess curves for GC, CMA-ES, and BERS."""
+    if not route_rows:
+        raise ValueError("No route rows were provided")
+
+    hazards = (
+        ("wind", "wind_max_exceedance", "Peak wind-speed excess (m/s)"),
+        ("wave", "wave_max_exceedance", "Peak wave-height excess (m)"),
+    )
+    fig, axes = plt.subplots(2, 4, figsize=(13.2, 6.3), sharey=True)
+    plotted_rows: list[dict[str, object]] = []
+
+    for col_index, (corridor, wps, title) in enumerate(_CONFIGURATIONS):
+        for row_index, (hazard, key, xlabel) in enumerate(hazards):
+            ax = axes[row_index, col_index]
+            for strategy, label, color, linestyle in _VIOLATION_SERIES:
+                selected = [
+                    float(row[key])
+                    for row in route_rows
+                    if row["corridor"] == corridor
+                    and row["wps"] == wps
+                    and row["strategy"] == strategy
+                ]
+                if not selected:
+                    continue
+                x_values, y_values = _empirical_exceedance_curve(
+                    np.asarray(selected, dtype=float)
+                )
+                ax.step(
+                    x_values,
+                    y_values,
+                    where="post",
+                    label=label,
+                    color=color,
+                    linestyle=linestyle,
+                    linewidth=1.7,
+                )
+                ax.scatter(
+                    x_values,
+                    y_values,
+                    color=color,
+                    s=9,
+                    alpha=0.65,
+                    zorder=3,
+                )
+                for point_index, (excess, percentage) in enumerate(
+                    zip(x_values, y_values, strict=True)
+                ):
+                    plotted_rows.append(
+                        {
+                            "corridor": corridor,
+                            "wps": wps,
+                            "hazard": hazard,
+                            "strategy": strategy,
+                            "point_index": point_index,
+                            "excess": float(excess),
+                            "departures_above_pct": float(percentage),
+                            "n_departures": len(selected),
+                        }
+                    )
+
+            if row_index == 0:
+                ax.set_title(title)
+            ax.set_xlabel(xlabel)
+            if col_index == 0:
+                ax.set_ylabel("Departures exceeding x (%)")
+            ax.set_ylim(-0.5, 20.5)
+            ax.set_xlim(left=0.0)
+            ax.grid(alpha=0.22, linewidth=0.6)
+            if row_index == 0 and col_index == 0:
+                ax.legend(frameon=False, fontsize=8)
+
+    fig.suptitle(
+        "Weather-threshold exceedance across 366 departures",
+        fontsize=13,
+        fontweight="bold",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(out_path, bbox_inches="tight")
+    plt.close(fig)
+
+    with points_csv_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(plotted_rows[0]))
+        writer.writeheader()
+        writer.writerows(plotted_rows)
 
 
 def _agg_stats(values: list[float]) -> tuple[float, float]:
@@ -438,6 +563,7 @@ def plot_weather_distributions(
 
 def main(
     real_ocean_dir: str = "output/sweep_combined_fms_strict",
+    cmaes_dir: str = "output/sweep_combined",
     output_dir: str = "revision",
 ) -> None:
     """Run Task 4 weather violation analysis and write CSV/LaTeX outputs."""
@@ -456,6 +582,14 @@ def main(
     rows, segment_rows = compute_weather_metrics(
         REPO_ROOT / real_ocean_dir, weather_resources
     )
+    cmaes_rows, cmaes_segment_rows = compute_weather_metrics(
+        REPO_ROOT / cmaes_dir,
+        weather_resources,
+        optimised_strategy="CMA-ES",
+        include_gc=False,
+    )
+    rows.extend(cmaes_rows)
+    segment_rows.extend(cmaes_segment_rows)
 
     route_csv = out_dir / "task4_route_metrics.csv"
     fieldnames = list(rows[0].keys())
@@ -489,6 +623,16 @@ def main(
     plot_weather_distributions(segment_rows, figure_path, bins_csv_path)
     print(f"Wrote weather-distribution figure to {figure_path}")
     print(f"Wrote plotted distribution bins to {bins_csv_path}")
+
+    violation_curve_path = out_dir / "task4_violation_exceedance_curves.pdf"
+    violation_points_path = out_dir / "task4_violation_curve_points.csv"
+    plot_violation_exceedance_curves(
+        rows,
+        violation_curve_path,
+        violation_points_path,
+    )
+    print(f"Wrote violation-exceedance curves to {violation_curve_path}")
+    print(f"Wrote plotted violation points to {violation_points_path}")
 
     print("\nSummary:")
     for s in summary:

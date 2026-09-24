@@ -8,7 +8,7 @@ from revision.task3_paired_improvements import (
 )
 
 
-def test_paired_improvement_curves_export_exact_bins(tmp_path):
+def test_paired_improvement_histograms_export_exact_bins(tmp_path):
     rows = []
     for configuration in CONFIGURATIONS:
         rows.extend(
