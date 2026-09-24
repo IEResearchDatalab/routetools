@@ -1,0 +1,50 @@
+{
+  "manifest_type": "reconstructed_legacy_objective_provenance",
+  "created_date": "2026-09-24",
+  "input_dir": "/home/daniprec/SHARED/routetools/output/sweep_combined_fms_strict",
+  "input_dir_mtime": "2026-04-07T06:20:56+02:00",
+  "route_inventory": {
+    "summary_csv_files": 8,
+    "track_csv_files": 2928,
+    "optimized_cases": 4,
+    "departures_per_optimized_case": 366
+  },
+  "provenance": {
+    "launcher": "scripts/run_fms_sweep_combined_strict.sh",
+    "launcher_introduced_by_commit": "66192104d8163c608fe0366b0d1562c595b92698",
+    "input_cmaes_dir": "/home/daniprec/SHARED/routetools/output/sweep_combined",
+    "notes": [
+      "The legacy output predates embedded experiment manifests.",
+      "The objective below is reconstructed from the preserved strict launcher and FMS defaults at the cited commit.",
+      "The post-FMS routes used split smooth wind and wave penalties of 50, conservative thresholds of 19.9 m/s and 6.9 m, no smooth land-distance term, and spherical longitude correction inside FMS. Sampled land violations were handled by rollback rather than by the differentiated action."
+    ]
+  },
+  "runs": [
+    {
+      "name": "atlantic",
+      "cases": ["AO_WPS", "AO_noWPS"],
+      "weather_penalty_weight": 0.0,
+      "wind_penalty_weight": 50.0,
+      "wave_penalty_weight": 50.0,
+      "tws_limit": 19.9,
+      "hs_limit": 6.9,
+      "land_distance_weight": 0.0,
+      "land_distance_epsilon": 1.0,
+      "distance_penalty_weight": 0.0,
+      "spherical_correction": true
+    },
+    {
+      "name": "pacific",
+      "cases": ["PO_WPS", "PO_noWPS"],
+      "weather_penalty_weight": 0.0,
+      "wind_penalty_weight": 50.0,
+      "wave_penalty_weight": 50.0,
+      "tws_limit": 19.9,
+      "hs_limit": 6.9,
+      "land_distance_weight": 0.0,
+      "land_distance_epsilon": 1.0,
+      "distance_penalty_weight": 0.0,
+      "spherical_correction": true
+    }
+  ]
+}

@@ -112,6 +112,20 @@ def _route_crosses_land(
     return True, extent
 
 
+def _unwrap_route_longitudes(lon: np.ndarray) -> np.ndarray:
+    """Return a continuous longitude sequence across the antimeridian.
+
+    Stored tracks may wrap from +180 to -180 degrees.  Treating those raw
+    coordinates as a planar line creates a false segment across almost the
+    whole world.  The Natural Earth geometry is tiled at +/-360 degrees, so a
+    continuous, unwrapped route can be checked directly against it.
+    """
+    longitude = np.asarray(lon, dtype=np.float64)
+    if longitude.size < 2:
+        return longitude.copy()
+    return np.rad2deg(np.unwrap(np.deg2rad(longitude)))
+
+
 def verify_real_ocean_routes(
     input_dir: Path,
     land_polygon,
@@ -134,7 +148,7 @@ def verify_real_ocean_routes(
             for row in reader:
                 track_path = tracks_dir / row["details_filename"]
                 curve = read_track_curve(track_path)
-                lon = np.asarray(curve[:, 0])
+                lon = _unwrap_route_longitudes(np.asarray(curve[:, 0]))
                 lat = np.asarray(curve[:, 1])
                 crosses, extent_deg = _route_crosses_land(
                     lon, lat, land_polygon, prepared_land

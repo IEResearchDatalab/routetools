@@ -437,7 +437,7 @@ def plot_weather_distributions(
 
 
 def main(
-    real_ocean_dir: str = "output/sweep_combined_fms",
+    real_ocean_dir: str = "output/sweep_combined_fms_strict",
     output_dir: str = "revision",
 ) -> None:
     """Run Task 4 weather violation analysis and write CSV/LaTeX outputs."""

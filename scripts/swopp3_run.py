@@ -367,6 +367,8 @@ def _run_swopp3_configuration(
     distance_penalty_weight: float,
     land_distance_weight: float,
     land_distance_epsilon: float,
+    land_clearance_cells: float,
+    land_endpoint_margin: int,
     land_crossing_penalty: float,
     dt_eval_minutes: float,
     cmaes_k: int,
@@ -663,6 +665,8 @@ def _run_swopp3_configuration(
                 distance_penalty_weight=distance_penalty_weight,
                 land_distance_weight=land_distance_weight,
                 land_distance_epsilon=land_distance_epsilon,
+                land_clearance_cells=land_clearance_cells,
+                land_endpoint_margin=land_endpoint_margin,
                 penalty=land_crossing_penalty,
                 dt_eval_minutes=dt_eval_minutes,
                 K=cmaes_k,
@@ -818,8 +822,7 @@ def main(
         50.0,
         "--land-distance-weight",
         help=(
-            "Shared CMA-ES/FMS inverse-distance coast penalty weight. "
-            "The final BERS revision run uses 100."
+            "Shared CMA-ES/FMS coast-clearance penalty weight."
         ),
     ),
     land_distance_epsilon: float = typer.Option(  # noqa: B008
@@ -827,6 +830,21 @@ def main(
         "--land-distance-epsilon",
         min=0.000001,
         help="Regularisation epsilon for the inverse-distance coast penalty.",
+    ),
+    land_clearance_cells: float = typer.Option(  # noqa: B008
+        0.0,
+        "--land-clearance-cells",
+        min=0.0,
+        help=(
+            "When positive, replace the unbounded inverse-distance term with "
+            "a resolution-independent penalty inside this EDT-cell buffer."
+        ),
+    ),
+    land_endpoint_margin: int = typer.Option(  # noqa: B008
+        0,
+        "--land-endpoint-margin",
+        min=0,
+        help="Route points excluded at each port from the smooth coast penalty.",
     ),
     land_crossing_penalty: float = typer.Option(  # noqa: B008
         1e6,
@@ -1086,6 +1104,12 @@ def main(
                     land_distance_epsilon=float(
                         run.get("land_distance_epsilon", land_distance_epsilon)
                     ),
+                    land_clearance_cells=float(
+                        run.get("land_clearance_cells", land_clearance_cells)
+                    ),
+                    land_endpoint_margin=int(
+                        run.get("land_endpoint_margin", land_endpoint_margin)
+                    ),
                     land_crossing_penalty=float(
                         run.get("land_crossing_penalty", land_crossing_penalty)
                     ),
@@ -1262,6 +1286,8 @@ def main(
                     "distance_penalty_weight": distance_penalty_weight,
                     "land_distance_weight": land_distance_weight,
                     "land_distance_epsilon": land_distance_epsilon,
+                    "land_clearance_cells": land_clearance_cells,
+                    "land_endpoint_margin": land_endpoint_margin,
                     "penalty": land_crossing_penalty,
                     "dt_eval_minutes": dt_eval_minutes,
                     "K": control_points if control_points is not None else cmaes_k,

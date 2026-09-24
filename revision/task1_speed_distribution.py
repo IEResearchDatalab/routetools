@@ -181,7 +181,7 @@ def plot_speed_distribution(rows: list[dict[str, object]], out_path: Path) -> No
 
 
 def main(
-    real_ocean_dir: str = "output/sweep_combined_fms",
+    real_ocean_dir: str = "output/sweep_combined_fms_strict",
     output_dir: str = "revision",
 ) -> None:
     """Run Task 1 speed-distribution analysis and write outputs."""

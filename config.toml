@@ -426,7 +426,7 @@ cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
 n_points = 293
 
 [swopp3.experiments.bers_revision_final]
-description = "Final corrected 2024 BERS run: shared soft weather objective, post-FMS BERS output, and stronger coast-distance penalty."
+description = "Corrected 2024 BERS run with a bounded coastal-clearance penalty and hard land rejection."
 source_script = "scripts/run_bers_revision_2024_timefix.sh"
 output_dir = "output/bers_revision_2024_final/bers"
 
@@ -437,8 +437,10 @@ weather_penalty_weight = 0.0
 wind_penalty_weight = 50.0
 wave_penalty_weight = 50.0
 distance_penalty_weight = 0.0
-land_distance_weight = 100.0
+land_distance_weight = 10.0
 land_distance_epsilon = 1.0
+land_clearance_cells = 5.0
+land_endpoint_margin = 2
 land_crossing_penalty = 1000000.0
 cmaes_k = 10
 sigma0 = 0.1

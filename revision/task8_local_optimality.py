@@ -4,7 +4,7 @@ This script post-processes the final BERS (post-FMS) real-ocean tracks.  It
 does **not** rerun CMA-ES or FMS.  For each optimized departure it evaluates:
 
 1. first-order stationarity of the fixed-endpoint discrete action through the
-   Newton correction implied by the exact action gradient and Hessian;
+   per-waypoint Newton--Jacobi correction used by FMS;
 2. positive-definiteness of the complete block-tridiagonal discrete Hessian;
 3. the 2x2 RISE raw-power velocity Hessian on every route segment; and
 4. margins to the explicitly known non-smooth RISE/weather surfaces and the
@@ -28,17 +28,21 @@ arrays and autodiff executables use host memory::
       --real-ocean-dir output/bers_revision_2024_final_YYYYMMDD/bers \
       --land-verification-csv revision/task7_route_results.csv
 
-Outputs
--------
-- ``revision/task8_local_optimality_routes.csv``: one row per final route.
-- ``revision/task8_local_optimality_segments.csv``: one row per segment.
-- ``revision/task8_local_optimality_summary.csv``: aggregate by case.
-- ``revision/task8_local_optimality_summary.tex``: traceable manuscript table.
-- ``revision/task8_local_optimality_failures.csv``: routes failing at least
-  one numerical local-minimum condition.
-- ``revision/task8_local_optimality_report.md``: methods, tolerances, results,
-  and limitations suitable for the revision traceability record.
-- ``revision/task8_checkpoints/*.json``: resumable per-route checkpoints.
+Legacy outputs without an embedded manifest can be audited against a separate,
+explicit objective-provenance manifest with ``--experiment-manifest``.  The
+penalty weights supplied on the command line must match that manifest exactly.
+
+Outputs (under ``--output-dir``)
+--------------------------------
+- ``task8_local_optimality_routes.csv``: one row per final route.
+- ``task8_local_optimality_segments.csv``: one row per segment.
+- ``task8_local_optimality_summary.csv``: aggregate by case.
+- ``task8_local_optimality_summary.tex``: traceable manuscript table.
+- ``task8_local_optimality_failures.csv``: routes failing at least one
+  numerical local-minimum condition.
+- ``task8_local_optimality_report.md``: methods, tolerances, results, and
+  limitations suitable for the revision traceability record.
+- ``--checkpoint-dir/*.json``: resumable per-route checkpoints.
 """
 
 from __future__ import annotations
@@ -95,10 +99,13 @@ class AuditSettings:
     weather_penalty_weight: float = 0.0
     wind_penalty_weight: float = 50.0
     wave_penalty_weight: float = 50.0
+    tws_limit: float = DEFAULT_TWS_LIMIT
+    hs_limit: float = DEFAULT_HS_LIMIT
     weather_penalty_sharpness: float = 5.0
     land_distance_weight: float = 100.0
     land_distance_epsilon: float = 1.0
     distance_penalty_weight: float = 0.0
+    spherical_correction: bool = True
     stationarity_abs_m: float = 100.0
     stationarity_relative: float = 1.0e-3
     pd_relative_tolerance: float = 1.0e-10
@@ -126,6 +133,22 @@ class BlockFactorization:
 def _resolve_path(value: str | Path) -> Path:
     path = Path(value)
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def _unwrap_route_longitudes(curve: np.ndarray) -> np.ndarray:
+    """Return a route with continuous longitudes across the antimeridian.
+
+    The strict Pacific output files wrap stored longitudes into [-180, 180],
+    whereas the ERA5 grid and the original FMS optimization use a continuous
+    0--360-like sequence.  Differentiating a polyline containing a 358-degree
+    coordinate jump does not reproduce the optimized discrete action.
+    """
+    result = np.asarray(curve, dtype=np.float64).copy()
+    if result.ndim != 2 or result.shape[1] != 2:
+        raise ValueError("curve must have shape (L, 2)")
+    if len(result) > 1:
+        result[:, 0] = np.rad2deg(np.unwrap(np.deg2rad(result[:, 0])))
+    return result
 
 
 def _month_start(value: datetime) -> datetime:
@@ -339,6 +362,36 @@ def solve_block_ldlt(
     return solution
 
 
+def solve_fms_local_corrections(
+    diagonal: np.ndarray,
+    gradient: np.ndarray,
+) -> np.ndarray:
+    """Return the simultaneous per-waypoint Newton corrections used by FMS.
+
+    FMS solves each discrete Euler--Lagrange equation with its local 2x2
+    diagonal Hessian block and applies the resulting corrections as a Jacobi
+    sweep.  This fixed-point residual is defined independently of whether the
+    *complete* route Hessian is positive definite, which keeps the first- and
+    second-order tests logically separate.
+    """
+    diagonal = np.asarray(diagonal, dtype=np.float64)
+    gradient = np.asarray(gradient, dtype=np.float64)
+    if diagonal.ndim != 3 or diagonal.shape[1:] != (2, 2):
+        raise ValueError("diagonal must have shape (n, 2, 2)")
+    if gradient.shape != (len(diagonal), 2):
+        raise ValueError("gradient must have shape (n, 2)")
+
+    corrections = np.full_like(gradient, np.nan)
+    for index, (block, value) in enumerate(
+        zip(diagonal, gradient, strict=True)
+    ):
+        try:
+            corrections[index] = np.linalg.solve(block, -value)
+        except np.linalg.LinAlgError:
+            continue
+    return corrections
+
+
 def _build_segment_derivative_function(
     *,
     windfield: Callable[..., Any],
@@ -361,10 +414,10 @@ def _build_segment_derivative_function(
             wavefield=wavefield,
             travel_time=segment_hours,
             wps=wps,
-            spherical_correction=True,
+            spherical_correction=settings.spherical_correction,
             time_offset=time_offset,
-            tws_limit=DEFAULT_TWS_LIMIT,
-            hs_limit=DEFAULT_HS_LIMIT,
+            tws_limit=settings.tws_limit,
+            hs_limit=settings.hs_limit,
             weather_penalty_weight=settings.weather_penalty_weight,
             weather_penalty_type="smooth",
             weather_penalty_sharpness=settings.weather_penalty_sharpness,
@@ -507,10 +560,10 @@ def _segment_environment_diagnostics(
         np.abs(np.abs(wave_relative_deg) - 180.0) <= settings.angle_margin_deg
     )
     wind_threshold_near = (
-        np.abs(tws - DEFAULT_TWS_LIMIT) <= settings.threshold_margin
+        np.abs(tws - settings.tws_limit) <= settings.threshold_margin
     )
     wave_threshold_near = (
-        np.abs(hs_np - DEFAULT_HS_LIMIT) <= settings.threshold_margin
+        np.abs(hs_np - settings.hs_limit) <= settings.threshold_margin
     )
     extreme_regime = (speed < settings.low_speed_mps) & (
         tws >= settings.high_wind_mps
@@ -653,14 +706,29 @@ def _audit_route(
         upper_m,
         relative_tolerance=settings.pd_relative_tolerance,
     )
-    if factorization.is_positive_definite:
-        newton_correction = solve_block_ldlt(factorization, -gradient_m)
-        correction_norms = np.linalg.norm(newton_correction, axis=1)
-        maximum_correction_m = float(np.max(correction_norms))
-        rms_correction_m = float(np.sqrt(np.mean(correction_norms**2)))
+    fms_correction = solve_fms_local_corrections(diagonal_m, gradient_m)
+    fms_correction_norms = np.linalg.norm(fms_correction, axis=1)
+    if np.all(np.isfinite(fms_correction_norms)):
+        maximum_fms_correction_m = float(np.max(fms_correction_norms))
+        rms_fms_correction_m = float(
+            np.sqrt(np.mean(fms_correction_norms**2))
+        )
     else:
-        maximum_correction_m = math.nan
-        rms_correction_m = math.nan
+        maximum_fms_correction_m = math.nan
+        rms_fms_correction_m = math.nan
+
+    if factorization.is_positive_definite:
+        full_newton_correction = solve_block_ldlt(factorization, -gradient_m)
+        full_correction_norms = np.linalg.norm(full_newton_correction, axis=1)
+        maximum_full_newton_correction_m = float(
+            np.max(full_correction_norms)
+        )
+        rms_full_newton_correction_m = float(
+            np.sqrt(np.mean(full_correction_norms**2))
+        )
+    else:
+        maximum_full_newton_correction_m = math.nan
+        rms_full_newton_correction_m = math.nan
 
     curve_np = np.asarray(curve, dtype=np.float64)
     median_segment_m, minimum_segment_m = _route_distance_statistics(curve_np)
@@ -669,8 +737,13 @@ def _audit_route(
         settings.stationarity_relative * median_segment_m,
     )
     stationarity_pass = bool(
-        np.isfinite(maximum_correction_m)
-        and maximum_correction_m <= stationarity_limit_m
+        np.isfinite(maximum_fms_correction_m)
+        and maximum_fms_correction_m <= stationarity_limit_m
+    )
+    full_newton_stationarity_pass = bool(
+        factorization.is_positive_definite
+        and np.isfinite(maximum_full_newton_correction_m)
+        and maximum_full_newton_correction_m <= stationarity_limit_m
     )
 
     segment_rows, environment = _segment_environment_diagnostics(
@@ -686,6 +759,7 @@ def _audit_route(
 
     numerical_local_minimum = bool(
         stationarity_pass
+        and full_newton_stationarity_pass
         and factorization.is_positive_definite
         and hessian_symmetry_pass
         and environment["rise_weather_smoothness_pass"]
@@ -723,10 +797,15 @@ def _audit_route(
         ),
         "relative_ldlt_pivot_margin": factorization.relative_pivot_margin,
         "pd_numerical_threshold": factorization.threshold,
-        "maximum_newton_correction_m": maximum_correction_m,
-        "rms_newton_correction_m": rms_correction_m,
+        "maximum_fms_correction_m": maximum_fms_correction_m,
+        "rms_fms_correction_m": rms_fms_correction_m,
+        "maximum_full_newton_correction_m": (
+            maximum_full_newton_correction_m
+        ),
+        "rms_full_newton_correction_m": rms_full_newton_correction_m,
         "stationarity_limit_m": stationarity_limit_m,
         "stationarity_pass": stationarity_pass,
+        "full_newton_stationarity_pass": full_newton_stationarity_pass,
         "median_segment_length_m": median_segment_m,
         "minimum_segment_length_m": minimum_segment_m,
         "sampled_land_violation_count": sampled_land_violation_count,
@@ -819,6 +898,7 @@ def _settings_signature(
     input_dir: Path,
     weather_paths: dict[str, tuple[Path, Path]],
     manifest_sha256: str,
+    land_verification_sha256: str,
 ) -> str:
     payload = {
         "settings": asdict(settings),
@@ -828,7 +908,8 @@ def _settings_signature(
             for key, value in weather_paths.items()
         },
         "manifest_sha256": manifest_sha256,
-        "schema": 3,
+        "land_verification_sha256": land_verification_sha256,
+        "schema": 8,
     }
     encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -837,9 +918,14 @@ def _settings_signature(
 def _validate_experiment_manifest(
     input_dir: Path,
     settings: AuditSettings,
+    manifest_path: Path | None = None,
 ) -> tuple[Path, str]:
     """Verify that stored routes used the objective audited by this script."""
-    manifest_path = input_dir / "experiment_manifest.json"
+    manifest_path = (
+        input_dir / "experiment_manifest.json"
+        if manifest_path is None
+        else manifest_path
+    )
     if not manifest_path.exists():
         raise FileNotFoundError(
             "The final experiment manifest is required for objective provenance: "
@@ -855,9 +941,12 @@ def _validate_experiment_manifest(
         "weather_penalty_weight": settings.weather_penalty_weight,
         "wind_penalty_weight": settings.wind_penalty_weight,
         "wave_penalty_weight": settings.wave_penalty_weight,
+        "tws_limit": settings.tws_limit,
+        "hs_limit": settings.hs_limit,
         "land_distance_weight": settings.land_distance_weight,
         "land_distance_epsilon": settings.land_distance_epsilon,
         "distance_penalty_weight": settings.distance_penalty_weight,
+        "spherical_correction": settings.spherical_correction,
     }
     cases_seen: set[str] = set()
     problems: list[str] = []
@@ -905,6 +994,45 @@ def _write_checkpoint(path: Path, payload: dict[str, object]) -> None:
     temporary.replace(path)
 
 
+def _refresh_route_classification(route: dict[str, object]) -> bool:
+    """Reclassify cached derivatives using the conservative route-wide test."""
+    before = (
+        route.get("full_newton_stationarity_pass"),
+        route.get("numerical_local_minimum_to_tolerance"),
+        route.get("complete_route_certificate"),
+    )
+    maximum_full_correction = float(
+        route.get("maximum_full_newton_correction_m", math.nan)
+    )
+    full_newton_stationarity_pass = bool(
+        route["discrete_hessian_pd"]
+        and np.isfinite(maximum_full_correction)
+        and maximum_full_correction <= float(route["stationarity_limit_m"])
+    )
+    numerical_local_minimum = bool(
+        route["stationarity_pass"]
+        and full_newton_stationarity_pass
+        and route["discrete_hessian_pd"]
+        and route["hessian_symmetry_pass"]
+        and route["rise_weather_smoothness_pass"]
+    )
+    complete_route_certificate = bool(
+        numerical_local_minimum
+        and route["operating_envelope_pass"]
+        and int(route["sampled_land_violation_count"]) == 0
+        and route["geometric_land_crossing"] is False
+    )
+    route["full_newton_stationarity_pass"] = full_newton_stationarity_pass
+    route["numerical_local_minimum_to_tolerance"] = numerical_local_minimum
+    route["complete_route_certificate"] = complete_route_certificate
+    after = (
+        full_newton_stationarity_pass,
+        numerical_local_minimum,
+        complete_route_certificate,
+    )
+    return before != after
+
+
 def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     if not rows:
         raise ValueError(f"No rows available for {path.name}")
@@ -946,6 +1074,9 @@ def _summarize_routes(route_rows: list[dict[str, object]]) -> list[dict[str, obj
                 "case_id": case_id,
                 "n_routes": n_routes,
                 "stationarity_pass_n": count("stationarity_pass"),
+                "full_newton_stationarity_pass_n": count(
+                    "full_newton_stationarity_pass"
+                ),
                 "discrete_hessian_pd_n": count("discrete_hessian_pd"),
                 "hessian_symmetry_pass_n": count("hessian_symmetry_pass"),
                 "smoothness_pass_n": count("rise_weather_smoothness_pass"),
@@ -970,8 +1101,11 @@ def _summarize_routes(route_rows: list[dict[str, object]]) -> list[dict[str, obj
                 "minimum_velocity_hessian_eigenvalue": finite_min(
                     "minimum_velocity_hessian_eigenvalue"
                 ),
-                "maximum_newton_correction_m": finite_max(
-                    "maximum_newton_correction_m"
+                "maximum_fms_correction_m": finite_max(
+                    "maximum_fms_correction_m"
+                ),
+                "minimum_full_newton_correction_m": finite_min(
+                    "maximum_full_newton_correction_m"
                 ),
             }
         )
@@ -986,17 +1120,17 @@ def _write_latex_summary(
     lines = [
         r"\begin{tabular}{lrrrrrr}",
         r"\toprule",
-        "Case & $N$ & Stationary & Hessian PD & Smooth & Local min. & "
-        r"Complete \\",
+        "Case & $N$ & FMS fixed point & Hessian PD & Full Newton & "
+        r"Velocity Hessian & Certified \\",
         r"\midrule",
     ]
     for row in summary_rows:
         lines.append(
             f"{row['case_id'].replace('_', r'\_')} & {row['n_routes']} & "
             f"{row['stationarity_pass_n']} & {row['discrete_hessian_pd_n']} & "
-            f"{row['smoothness_pass_n']} & "
-            f"{row['numerical_local_minimum_n']} & "
-            f"{row['complete_route_certificate_n']} " + r"\\"
+            f"{row['full_newton_stationarity_pass_n']} & "
+            f"{row['velocity_hessian_pass_n']} & "
+            f"{row['numerical_local_minimum_n']} " + r"\\"
         )
     lines.extend([r"\bottomrule", r"\end{tabular}"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -1008,6 +1142,8 @@ def _write_report(
     input_dir: Path,
     manifest_path: Path,
     manifest_sha256: str,
+    land_verification_path: Path,
+    land_verification_sha256: str,
     settings: AuditSettings,
     route_rows: list[dict[str, object]],
     summary_rows: list[dict[str, object]],
@@ -1019,12 +1155,15 @@ def _write_report(
         f"Input route directory: `{input_dir}`",
         f"Experiment manifest: `{manifest_path}`",
         f"Manifest SHA-256: `{manifest_sha256}`",
+        f"Land-verification CSV: `{land_verification_path}`",
+        f"Land-verification SHA-256: `{land_verification_sha256}`",
         f"Routes audited: {len(route_rows)}",
         f"Exact geometric land results joined: {geometry_available}",
         "",
         "## Classification tolerances",
         "",
-        f"- Absolute Newton-correction limit: {settings.stationarity_abs_m:g} m.",
+        "- Absolute per-waypoint FMS correction limit: "
+        f"{settings.stationarity_abs_m:g} m.",
         "- Relative Newton-correction limit: "
         f"{settings.stationarity_relative:g} times the median segment length.",
         "- The effective stationarity limit is the smaller of those two values.",
@@ -1043,32 +1182,38 @@ def _write_report(
         "block-tridiagonal Hessian, including adjacent-segment mixed blocks.",
         "- Positive definiteness is tested by a symmetric block-LDL "
         "factorization after a local east/north metre-coordinate congruence.",
-        "- The full Newton correction, not the optimizer's stagnation flag, "
-        "defines numerical stationarity. Its route-level value remains in "
-        "the CSV so alternative tolerances can be recomputed without rerunning.",
+        "- The simultaneous per-waypoint Newton--Jacobi correction used by "
+        "FMS is reported as a local fixed-point diagnostic; it is not treated "
+        "as complete-route stationarity.",
+        "- When the complete block Hessian is positive definite, its coupled "
+        "Newton correction provides the route-wide first-order test. Both "
+        "the FMS-local and full-route corrections must meet the stated limit "
+        "for a numerical local-minimum classification.",
         "- The continuous 2x2 RISE velocity Hessian is reported separately as "
         "an operating-envelope diagnostic; it is not substituted for the "
         "complete discrete Hessian.",
         "",
         "## Results",
         "",
-        "| Case | Routes | Stationary | Discrete Hessian PD | "
-        "Numerical local minima | Complete certificates |",
-        "|---|---:|---:|---:|---:|---:|",
+        "| Case | Routes | FMS fixed point | Discrete Hessian PD | "
+        "Full-route stationary | Velocity Hessian PD | Certified local minima |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summary_rows:
         lines.append(
             f"| {row['case_id']} | {row['n_routes']} | "
             f"{row['stationarity_pass_n']} | {row['discrete_hessian_pd_n']} | "
-            f"{row['numerical_local_minimum_n']} | "
-            f"{row['complete_route_certificate_n']} |"
+            f"{row['full_newton_stationarity_pass_n']} | "
+            f"{row['velocity_hessian_pass_n']} | "
+            f"{row['numerical_local_minimum_n']} |"
         )
     lines.extend(
         [
             "",
             "## Interpretation limits",
             "",
-            "- `numerical_local_minimum_to_tolerance` requires a small Newton "
+            "- `numerical_local_minimum_to_tolerance` requires both a small "
+            "FMS-local correction and a small coupled full-route Newton "
             "correction, a positive-definite complete discrete Hessian, and no "
             "detected contact with the explicit RISE/weather kink surfaces.",
             "- `complete_route_certificate` additionally requires the sampled "
@@ -1090,11 +1235,22 @@ def main(
     real_ocean_dir: str = "output/bers_revision_2024_final/bers",
     output_dir: str = "revision",
     checkpoint_dir: str = "revision/task8_checkpoints",
+    experiment_manifest: str = "",
     wind_path_atlantic: str = "data/era5/era5_wind_atlantic_2024.nc",
     wave_path_atlantic: str = "data/era5/era5_waves_atlantic_2024.nc",
     wind_path_pacific: str = "data/era5/era5_wind_pacific_2024.nc",
     wave_path_pacific: str = "data/era5/era5_waves_pacific_2024.nc",
     land_verification_csv: str = "revision/task7_route_results.csv",
+    weather_penalty_weight: float = 0.0,
+    wind_penalty_weight: float = 50.0,
+    wave_penalty_weight: float = 50.0,
+    tws_limit: float = DEFAULT_TWS_LIMIT,
+    hs_limit: float = DEFAULT_HS_LIMIT,
+    weather_penalty_sharpness: float = 5.0,
+    land_distance_weight: float = 100.0,
+    land_distance_epsilon: float = 1.0,
+    distance_penalty_weight: float = 0.0,
+    spherical_correction: bool = True,
     stationarity_abs_m: float = 100.0,
     stationarity_relative: float = 1.0e-3,
     pd_relative_tolerance: float = 1.0e-10,
@@ -1116,6 +1272,16 @@ def main(
     checkpoints.mkdir(parents=True, exist_ok=True)
 
     settings = AuditSettings(
+        weather_penalty_weight=weather_penalty_weight,
+        wind_penalty_weight=wind_penalty_weight,
+        wave_penalty_weight=wave_penalty_weight,
+        tws_limit=tws_limit,
+        hs_limit=hs_limit,
+        weather_penalty_sharpness=weather_penalty_sharpness,
+        land_distance_weight=land_distance_weight,
+        land_distance_epsilon=land_distance_epsilon,
+        distance_penalty_weight=distance_penalty_weight,
+        spherical_correction=spherical_correction,
         stationarity_abs_m=stationarity_abs_m,
         stationarity_relative=stationarity_relative,
         pd_relative_tolerance=pd_relative_tolerance,
@@ -1130,18 +1296,24 @@ def main(
             _resolve_path(wave_path_pacific),
         ),
     }
+    manifest_override = (
+        _resolve_path(experiment_manifest) if experiment_manifest else None
+    )
     manifest_path, manifest_sha256 = _validate_experiment_manifest(
         input_dir,
         settings,
+        manifest_override,
     )
+    land_csv_path = _resolve_path(land_verification_csv)
+    land_verification_sha256 = hashlib.sha256(land_csv_path.read_bytes()).hexdigest()
+    land_crossings = _load_land_crossings(land_csv_path)
     signature = _settings_signature(
         settings,
         input_dir,
         weather_paths,
         manifest_sha256,
+        land_verification_sha256,
     )
-    land_csv_path = _resolve_path(land_verification_csv)
-    land_crossings = _load_land_crossings(land_csv_path)
 
     case_rows = {
         case_id: _read_case_rows(input_dir, case_id)
@@ -1198,7 +1370,10 @@ def main(
                             continue
 
                     track_path = input_dir / "tracks" / route_id
-                    curve = jnp.asarray(read_track_curve(track_path), dtype=jnp.float64)
+                    curve = jnp.asarray(
+                        _unwrap_route_longitudes(read_track_curve(track_path)),
+                        dtype=jnp.float64,
+                    )
                     case = SWOPP3_CASES[case_id]
                     segment_h = float(case["passage_hours"]) / (curve.shape[0] - 1)
                     derivative_key = (bool(case["wps"]), segment_h)
@@ -1247,6 +1422,8 @@ def main(
     for path in sorted(checkpoints.glob("*.json")):
         payload = json.loads(path.read_text())
         if payload.get("settings_signature") == signature:
+            if _refresh_route_classification(payload["route"]):
+                _write_checkpoint(path, payload)
             checkpoint_payloads.append(payload)
     route_rows = [payload["route"] for payload in checkpoint_payloads]
     segment_rows = [
@@ -1287,6 +1464,8 @@ def main(
         input_dir=input_dir,
         manifest_path=manifest_path,
         manifest_sha256=manifest_sha256,
+        land_verification_path=land_csv_path,
+        land_verification_sha256=land_verification_sha256,
         settings=settings,
         route_rows=route_rows,
         summary_rows=summary_rows,

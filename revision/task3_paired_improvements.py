@@ -7,20 +7,23 @@ per departure ``d``:
     improvement_vs_CMAES[d] = (E_CMAES[d] - E_BERS[d]) / E_CMAES[d] * 100 (%)
 
 where:
-- E_GC     comes from the great-circle baseline (AGC/PGC), output/sweep_combined_fms
+- E_GC     comes from the great-circle baseline (AGC/PGC),
+             output/sweep_combined_fms_strict
 - E_CMAES  comes from the CMA-ES-only run (AO/PO), output/sweep_combined
-- E_BERS   comes from the CMA-ES+FMS run (AO/PO), output/sweep_combined_fms
+- E_BERS   comes from the strict CMA-ES+FMS run (AO/PO),
+             output/sweep_combined_fms_strict
 
-Reports summary statistics (mean, std, median, P5, P95, min, max) of these
-paired improvements per configuration, to show BERS improves *consistently*
-across departures (not just on average).
+Reports summary statistics (mean, std, median, P5, P95, min, max) and the
+full empirical distribution per configuration.  This makes negative as well
+as positive per-departure improvements visible instead of relying on averages.
 
 Outputs
 -------
 - ``revision/task3_paired_metrics.csv``: one row per departure with the raw
   energies and paired improvements.
 - ``revision/task3_paired_improvements.csv`` / ``.tex``: aggregated table.
-- ``revision/task3_paired_improvements.pdf``: per-departure scatter/histogram.
+- ``revision/task3_paired_improvements.pdf``: per-departure frequency curves.
+- ``revision/task3_improvement_distribution_bins.csv``: exact plotted bins.
 """
 
 from __future__ import annotations
@@ -166,27 +169,63 @@ def write_latex_table(summary: list[dict[str, object]], out_path: Path) -> None:
     out_path.write_text("\n".join(lines) + "\n")
 
 
-def plot_paired_improvements(rows: list[dict[str, object]], out_path: Path) -> None:
-    """Save histograms of per-departure % improvement vs GC, one per configuration."""
+def plot_paired_improvements(
+    rows: list[dict[str, object]],
+    out_path: Path,
+    bins_csv_path: Path | None = None,
+) -> None:
+    """Save binned frequency curves of improvement vs GC."""
     fig, axes = plt.subplots(2, 2, figsize=(9, 7), sharex=True)
+    plotted_rows: list[dict[str, object]] = []
     for ax, config_label in zip(axes.flat, CONFIGURATIONS, strict=False):
-        values = [
-            r["improvement_vs_gc_pct"]
-            for r in rows
-            if r["configuration"] == config_label
-        ]
-        ax.hist(values, bins=30, color="steelblue", edgecolor="black")
+        values = np.asarray(
+            [
+                float(r["improvement_vs_gc_pct"])
+                for r in rows
+                if r["configuration"] == config_label
+            ]
+        )
+        counts, bins = np.histogram(values, bins=30)
+        percentages = 100.0 * counts / len(values)
+        centres = (bins[:-1] + bins[1:]) / 2.0
+        ax.plot(centres, percentages, color="steelblue", linewidth=1.8)
+        ax.fill_between(centres, percentages, color="steelblue", alpha=0.12)
         ax.axvline(0, color="red", linestyle="--", linewidth=1)
+        ax.axvline(
+            float(np.mean(values)),
+            color="#222222",
+            linestyle=":",
+            linewidth=1.2,
+            label=f"Mean: {np.mean(values):.1f}%",
+        )
         ax.set_title(config_label)
         ax.set_xlabel("BERS improvement vs GC (%)")
-        ax.set_ylabel("Departures")
+        ax.set_ylabel("Departures per bin (%)")
+        ax.grid(axis="y", alpha=0.2, linewidth=0.6)
+        ax.legend(frameon=False)
+        for index, percentage in enumerate(percentages):
+            plotted_rows.append(
+                {
+                    "configuration": config_label,
+                    "bin_left": float(bins[index]),
+                    "bin_right": float(bins[index + 1]),
+                    "bin_centre": float(centres[index]),
+                    "n_departures": int(counts[index]),
+                    "departures_pct": float(percentage),
+                }
+            )
     fig.tight_layout()
-    fig.savefig(out_path)
+    fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
+    if bins_csv_path is not None:
+        with bins_csv_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(plotted_rows[0]))
+            writer.writeheader()
+            writer.writerows(plotted_rows)
 
 
 def main(
-    bers_dir: str = "output/sweep_combined_fms",
+    bers_dir: str = "output/sweep_combined_fms_strict",
     cmaes_dir: str = "output/sweep_combined",
     output_dir: str = "revision",
 ) -> None:
@@ -219,8 +258,10 @@ def main(
     print(f"Wrote LaTeX table to {tex_path}")
 
     pdf_path = out_dir / "task3_paired_improvements.pdf"
-    plot_paired_improvements(rows, pdf_path)
+    bins_csv_path = out_dir / "task3_improvement_distribution_bins.csv"
+    plot_paired_improvements(rows, pdf_path, bins_csv_path)
     print(f"Wrote figure to {pdf_path}")
+    print(f"Wrote plotted distribution bins to {bins_csv_path}")
 
     print("\nSummary:")
     for s in summary:
