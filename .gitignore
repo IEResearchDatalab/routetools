@@ -181,3 +181,9 @@ codabench/test_submission/
 # Separate repo
 routingviz/
 *.whl
+
+# Generated Ocean Engineering revision results
+revision/*.csv
+revision/*.pdf
+revision/*.tex
+revision/*.txt

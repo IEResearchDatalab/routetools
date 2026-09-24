@@ -65,6 +65,19 @@ type FmsSnapshot = dict[str, Any]
 type FmsSnapshotCallback = Callable[[FmsSnapshot], None]
 
 
+def clear_fms_caches() -> None:
+    """Release cached custom-cost closures and solver builders.
+
+    Custom SWOPP3 evaluators close over the active monthly ERA5 arrays.  A
+    long multi-batch experiment must clear these Python-level LRU caches when
+    the corresponding weather window is released; ``jax.clear_caches()``
+    alone does not drop those closure references.
+    """
+    _build_custom_evaluate_cost.cache_clear()
+    _build_travel_time_custom_solver.cache_clear()
+    _build_travel_stw_custom_solver.cache_clear()
+
+
 def _sorted_costfun_kwargs_items(
     costfun_kwargs: dict[str, Any],
 ) -> tuple[tuple[str, Any], ...] | None:
