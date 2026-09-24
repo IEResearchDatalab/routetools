@@ -81,6 +81,7 @@ from routetools.swopp3_runner import _penalized_rise_cost
 from routetools.violations import (
     departure_offset_hours,
     find_team_prefix,
+    normalise_route_longitudes,
     read_track_curve,
 )
 from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT
@@ -143,12 +144,7 @@ def _unwrap_route_longitudes(curve: np.ndarray) -> np.ndarray:
     0--360-like sequence.  Differentiating a polyline containing a 358-degree
     coordinate jump does not reproduce the optimized discrete action.
     """
-    result = np.asarray(curve, dtype=np.float64).copy()
-    if result.ndim != 2 or result.shape[1] != 2:
-        raise ValueError("curve must have shape (L, 2)")
-    if len(result) > 1:
-        result[:, 0] = np.rad2deg(np.unwrap(np.deg2rad(result[:, 0])))
-    return result
+    return np.asarray(normalise_route_longitudes(curve), dtype=np.float64)
 
 
 def _month_start(value: datetime) -> datetime:
@@ -1370,8 +1366,33 @@ def main(
                             continue
 
                     track_path = input_dir / "tracks" / route_id
+                    longitude_bounds = getattr(
+                        windfield,
+                        "longitude_bounds",
+                        None,
+                    )
+                    wave_longitude_bounds = getattr(
+                        wavefield,
+                        "longitude_bounds",
+                        None,
+                    )
+                    if longitude_bounds is None or wave_longitude_bounds is None:
+                        raise ValueError(
+                            "ERA5 weather fields do not expose longitude bounds"
+                        )
+                    if not np.allclose(
+                        longitude_bounds,
+                        wave_longitude_bounds,
+                        atol=1e-6,
+                    ):
+                        raise ValueError(
+                            "ERA5 wind and wave longitude grids do not match"
+                        )
                     curve = jnp.asarray(
-                        _unwrap_route_longitudes(read_track_curve(track_path)),
+                        normalise_route_longitudes(
+                            read_track_curve(track_path),
+                            longitude_bounds,
+                        ),
                         dtype=jnp.float64,
                     )
                     case = SWOPP3_CASES[case_id]

@@ -23,8 +23,9 @@ Outputs
 - ``revision/task4_violations_table.csv`` / ``.tex``: aggregated table.
 - ``revision/task4_weather_distributions.pdf``: time-weighted segment-level
   wind/wave distributions with the benchmark thresholds marked.
-- ``revision/task4_weather_distribution_bins.csv``: plotted bin values, so the
-  figure can be reconstructed without reading pixels from the PDF.
+- ``revision/task4_weather_distribution_curves.csv``: plotted smooth-curve
+  values, so the figure can be reconstructed without reading pixels from the
+  PDF.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import typer
+from scipy.ndimage import gaussian_filter1d
 
 from routetools.swopp3 import SWOPP3_CASES
 from routetools.violations import (
@@ -48,7 +50,9 @@ from routetools.violations import (
     find_team_prefix,
     is_gc_case,
     load_default_weather_resources,
+    normalise_route_longitudes,
     read_track_curve,
+    weather_longitude_bounds,
 )
 from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT
 
@@ -91,6 +95,10 @@ def _segment_midpoint_stats(
     than assuming a uniform schedule) to compute midpoint times and segment
     durations.
     """
+    curve = normalise_route_longitudes(
+        curve,
+        weather_longitude_bounds(resources),
+    )
     lon = curve[:, 0]
     lat = curve[:, 1]
     mid_lon = (lon[:-1] + lon[1:]) / 2
@@ -333,6 +341,51 @@ def _weighted_histogram(
     return 100.0 * counts / total
 
 
+def _weighted_density_curve(
+    values: np.ndarray,
+    durations_h: np.ndarray,
+    bins: np.ndarray,
+    *,
+    bandwidth: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a smooth time-weighted density integrating to 100 percent.
+
+    A fine weighted histogram is Gaussian-smoothed in physical units.  This
+    avoids the block/segment appearance of coarse-bin curves while retaining
+    deterministic, duration-weighted exposure estimates for the full dataset.
+    """
+    if bandwidth <= 0:
+        raise ValueError("bandwidth must be positive")
+    values = np.asarray(values, dtype=float)
+    durations_h = np.asarray(durations_h, dtype=float)
+    bins = np.asarray(bins, dtype=float)
+    if len(values) != len(durations_h):
+        raise ValueError("values and durations_h must have the same length")
+    if len(bins) < 2 or not np.all(np.diff(bins) > 0):
+        raise ValueError("bins must be a strictly increasing array")
+    if np.any(durations_h < 0) or not np.all(np.isfinite(durations_h)):
+        raise ValueError("durations_h must be finite and non-negative")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("values must be finite")
+
+    counts, _ = np.histogram(values, bins=bins, weights=durations_h)
+    centres = (bins[:-1] + bins[1:]) / 2.0
+    bin_width = float(np.diff(bins)[0])
+    if not np.allclose(np.diff(bins), bin_width):
+        raise ValueError("density bins must have constant width")
+    smoothed = gaussian_filter1d(
+        counts.astype(float),
+        sigma=bandwidth / bin_width,
+        mode="constant",
+        cval=0.0,
+        truncate=4.0,
+    )
+    area = float(np.trapezoid(smoothed, centres))
+    if area <= 0:
+        return centres, np.zeros_like(centres)
+    return centres, 100.0 * smoothed / area
+
+
 def _distribution_bins(
     segment_rows: list[dict[str, object]],
     key: str,
@@ -348,9 +401,9 @@ def _distribution_bins(
 def plot_weather_distributions(
     segment_rows: list[dict[str, object]],
     out_path: Path,
-    bins_csv_path: Path,
+    curves_csv_path: Path,
 ) -> None:
-    """Plot wind/wave curves for GC, CMA-ES, and BERS in each configuration."""
+    """Plot smooth wind/wave curves for all methods and configurations."""
     if not segment_rows:
         raise ValueError("No segment rows were provided")
 
@@ -359,21 +412,29 @@ def plot_weather_distributions(
             "tws_mps",
             "True wind speed (m/s)",
             DEFAULT_TWS_LIMIT,
-            0.5,
+            0.1,
             30.0,
+            0.45,
         ),
-        ("hs_m", "Significant wave height (m)", DEFAULT_HS_LIMIT, 0.25, 10.0),
+        (
+            "hs_m",
+            "Significant wave height (m)",
+            DEFAULT_HS_LIMIT,
+            0.05,
+            10.0,
+            0.18,
+        ),
     )
     bins_by_key = {
         key: _distribution_bins(segment_rows, key, step, minimum_upper)
-        for key, _, _, step, minimum_upper in variables
+        for key, _, _, step, minimum_upper, _ in variables
     }
 
     fig, axes = plt.subplots(2, 4, figsize=(13.2, 6.3), sharey="row")
     plotted_rows: list[dict[str, object]] = []
 
     for col_index, (corridor, wps, title) in enumerate(_CONFIGURATIONS):
-        for row_index, (key, xlabel, limit, _, _) in enumerate(variables):
+        for row_index, (key, xlabel, limit, _, _, bandwidth) in enumerate(variables):
             ax = axes[row_index, col_index]
             bins = bins_by_key[key]
             ax.axvspan(limit, bins[-1], color="#d62728", alpha=0.055, zorder=0)
@@ -383,17 +444,6 @@ def plot_weather_distributions(
                 linestyle=":",
                 linewidth=1.5,
             )
-            ax.text(
-                limit,
-                1.01,
-                f"Threshold {limit:g}",
-                color="#b22222",
-                fontsize=7.5,
-                ha="center",
-                va="bottom",
-                transform=ax.get_xaxis_transform(),
-            )
-
             for strategy, label, color, linestyle in _METHOD_SERIES:
                 selected = [
                     row
@@ -406,29 +456,33 @@ def plot_weather_distributions(
                     continue
                 values = np.asarray([float(row[key]) for row in selected])
                 durations = np.asarray([float(row["dt_hours"]) for row in selected])
-                percentages = _weighted_histogram(values, durations, bins)
-                centres = (bins[:-1] + bins[1:]) / 2.0
+                curve_x, density = _weighted_density_curve(
+                    values,
+                    durations,
+                    bins,
+                    bandwidth=bandwidth,
+                )
                 exceedance_hours = float(np.sum(durations[values > limit]))
                 exceedance_pct = 100.0 * exceedance_hours / float(np.sum(durations))
                 ax.plot(
-                    centres,
-                    percentages,
+                    curve_x,
+                    density,
                     label=f"{label}: {exceedance_pct:.2f}% above",
                     color=color,
                     linestyle=linestyle,
                     linewidth=1.55,
                 )
 
-                for bin_index, percentage in enumerate(percentages):
+                for x_value, density_value in zip(curve_x, density, strict=True):
                     plotted_rows.append(
                         {
                             "corridor": corridor,
                             "variable": key,
                             "strategy": strategy,
                             "wps": wps,
-                            "bin_left": float(bins[bin_index]),
-                            "bin_right": float(bins[bin_index + 1]),
-                            "exposure_pct": float(percentage),
+                            "curve_x": float(x_value),
+                            "exposure_density_pct_per_unit": float(density_value),
+                            "bandwidth": float(bandwidth),
                             "threshold": float(limit),
                             "total_exposure_h": float(np.sum(durations)),
                             "above_threshold_pct": exceedance_pct,
@@ -441,7 +495,7 @@ def plot_weather_distributions(
             ax.grid(axis="y", alpha=0.22, linewidth=0.6)
             ax.set_xlim(bins[0], bins[-1])
             if col_index == 0:
-                ax.set_ylabel("Exposure time per bin (%)")
+                ax.set_ylabel("Exposure density (% per unit)")
             ax.legend(frameon=False, fontsize=7.2, loc="upper right")
 
     fig.suptitle(
@@ -453,7 +507,7 @@ def plot_weather_distributions(
     fig.savefig(out_path, bbox_inches="tight")
     plt.close(fig)
 
-    with bins_csv_path.open("w", newline="") as handle:
+    with curves_csv_path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(plotted_rows[0].keys()))
         writer.writeheader()
         writer.writerows(plotted_rows)
@@ -517,10 +571,10 @@ def main(
     print(f"Wrote LaTeX table to {tex_path}")
 
     figure_path = out_dir / "task4_weather_distributions.pdf"
-    bins_csv_path = out_dir / "task4_weather_distribution_bins.csv"
-    plot_weather_distributions(segment_rows, figure_path, bins_csv_path)
+    curves_csv_path = out_dir / "task4_weather_distribution_curves.csv"
+    plot_weather_distributions(segment_rows, figure_path, curves_csv_path)
     print(f"Wrote weather-distribution figure to {figure_path}")
-    print(f"Wrote plotted distribution bins to {bins_csv_path}")
+    print(f"Wrote plotted distribution curves to {curves_csv_path}")
 
     print("\nSummary:")
     for s in summary:
