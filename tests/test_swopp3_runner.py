@@ -474,6 +474,23 @@ class TestRunOptimisedDeparture:
                 )
                 return jnp.full(curve.shape[0], 2.0)
 
+            def clearance_penalty(
+                self,
+                curve,
+                weight=1.0,
+                clearance_cells=5.0,
+                endpoint_margin=0,
+            ):
+                captured.setdefault("clearance_penalty_calls", []).append(
+                    {
+                        "curve_shape": tuple(curve.shape),
+                        "weight": weight,
+                        "clearance_cells": clearance_cells,
+                        "endpoint_margin": endpoint_margin,
+                    }
+                )
+                return jnp.full(curve.shape[0], 2.0)
+
         def fake_optimize(*, vectorfield, src, dst, land=None, **kwargs):
             curve = great_circle_route(src, dst, n_points=kwargs["L"])
             captured["cmaes_curve"] = curve
@@ -619,7 +636,9 @@ class TestRunOptimisedDeparture:
             weather_penalty_sharpness=7.0,
             wind_penalty_weight=3.0,
             wave_penalty_weight=4.0,
-            land_distance_weight=100.0,
+            land_distance_weight=10.0,
+            land_clearance_cells=5.0,
+            land_endpoint_margin=2,
             tws_limit=19.0,
             hs_limit=6.5,
             verbosity=0,
@@ -637,6 +656,15 @@ class TestRunOptimisedDeparture:
         assert captured["costfun_kwargs"]["wavefield"] is not None
         assert captured["costfun_kwargs"]["wps"] is True
         assert captured["costfun_kwargs"]["land"] is not None
+        assert captured["costfun_kwargs"]["land_clearance_cells"] == pytest.approx(5.0)
+        assert captured["costfun_kwargs"]["land_endpoint_margin"] == 2
+        assert len(captured["clearance_penalty_calls"]) == 2
+        assert all(
+            call["weight"] == pytest.approx(10.0)
+            and call["clearance_cells"] == pytest.approx(5.0)
+            and call["endpoint_margin"] == 2
+            for call in captured["clearance_penalty_calls"]
+        )
         assert captured["costfun_kwargs"]["weather_penalty_weight"] == pytest.approx(
             12.0
         )
@@ -657,10 +685,6 @@ class TestRunOptimisedDeparture:
         assert captured["penalty_calls"][-1]["sharpness"] == pytest.approx(7.0)
         assert captured["wind_penalty_weights"] == [3.0, 3.0]
         assert captured["wave_penalty_weights"] == [4.0, 4.0]
-        assert captured["land_penalty_calls"] == [
-            {"curve_shape": (1, 20, 2), "weight": 100.0, "epsilon": 1.0},
-            {"curve_shape": (1, 20, 2), "weight": 100.0, "epsilon": 1.0},
-        ]
 
     def test_feasible_fms_beats_infeasible_cmaes(self, monkeypatch):
         """A feasible FMS route should beat an infeasible CMA-ES route."""

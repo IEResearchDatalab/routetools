@@ -4,6 +4,7 @@ import csv
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from routetools.violations import (
@@ -14,6 +15,7 @@ from routetools.violations import (
     find_team_prefix,
     format_grouped_violation_table,
     is_gc_case,
+    normalise_route_longitudes,
     write_grouped_violation_csv,
 )
 
@@ -105,6 +107,24 @@ def test_count_land_violations_uses_land_checker(tmp_path: Path) -> None:
         return lat >= 43.0
 
     assert count_land_violations(track_path, land_checker) == 2
+
+
+def test_normalise_route_longitudes_unwraps_into_pacific_grid() -> None:
+    curve = np.array(
+        [[140.0, 35.0], [179.0, 40.0], [-179.0, 41.0], [-121.0, 34.0]]
+    )
+
+    actual = np.asarray(normalise_route_longitudes(curve, (100.0, 250.0)))
+
+    np.testing.assert_allclose(actual[:, 0], [140.0, 179.0, 181.0, 239.0])
+    assert np.max(np.abs(np.diff(actual[:, 0]))) < 180.0
+
+
+def test_normalise_route_longitudes_rejects_route_outside_weather_grid() -> None:
+    curve = np.array([[20.0, 35.0], [40.0, 36.0]])
+
+    with pytest.raises(ValueError, match="outside ERA5 grid"):
+        normalise_route_longitudes(curve, (100.0, 250.0))
 
 
 def test_count_folder_violations_counts_one_folder(tmp_path: Path) -> None:

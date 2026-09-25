@@ -6,6 +6,9 @@
 #
 # Optional custom run name:
 #   bash scripts/run_bers_revision_2024_timefix.sh my_run_name
+#
+# Resume an interrupted run without recomputing valid stored departures:
+#   bash scripts/run_bers_revision_2024_timefix.sh --resume my_run_name
 
 set -euo pipefail
 
@@ -16,6 +19,7 @@ TIMESTAMP_FIX_COMMIT="57d82bd5564c160c93af5d066a5b7a78e1c829a6"
 run_worker() {
     local output_dir="$1"
     local config_path="$2"
+    local resume_mode="$3"
 
     cd "$ROOT_DIR"
 
@@ -27,6 +31,7 @@ run_worker() {
     echo "Git commit:    $(git rev-parse HEAD)"
     echo "Output:        $output_dir"
     echo "Configuration: $config_path"
+    echo "Resume:        $resume_mode"
     echo "============================================================"
 
     free -h || true
@@ -48,8 +53,15 @@ run_worker() {
         return 1
     fi
 
-    if uv run --extra cuda python -u scripts/swopp3_run.py bers_revision_final \
-        --config-path "$config_path"; then
+    local -a run_command=(
+        uv run --extra cuda python -u scripts/swopp3_run.py bers_revision_final
+        --config-path "$config_path"
+    )
+    if [[ "$resume_mode" == "yes" ]]; then
+        run_command+=(--resume)
+    fi
+
+    if "${run_command[@]}"; then
         printf '%s\n' "$(date --iso-8601=seconds)" > "$output_dir/COMPLETED"
         echo "============================================================"
         echo "Completed successfully: $(date --iso-8601=seconds)"
@@ -66,19 +78,29 @@ run_worker() {
 }
 
 if [[ "${1:-}" == "--worker" ]]; then
-    if (( $# != 3 )); then
-        echo "Internal usage: $0 --worker OUTPUT_DIR CONFIG_PATH" >&2
+    if (( $# != 4 )); then
+        echo "Internal usage: $0 --worker OUTPUT_DIR CONFIG_PATH RESUME_MODE" >&2
         exit 2
     fi
-    run_worker "$2" "$3"
+    run_worker "$2" "$3" "$4"
     exit $?
 fi
 
 cd "$ROOT_DIR"
 
-if (( $# > 1 )); then
+resume_mode="no"
+if [[ "${1:-}" == "--resume" ]]; then
+    if (( $# != 2 )); then
+        echo "Usage: $0 --resume RUN_NAME" >&2
+        exit 2
+    fi
+    resume_mode="yes"
+    run_name="$2"
+elif (( $# > 1 )); then
     echo "Usage: $0 [RUN_NAME]" >&2
     exit 2
+else
+    run_name="${1:-bers_revision_2024_final_$(date +%Y%m%d)}"
 fi
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -86,9 +108,10 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! git merge-base --is-ancestor "$TIMESTAMP_FIX_COMMIT" HEAD; then
+if ! git merge-base --is-ancestor "$TIMESTAMP_FIX_COMMIT" HEAD \
+    && ! git diff --quiet "$TIMESTAMP_FIX_COMMIT" -- routetools/weather.py; then
     echo "ERROR: this checkout does not contain the weather timestamp fix." >&2
-    echo "Required commit: $TIMESTAMP_FIX_COMMIT" >&2
+    echo "Required commit or equivalent weather.py: $TIMESTAMP_FIX_COMMIT" >&2
     exit 1
 fi
 
@@ -106,7 +129,6 @@ for data_file in "${DATA_FILES[@]}"; do
     fi
 done
 
-run_name="${1:-bers_revision_2024_final_$(date +%Y%m%d)}"
 if [[ ! "$run_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
     echo "ERROR: run name may contain only letters, digits, dots, underscores, and hyphens." >&2
     exit 1
@@ -119,30 +141,71 @@ config_path="$output_dir/resolved_config.toml"
 log_path="$output_dir/run.log"
 pid_path="$output_dir/run.pid"
 
-if [[ -e "$output_dir" ]]; then
-    echo "ERROR: output directory already exists: $output_dir" >&2
-    echo "Use a different run name; existing results will not be overwritten." >&2
-    exit 1
+if [[ "$resume_mode" == "yes" ]]; then
+    if [[ ! -d "$output_dir" ]]; then
+        echo "ERROR: run directory does not exist: $output_dir" >&2
+        exit 1
+    fi
+    if [[ ! -s "$config_path" ]]; then
+        echo "ERROR: resolved run configuration is missing: $config_path" >&2
+        exit 1
+    fi
+    if [[ -f "$output_dir/COMPLETED" ]]; then
+        echo "ERROR: run is already marked complete: $output_dir" >&2
+        exit 1
+    fi
+    if [[ -s "$pid_path" ]]; then
+        previous_pid="$(tr -d '[:space:]' < "$pid_path")"
+        if [[ "$previous_pid" =~ ^[0-9]+$ ]] && kill -0 "$previous_pid" 2>/dev/null; then
+            echo "ERROR: run worker is still active with PID $previous_pid." >&2
+            echo "Stop it before requesting a resume." >&2
+            exit 1
+        fi
+    fi
+    resume_stamp="$(date +%Y%m%dT%H%M%S)"
+    if [[ -f "$output_dir/FAILED" ]]; then
+        mv "$output_dir/FAILED" "$output_dir/FAILED.before-$resume_stamp"
+    fi
+    printf '%s\t%s\t%s\n' \
+        "$(date --iso-8601=seconds)" "$(git rev-parse HEAD)" "$(git status --short | wc -l)" \
+        >> "$output_dir/resume_history.tsv"
+    git diff HEAD > "$output_dir/resume-$resume_stamp.patch"
+    cp "${BASH_SOURCE[0]}" "$output_dir/launcher_resume-$resume_stamp.sh"
+else
+    if [[ -e "$output_dir" ]]; then
+        echo "ERROR: output directory already exists: $output_dir" >&2
+        echo "Use a different run name; existing results will not be overwritten." >&2
+        exit 1
+    fi
+
+    mkdir -p "$output_dir"
+
+    # Make a run-specific copy of the final profile with immutable stage paths.
+    awk -v bers_out="$bers_output_dir" -v cmaes_out="$cmaes_output_dir" '
+        $0 == "[swopp3.experiments.bers_revision_final]" { profile=1 }
+        profile && /^output_dir[[:space:]]*=/ {
+            print "output_dir = \"" bers_out "\""
+            profile=0
+            next
+        }
+        $0 == "[swopp3.experiments.bers_revision_final.defaults]" { defaults=1 }
+        defaults && /^cmaes_output_dir[[:space:]]*=/ {
+            print "cmaes_output_dir = \"" cmaes_out "\""
+            defaults=0
+            next
+        }
+        { print }
+    ' config.toml > "$config_path"
+
+    # Record sufficient provenance to identify the initial code and configuration.
+    git rev-parse HEAD > "$output_dir/git_commit.txt"
+    git status --short > "$output_dir/git_status.txt"
+    git diff HEAD > "$output_dir/uncommitted.patch"
+    uv --version > "$output_dir/uv_version.txt"
+    cp "${BASH_SOURCE[0]}" "$output_dir/launcher_snapshot.sh"
+    stat --printf='%n\t%s bytes\t%y\n' "${DATA_FILES[@]}" \
+        > "$output_dir/era5_inputs.txt"
 fi
-
-mkdir -p "$output_dir"
-
-# Make a run-specific copy of the final profile with immutable stage paths.
-awk -v bers_out="$bers_output_dir" -v cmaes_out="$cmaes_output_dir" '
-    $0 == "[swopp3.experiments.bers_revision_final]" { profile=1 }
-    profile && /^output_dir[[:space:]]*=/ {
-        print "output_dir = \"" bers_out "\""
-        profile=0
-        next
-    }
-    $0 == "[swopp3.experiments.bers_revision_final.defaults]" { defaults=1 }
-    defaults && /^cmaes_output_dir[[:space:]]*=/ {
-        print "cmaes_output_dir = \"" cmaes_out "\""
-        defaults=0
-        next
-    }
-    { print }
-' config.toml > "$config_path"
 
 if ! grep -Fqx "output_dir = \"$bers_output_dir\"" "$config_path"; then
     echo "ERROR: could not resolve the final BERS output directory." >&2
@@ -153,23 +216,24 @@ if ! grep -Fqx "cmaes_output_dir = \"$cmaes_output_dir\"" "$config_path"; then
     exit 1
 fi
 
-# Record sufficient provenance to identify the exact code and configuration.
-git rev-parse HEAD > "$output_dir/git_commit.txt"
-git status --short > "$output_dir/git_status.txt"
-git diff HEAD > "$output_dir/uncommitted.patch"
-uv --version > "$output_dir/uv_version.txt"
-cp "${BASH_SOURCE[0]}" "$output_dir/launcher_snapshot.sh"
-stat --printf='%n\t%s bytes\t%y\n' "${DATA_FILES[@]}" \
-    > "$output_dir/era5_inputs.txt"
-
-nohup bash "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" \
-    --worker "$output_dir" "$config_path" \
-    > "$log_path" 2>&1 &
+if [[ "$resume_mode" == "yes" ]]; then
+    nohup bash "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" \
+        --worker "$output_dir" "$config_path" "$resume_mode" \
+        >> "$log_path" 2>&1 &
+else
+    nohup bash "$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")" \
+        --worker "$output_dir" "$config_path" "$resume_mode" \
+        > "$log_path" 2>&1 &
+fi
 
 run_pid=$!
 printf '%s\n' "$run_pid" > "$pid_path"
 
-echo "Started the complete BERS route experiment."
+if [[ "$resume_mode" == "yes" ]]; then
+    echo "Resumed the BERS route experiment."
+else
+    echo "Started the complete BERS route experiment."
+fi
 echo "Run name: $run_name"
 echo "PID:      $run_pid"
 echo "Run root: $output_dir"
