@@ -187,3 +187,7 @@ revision/*.csv
 revision/*.pdf
 revision/*.tex
 revision/*.txt
+
+# Agents
+.codex_upload/
+tmp_*

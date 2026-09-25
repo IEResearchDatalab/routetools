@@ -242,9 +242,7 @@ def scale_blocks_to_meters(
 
     transforms_t = np.swapaxes(transforms, 1, 2)
     gradient_m = np.einsum("nij,nj->ni", transforms_t, gradient)
-    diagonal_m = np.einsum(
-        "nij,njk,nkl->nil", transforms_t, diagonal, transforms
-    )
+    diagonal_m = np.einsum("nij,njk,nkl->nil", transforms_t, diagonal, transforms)
     if len(upper):
         upper_m = np.einsum(
             "nij,njk,nkl->nil",
@@ -378,9 +376,7 @@ def solve_fms_local_corrections(
         raise ValueError("gradient must have shape (n, 2)")
 
     corrections = np.full_like(gradient, np.nan)
-    for index, (block, value) in enumerate(
-        zip(diagonal, gradient, strict=True)
-    ):
+    for index, (block, value) in enumerate(zip(diagonal, gradient, strict=True)):
         try:
             corrections[index] = np.linalg.solve(block, -value)
         except np.linalg.LinAlgError:
@@ -526,9 +522,7 @@ def _segment_environment_diagnostics(
     speed = np.hypot(ve_np, vn_np)
     tws = np.hypot(u10_np, v10_np)
     bearing_deg = np.mod(np.degrees(np.arctan2(ve_np, vn_np)), 360.0)
-    wind_from_deg = np.mod(
-        180.0 + np.degrees(np.arctan2(u10_np, v10_np)), 360.0
-    )
+    wind_from_deg = np.mod(180.0 + np.degrees(np.arctan2(u10_np, v10_np)), 360.0)
     twa_deg = np.mod(wind_from_deg - bearing_deg, 360.0)
     wave_relative_deg = np.mod(mwd_np - bearing_deg + 180.0, 360.0) - 180.0
     twa_rad = np.radians(twa_deg)
@@ -555,18 +549,10 @@ def _segment_environment_diagnostics(
     wave_wrap_near = (
         np.abs(np.abs(wave_relative_deg) - 180.0) <= settings.angle_margin_deg
     )
-    wind_threshold_near = (
-        np.abs(tws - settings.tws_limit) <= settings.threshold_margin
-    )
-    wave_threshold_near = (
-        np.abs(hs_np - settings.hs_limit) <= settings.threshold_margin
-    )
-    extreme_regime = (speed < settings.low_speed_mps) & (
-        tws >= settings.high_wind_mps
-    )
-    velocity_nonpositive = (~np.isfinite(velocity_minimum)) | (
-        velocity_minimum <= 0.0
-    )
+    wind_threshold_near = np.abs(tws - settings.tws_limit) <= settings.threshold_margin
+    wave_threshold_near = np.abs(hs_np - settings.hs_limit) <= settings.threshold_margin
+    extreme_regime = (speed < settings.low_speed_mps) & (tws >= settings.high_wind_mps)
+    velocity_nonpositive = (~np.isfinite(velocity_minimum)) | (velocity_minimum <= 0.0)
 
     segment_rows: list[dict[str, object]] = []
     for index in range(n_segments):
@@ -674,12 +660,7 @@ def _audit_route(
         np.finfo(np.float64).tiny,
     )
     hessian_symmetry_error = float(
-        np.max(
-            np.abs(
-                segment_hessians_np
-                - np.swapaxes(segment_hessians_np, 1, 2)
-            )
-        )
+        np.max(np.abs(segment_hessians_np - np.swapaxes(segment_hessians_np, 1, 2)))
     )
     hessian_symmetry_relative_error = hessian_symmetry_error / hessian_scale
     hessian_symmetry_pass = bool(
@@ -706,9 +687,7 @@ def _audit_route(
     fms_correction_norms = np.linalg.norm(fms_correction, axis=1)
     if np.all(np.isfinite(fms_correction_norms)):
         maximum_fms_correction_m = float(np.max(fms_correction_norms))
-        rms_fms_correction_m = float(
-            np.sqrt(np.mean(fms_correction_norms**2))
-        )
+        rms_fms_correction_m = float(np.sqrt(np.mean(fms_correction_norms**2)))
     else:
         maximum_fms_correction_m = math.nan
         rms_fms_correction_m = math.nan
@@ -716,12 +695,8 @@ def _audit_route(
     if factorization.is_positive_definite:
         full_newton_correction = solve_block_ldlt(factorization, -gradient_m)
         full_correction_norms = np.linalg.norm(full_newton_correction, axis=1)
-        maximum_full_newton_correction_m = float(
-            np.max(full_correction_norms)
-        )
-        rms_full_newton_correction_m = float(
-            np.sqrt(np.mean(full_correction_norms**2))
-        )
+        maximum_full_newton_correction_m = float(np.max(full_correction_norms))
+        rms_full_newton_correction_m = float(np.sqrt(np.mean(full_correction_norms**2)))
     else:
         maximum_full_newton_correction_m = math.nan
         rms_full_newton_correction_m = math.nan
@@ -788,16 +763,12 @@ def _audit_route(
         "hessian_symmetry_max_abs_error": hessian_symmetry_error,
         "hessian_symmetry_relative_error": hessian_symmetry_relative_error,
         "hessian_symmetry_pass": hessian_symmetry_pass,
-        "minimum_ldlt_pivot_eigenvalue": (
-            factorization.minimum_pivot_eigenvalue
-        ),
+        "minimum_ldlt_pivot_eigenvalue": (factorization.minimum_pivot_eigenvalue),
         "relative_ldlt_pivot_margin": factorization.relative_pivot_margin,
         "pd_numerical_threshold": factorization.threshold,
         "maximum_fms_correction_m": maximum_fms_correction_m,
         "rms_fms_correction_m": rms_fms_correction_m,
-        "maximum_full_newton_correction_m": (
-            maximum_full_newton_correction_m
-        ),
+        "maximum_full_newton_correction_m": (maximum_full_newton_correction_m),
         "rms_full_newton_correction_m": rms_full_newton_correction_m,
         "stationarity_limit_m": stationarity_limit_m,
         "stationarity_pass": stationarity_pass,
@@ -1084,9 +1055,7 @@ def _summarize_routes(route_rows: list[dict[str, object]]) -> list[dict[str, obj
                 ),
                 "complete_route_certificate_n": count("complete_route_certificate"),
                 "numerical_local_minimum_pct": round(
-                    100.0
-                    * count("numerical_local_minimum_to_tolerance")
-                    / n_routes,
+                    100.0 * count("numerical_local_minimum_to_tolerance") / n_routes,
                     3,
                 ),
                 "complete_route_certificate_pct": round(
@@ -1097,9 +1066,7 @@ def _summarize_routes(route_rows: list[dict[str, object]]) -> list[dict[str, obj
                 "minimum_velocity_hessian_eigenvalue": finite_min(
                     "minimum_velocity_hessian_eigenvalue"
                 ),
-                "maximum_fms_correction_m": finite_max(
-                    "maximum_fms_correction_m"
-                ),
+                "maximum_fms_correction_m": finite_max("maximum_fms_correction_m"),
                 "minimum_full_newton_correction_m": finite_min(
                     "maximum_full_newton_correction_m"
                 ),
@@ -1163,8 +1130,7 @@ def _write_report(
         "- Relative Newton-correction limit: "
         f"{settings.stationarity_relative:g} times the median segment length.",
         "- The effective stationarity limit is the smaller of those two values.",
-        "- Relative block-LDL pivot tolerance: "
-        f"{settings.pd_relative_tolerance:g}.",
+        f"- Relative block-LDL pivot tolerance: {settings.pd_relative_tolerance:g}.",
         "- Relative automatic-Hessian symmetry tolerance: "
         f"{settings.hessian_symmetry_relative_tolerance:g}.",
         f"- Low-speed threshold: {settings.low_speed_mps:g} m/s.",
@@ -1312,8 +1278,7 @@ def main(
     )
 
     case_rows = {
-        case_id: _read_case_rows(input_dir, case_id)
-        for case_id in OPTIMIZED_CASES
+        case_id: _read_case_rows(input_dir, case_id) for case_id in OPTIMIZED_CASES
     }
     total_requested = sum(len(rows) for rows in case_rows.values())
     print(f"Auditing {total_requested} final optimized routes on {jax.devices()}")
@@ -1366,33 +1331,8 @@ def main(
                             continue
 
                     track_path = input_dir / "tracks" / route_id
-                    longitude_bounds = getattr(
-                        windfield,
-                        "longitude_bounds",
-                        None,
-                    )
-                    wave_longitude_bounds = getattr(
-                        wavefield,
-                        "longitude_bounds",
-                        None,
-                    )
-                    if longitude_bounds is None or wave_longitude_bounds is None:
-                        raise ValueError(
-                            "ERA5 weather fields do not expose longitude bounds"
-                        )
-                    if not np.allclose(
-                        longitude_bounds,
-                        wave_longitude_bounds,
-                        atol=1e-6,
-                    ):
-                        raise ValueError(
-                            "ERA5 wind and wave longitude grids do not match"
-                        )
                     curve = jnp.asarray(
-                        normalise_route_longitudes(
-                            read_track_curve(track_path),
-                            longitude_bounds,
-                        ),
+                        _unwrap_route_longitudes(read_track_curve(track_path)),
                         dtype=jnp.float64,
                     )
                     case = SWOPP3_CASES[case_id]
@@ -1448,9 +1388,7 @@ def main(
             checkpoint_payloads.append(payload)
     route_rows = [payload["route"] for payload in checkpoint_payloads]
     segment_rows = [
-        segment
-        for payload in checkpoint_payloads
-        for segment in payload["segments"]
+        segment for payload in checkpoint_payloads for segment in payload["segments"]
     ]
     route_rows.sort(key=lambda row: (str(row["case_id"]), str(row["route_id"])))
     segment_rows.sort(

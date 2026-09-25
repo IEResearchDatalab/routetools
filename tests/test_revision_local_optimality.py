@@ -128,10 +128,7 @@ def test_block_ldlt_matches_dense_solve_after_physical_scaling():
         [dense_degrees[2 * i : 2 * i + 2, 2 * i : 2 * i + 2] for i in range(4)]
     )
     upper = np.stack(
-        [
-            dense_degrees[2 * i : 2 * i + 2, 2 * i + 2 : 2 * i + 4]
-            for i in range(3)
-        ]
+        [dense_degrees[2 * i : 2 * i + 2, 2 * i + 2 : 2 * i + 4] for i in range(3)]
     )
     # A dense random SPD matrix is not generally block tridiagonal. Build the
     # reference from the retained blocks, then add diagonal dominance.

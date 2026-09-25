@@ -685,7 +685,6 @@ def _run_swopp3_configuration(
             del batch_results, vectorfield, windfield, wavefield
             _release_weather_batch(corridor, batch_start, batch_end)
 
-
         energies = [r.energy_mwh for r in results]
         total_time = sum(r.comp_time_s for r in results)
         typer.echo(
@@ -821,9 +820,7 @@ def main(
     land_distance_weight: float = typer.Option(  # noqa: B008
         50.0,
         "--land-distance-weight",
-        help=(
-            "Shared CMA-ES/FMS coast-clearance penalty weight."
-        ),
+        help=("Shared CMA-ES/FMS coast-clearance penalty weight."),
     ),
     land_distance_epsilon: float = typer.Option(  # noqa: B008
         1.0,
