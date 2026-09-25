@@ -22,7 +22,7 @@ Outputs
 - ``revision/task3_paired_metrics.csv``: one row per departure with the raw
   energies and paired improvements.
 - ``revision/task3_paired_improvements.csv`` / ``.tex``: aggregated table.
-- ``revision/task3_paired_improvements.pdf``: per-departure frequency curves.
+- ``revision/task3_paired_improvements.pdf``: per-departure frequency histograms.
 - ``revision/task3_improvement_distribution_bins.csv``: exact plotted bins.
 """
 
@@ -174,7 +174,7 @@ def plot_paired_improvements(
     out_path: Path,
     bins_csv_path: Path | None = None,
 ) -> None:
-    """Save binned frequency curves of improvement vs GC."""
+    """Save binned frequency histograms of improvement vs GC."""
     fig, axes = plt.subplots(2, 2, figsize=(9, 7), sharex=True)
     plotted_rows: list[dict[str, object]] = []
     for ax, config_label in zip(axes.flat, CONFIGURATIONS, strict=False):
@@ -188,8 +188,16 @@ def plot_paired_improvements(
         counts, bins = np.histogram(values, bins=30)
         percentages = 100.0 * counts / len(values)
         centres = (bins[:-1] + bins[1:]) / 2.0
-        ax.plot(centres, percentages, color="steelblue", linewidth=1.8)
-        ax.fill_between(centres, percentages, color="steelblue", alpha=0.12)
+        ax.bar(
+            bins[:-1],
+            percentages,
+            width=np.diff(bins),
+            align="edge",
+            color="steelblue",
+            alpha=0.78,
+            edgecolor="white",
+            linewidth=0.35,
+        )
         ax.axvline(0, color="red", linestyle="--", linewidth=1)
         ax.axvline(
             float(np.mean(values)),

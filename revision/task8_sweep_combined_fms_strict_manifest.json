@@ -52,6 +52,5 @@
       "weather_penalty_weight": 0.0,
       "wind_penalty_weight": 50.0
     }
-    }
   ]
 }

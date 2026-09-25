@@ -1331,8 +1331,23 @@ def main(
                             continue
 
                     track_path = input_dir / "tracks" / route_id
+                    longitude_bounds = getattr(windfield, "longitude_bounds", None)
+                    wave_longitude_bounds = getattr(wavefield, "longitude_bounds", None)
+                    if longitude_bounds is None or wave_longitude_bounds is None:
+                        raise ValueError(
+                            "ERA5 weather fields do not expose longitude bounds"
+                        )
+                    if not np.allclose(
+                        longitude_bounds, wave_longitude_bounds, atol=1e-6
+                    ):
+                        raise ValueError(
+                            "ERA5 wind and wave longitude grids do not match"
+                        )
                     curve = jnp.asarray(
-                        _unwrap_route_longitudes(read_track_curve(track_path)),
+                        normalise_route_longitudes(
+                            read_track_curve(track_path),
+                            longitude_bounds,
+                        ),
                         dtype=jnp.float64,
                     )
                     case = SWOPP3_CASES[case_id]
