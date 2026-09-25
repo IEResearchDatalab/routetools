@@ -185,6 +185,7 @@ routingviz/
 # Generated Ocean Engineering revision results
 revision/*.csv
 revision/*.pdf
+revision/synthetic_local_optimality_proof
 revision/*.tex
 revision/*.txt
 

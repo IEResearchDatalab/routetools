@@ -82,7 +82,16 @@ def _evaluator(wps: bool):
         )
         hess = 0.5 * (hess + hess.T)
         eig = jnp.linalg.eigvalsh(hess)
-        return raw, eig[0], eig[1]
+        # Distance to the three non-smooth loci of the model (Appendix D.5):
+        # clamp (raw power = 0), wingsail dead zone (AWA = 10 deg) and the
+        # fore-aft apparent-wind line (u_y = 0).  The ship heads east, so the
+        # true wind angle is measured from bearing 90 deg.
+        wind_from = jnp.mod(180.0 + jnp.degrees(jnp.arctan2(u10, v10)), 360.0)
+        twa = jnp.deg2rad(jnp.mod(wind_from - 90.0, 360.0))
+        u_x = tws * jnp.cos(twa) + v
+        u_y = tws * jnp.sin(twa)
+        awa = jnp.degrees(jnp.arctan2(jnp.abs(u_y), u_x))
+        return raw, eig[0], eig[1], u_y, awa
 
     # vmap over wave direction, swh and wind direction; loop over (v, tws).
     f = jax.vmap(one, in_axes=(None, None, None, None, 0))
@@ -99,6 +108,9 @@ def main(
     n_swh: int = 21,
     n_wave_dir: int = 36,
     relative_tolerance: float = 1.0e-10,
+    kink_power_kw: float = 1.0,
+    kink_uy_mps: float = 0.05,
+    kink_awa_deg: float = 1.0,
 ) -> None:
     """Evaluate the velocity-Hessian over the validated input domain."""
     out = Path(output_dir)
@@ -114,12 +126,20 @@ def main(
     totals: dict[str, dict[str, int]] = {}
     for mode, wps in (("noWPS", False), ("WPS", True)):
         fun = _evaluator(wps)
-        tot = {"points": 0, "raw_positive": 0, "pd_on_raw_positive": 0}
+        tot = {
+            "points": 0,
+            "raw_positive": 0,
+            "pd_on_raw_positive": 0,
+            "away_from_kinks": 0,
+            "pd_away_from_kinks": 0,
+        }
         for v in g["v"]:
             for tws in g["tws"]:
-                raw, lam_min, lam_max = fun(
+                raw, lam_min, lam_max, u_y, awa = fun(
                     jnp.asarray(v), jnp.asarray(tws), wind_dir, swh, wave_dir
                 )
+                u_y = np.asarray(u_y)
+                awa = np.asarray(awa)
                 raw = np.asarray(raw)
                 lam_min = np.asarray(lam_min)
                 lam_max = np.asarray(lam_max)
@@ -129,6 +149,15 @@ def main(
                 n = int(raw.size)
                 n_pos = int(positive.sum())
                 n_pd_pos = int((pd & positive).sum())
+                away = raw > kink_power_kw
+                if wps:
+                    away &= (np.abs(u_y) > kink_uy_mps) & (
+                        np.abs(awa - 10.0) > kink_awa_deg
+                    )
+                n_away = int(away.sum())
+                n_pd_away = int((pd & away).sum())
+                tot["away_from_kinks"] += n_away
+                tot["pd_away_from_kinks"] += n_pd_away
                 tot["points"] += n
                 tot["raw_positive"] += n_pos
                 tot["pd_on_raw_positive"] += n_pd_pos
@@ -147,6 +176,9 @@ def main(
                         ),
                         "min_eigenvalue": float(lam_min.min()),
                         "all_pd": bool(pd.all()),
+                        "n_away_from_kinks": n_away,
+                        "n_pd_away_from_kinks": n_pd_away,
+                        "all_pd_away_from_kinks": bool(n_pd_away == n_away),
                     }
                 )
         totals[mode] = tot
@@ -178,9 +210,18 @@ def main(
             f"- raw power > 0: {t['raw_positive']:,}",
             f"- PD where raw power > 0: {t['pd_on_raw_positive']:,}"
             f" ({100 * t['pd_on_raw_positive'] / max(t['raw_positive'], 1):.3f}%)",
+            f"- away from the non-smooth loci (raw > {kink_power_kw:g} kW"
+            + (
+                f", |u_y| > {kink_uy_mps:g} m/s, |AWA - 10| > {kink_awa_deg:g} deg"
+                if mode == "WPS"
+                else ""
+            )
+            + f"): {t['away_from_kinks']:,}; PD: {t['pd_away_from_kinks']:,}"
+            f" ({100 * t['pd_away_from_kinks'] / max(t['away_from_kinks'], 1):.3f}%)",
             "",
-            "| TWS (m/s) | min speed with PD everywhere (m/s) | (kn) |",
-            "|---|---|---|",
+            "| TWS (m/s) | min speed, PD everywhere (m/s) | (kn) |"
+            " min speed, PD away from kinks (m/s) | (kn) |",
+            "|---|---|---|---|---|",
         ]
         for tws in g["tws"]:
             cells = [
@@ -189,17 +230,18 @@ def main(
                 if r["mode"] == mode and r["tws_mps"] == round(float(tws), 3)
             ]
             cells.sort(key=lambda r: r["v_mps"])
-            threshold = None
-            for i in range(len(cells)):
-                if all(c["all_pd"] for c in cells[i:]):
-                    threshold = cells[i]["v_mps"]
-                    break
-            if threshold is None:
-                lines.append(f"| {tws:.0f} | none | none |")
-            else:
-                lines.append(
-                    f"| {tws:.0f} | {threshold:.2f} | {threshold / KNOT:.1f} |"
-                )
+
+            def _threshold(key: str, rows=cells) -> str:
+                for i in range(len(rows)):
+                    if all(c[key] for c in rows[i:]):
+                        v0 = float(rows[i]["v_mps"])
+                        return f"{v0:.2f} | {v0 / KNOT:.1f}"
+                return "none | none"
+
+            lines.append(
+                f"| {tws:.0f} | {_threshold('all_pd')} | "
+                f"{_threshold('all_pd_away_from_kinks')} |"
+            )
         lines.append("")
     (out / "task9_envelope_report.md").write_text("\n".join(lines) + "\n")
 
@@ -216,7 +258,8 @@ def main(
             for r in sub:
                 i = int(np.argmin(np.abs(g["tws"] - r["tws_mps"])))
                 j = int(np.argmin(np.abs(g["v"] - r["v_mps"])))
-                grid[i, j] = r["pd_fraction_all"]
+                n_away = r["n_away_from_kinks"]
+                grid[i, j] = r["n_pd_away_from_kinks"] / n_away if n_away else np.nan
             im = ax.pcolormesh(
                 g["v"] / KNOT,
                 g["tws"],
@@ -229,7 +272,7 @@ def main(
             ax.set_title("WPS enabled" if mode == "WPS" else "WPS disabled")
             ax.set_xlabel("Speed through water (kn)")
         axes[0].set_ylabel("True wind speed (m/s)")
-        fig.colorbar(im, ax=axes, label="Fraction of directions/waves with PD Hessian")
+        fig.colorbar(im, ax=axes, label="Fraction with PD Hessian (away from kinks)")
         fig.savefig(out / "task9_envelope_map.pdf", bbox_inches="tight")
     except ImportError:
         pass

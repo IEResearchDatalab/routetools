@@ -55,13 +55,14 @@ This is the same procedure used by the SWOPP3 benchmark participants.
 
 ### Synthetic fields (Section 3)
 
-| Paper item                           | Command                                                                                        |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Tables 3, 6; Figures 2–4             | `uv run scripts/synthetic/results.py` then `uv run scripts/synthetic/figures.py` / `tables.py` |
-| Table 5 (seed dispersion)            | `uv run python revision/task2_synthetic_dispersion.py`                                         |
-| Land experiments, Figures 5–6        | `uv run scripts/results_land_avoidance.py`                                                     |
-| Table 8 (λ_land sensitivity)         | `uv run python revision/task6_lambda_land_sensitivity.py`                                      |
-| Local-optimality audit (Section 3.3) | `uv run python revision/task10_synthetic_local_optimality.py`                                  |
+| Paper item                                        | Command                                                                                        |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Tables 3, 6; Figures 2–4                          | `uv run scripts/synthetic/results.py` then `uv run scripts/synthetic/figures.py` / `tables.py` |
+| Table 5 (seed dispersion)                         | `uv run python revision/task2_synthetic_dispersion.py`                                         |
+| Land experiments, Figures 5–6                     | `uv run scripts/results_land_avoidance.py`                                                     |
+| Table 8 (λ_land sensitivity)                      | `uv run python revision/task6_lambda_land_sensitivity.py`                                      |
+| Export BERS routes; numerical audit               | `uv run python revision/task10_synthetic_local_optimality.py`                                  |
+| Computer-assisted proof (Section 3.3, Appendix E) | see `revision/synthetic_local_optimality_proof/README.md`                                      |
 
 ### Real-ocean corridors (Section 4)
 
