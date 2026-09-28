@@ -13,7 +13,7 @@ Theorem 14 is also asymptotic (valid for an unspecified sufficiently small step)
 
 ## 2. The discrete problems (exactly as implemented)
 
-Reference implementation: `routetools/cost.py`, `routetools/vectorfield.py`, repository `Weather-Routing-Research/routetools`, commit `8462156` (23 Sep 2026). Config: `config_noland.toml`.
+Reference implementation: `routetools/cost.py`, `routetools/vectorfield.py`, repository `IEResearchDatalab/routetools`, commit `8462156` (23 Sep 2026). Config: `config_noland.toml`.
 
 - Route: L = 200 waypoints x_1,…,x_200 ∈ R², endpoints fixed (x_1 = source, x_200 = destination), 198 free waypoints, i.e. **396 free variables** X.
 - Segment n (n = 1…199) has displacement d_n = x_{n+1} − x_n and midpoint m_n = (x_n + x_{n+1})/2. The field is evaluated at the midpoint.

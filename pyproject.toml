@@ -47,7 +47,7 @@ era5-gcs = ["gcsfs>=2024.1.0", "zarr>=2.17.0"]
 # swopp3 = ["swopp3-performance-model==0.1.0"]
 
 [project.urls]
-homepage = "https://github.com/Weather-Routing-Research/cmaes_bezier_demo"
+homepage = "https://github.com/IEResearchDatalab/routetools"
 
 [project.scripts]
 main = "routetools.main:main"

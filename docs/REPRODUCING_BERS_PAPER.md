@@ -1,9 +1,12 @@
 # Reproducing the BERS paper (Ocean Engineering, OE-D-26-09120)
 
-This guide lists everything needed to reproduce the results of _BERS: A
-Continuous Hybrid Evolutionary–Variational Algorithm for Maritime Weather
-Routing with Just-in-Time Arrival_: the code, the vessel performance model,
-the data, and the script that produces each table and figure.
+This repository contains the complete open-source workflow needed to regenerate
+the results of _BERS: A Continuous Hybrid Evolutionary–Variational Algorithm
+for Maritime Weather Routing with Just-in-Time Arrival_. It includes the
+synthetic benchmarks, CMA-ES and FMS optimization tools, analytical
+vessel-consumption models, experiment configurations, validation and
+interval-certificate scripts, data-download instructions, and the scripts that
+produce every table and figure. No proprietary software or data are required.
 
 ## 1. Environment
 
@@ -37,7 +40,8 @@ evaluator. Its agreement with the original compiled evaluator is tested in
 
 The real-ocean experiments use ERA5 reanalysis for 2024 (10 m wind,
 significant wave height, mean wave direction) over the two SWOPP3 corridors.
-The files (about 20 GB) are not redistributed; download them with:
+The ERA5 files (about 20 GB) are not redistributed because they are available
+from public archives; download them with:
 
 ```bash
 uv run scripts/download_era5.py              # Google Cloud ERA5 archive, no key
@@ -45,6 +49,8 @@ uv run scripts/download_era5.py --backend cds  # or the Copernicus CDS API
 ```
 
 The files are written to `data/era5/` with the names the run scripts expect.
+Natural Earth 1:10m coastline data are also open and are downloaded and cached
+automatically by Cartopy when the land-mask or exact-geometry checks first run.
 
 ## 4. Results
 
@@ -91,9 +97,12 @@ The post-processing scripts take the generated route directories as explicit
 arguments. The final route files may additionally be deposited with a DOI so
 the tables and figures can be regenerated without repeating the optimization.
 
-## 5. What depends on external data
+## 5. Historical benchmark reference
 
-- Exact bit-for-bit agreement with the original compiled SWOPP3 evaluator
-  requires that binary. The open model agrees with it to 0.103 kW maximum
-  absolute error (0.031% relative).
-- The other benchmark participants' scores are held by the SWOPP3 organizers.
+The documented reproduction workflow uses the open analytical performance
+model in `routetools/performance.py`; the historical compiled SWOPP3 evaluator
+is not required. Randomized validation against that evaluator found agreement
+to 0.103 kW maximum absolute error (0.031% relative), so it serves only as an
+independent validation reference. Other participants' scores are held by the
+SWOPP3 organizers and appear in the paper only as external benchmark context,
+not as outputs that must be regenerated.
