@@ -70,7 +70,7 @@ automatically by Cartopy when the land-mask or exact-geometry checks first run.
 Route generation (server, complete 2024 sweep):
 
 ```bash
-bash scripts/run_bers_revision_2024_timefix.sh RUN_NAME
+bash scripts/run_bers_revision_2024.sh RUN_NAME
 ```
 
 The launcher records the Git commit, resolved configuration, environment,
@@ -84,8 +84,8 @@ Post-processing (no route is re-optimized):
 | Tables 12, 15; Figures 1, 7–9, 11         | `uv run scripts/realworld/figures.py`, `uv run scripts/realworld/tables.py` |
 | Table 10, Figure 7 (segment speeds)       | `revision/task1_speed_distribution.py`                                      |
 | Table 13, Figure 10 (paired improvements) | `revision/task3_paired_improvements.py`                                     |
-| Table 16, Figure 12 (weather exposure)    | `revision/task4_weather_violations.py`                                      |
-| Table 11 (exact land audit)               | `revision/task7_land_verification.py`                                       |
+| Table 15, Figure 12 (weather exposure)    | `revision/task4_weather_violations.py`                                      |
+| Table 11 (land-safe export and audit)      | `revision/task7_landfree_export.py`, then `revision/task7_land_verification.py` |
 | Table 14 (route-wise derivative audit)    | `revision/task8_local_optimality.py`                                        |
 | Operating-envelope Hessian (Appendix E)   | `revision/task9_envelope_hessian.py`                                        |
 
@@ -94,8 +94,24 @@ Post-processing (no route is re-optimized):
 record provenance (git commit, host, settings).
 
 The post-processing scripts take the generated route directories as explicit
-arguments. The final route files may additionally be deposited with a DOI so
-the tables and figures can be regenerated without repeating the optimization.
+arguments. Before producing the final tables, create the polygon-checked export
+and verify it:
+
+```bash
+uv run python revision/task7_landfree_export.py \
+  --input-dir output/sweep_combined_fms \
+  --output-dir output/sweep_combined_fms_landfree
+uv run python revision/task7_land_verification.py \
+  --real-ocean-dir output/sweep_combined_fms_landfree \
+  --output-dir output/sweep_combined_fms_landfree/audit \
+  --no-include-synthetic
+```
+
+The export script copies unflagged routes unchanged, records every local
+coordinate correction in `land_repair_manifest.json`, and aborts unless the
+final segment--polygon audit finds zero crossings. The final route files may
+additionally be deposited with a DOI so the tables and figures can be
+regenerated without repeating the optimization.
 
 ## 5. Historical benchmark reference
 

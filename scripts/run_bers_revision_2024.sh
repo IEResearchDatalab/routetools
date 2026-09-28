@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# Launch the full corrected 2024 BERS real-ocean experiment in the background.
+# Launch the full 2024 BERS real-ocean experiment in the background.
 #
 # Usage (from anywhere inside the repository):
-#   bash scripts/run_bers_revision_2024_timefix.sh
+#   bash scripts/run_bers_revision_2024.sh
 #
 # Optional custom run name:
-#   bash scripts/run_bers_revision_2024_timefix.sh my_run_name
+#   bash scripts/run_bers_revision_2024.sh my_run_name
 #
 # Resume an interrupted run without recomputing valid stored departures:
-#   bash scripts/run_bers_revision_2024_timefix.sh --resume my_run_name
+#   bash scripts/run_bers_revision_2024.sh --resume my_run_name
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TIMESTAMP_FIX_COMMIT="57d82bd5564c160c93af5d066a5b7a78e1c829a6"
 
 run_worker() {
     local output_dir="$1"
@@ -24,7 +23,7 @@ run_worker() {
     cd "$ROOT_DIR"
 
     echo "============================================================"
-    echo "BERS corrected 2024 real-ocean experiment"
+    echo "BERS 2024 real-ocean experiment"
     echo "Started:       $(date --iso-8601=seconds)"
     echo "Host:          $(hostname)"
     echo "Repository:    $ROOT_DIR"
@@ -105,13 +104,6 @@ fi
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "ERROR: uv is not installed or is not available on PATH." >&2
-    exit 1
-fi
-
-if ! git merge-base --is-ancestor "$TIMESTAMP_FIX_COMMIT" HEAD \
-    && ! git diff --quiet "$TIMESTAMP_FIX_COMMIT" -- routetools/weather.py; then
-    echo "ERROR: this checkout does not contain the weather timestamp fix." >&2
-    echo "Required commit or equivalent weather.py: $TIMESTAMP_FIX_COMMIT" >&2
     exit 1
 fi
 

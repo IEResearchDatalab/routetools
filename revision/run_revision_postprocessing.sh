@@ -18,10 +18,11 @@ script_path="$(realpath "${BASH_SOURCE[0]}")"
 repo_root="$(cd "$(dirname "$script_path")/.." && pwd)"
 run_root="$(realpath "$1")"
 analysis_dir="$(realpath -m "${2:-$run_root/revision_analysis}")"
-bers_dir="$run_root/bers"
+bers_source_dir="$run_root/bers"
+bers_dir="$run_root/bers_landfree"
 cmaes_dir="$run_root/cmaes"
 
-for required in "$bers_dir" "$cmaes_dir" "$bers_dir/experiment_manifest.json"; do
+for required in "$bers_source_dir" "$cmaes_dir" "$bers_source_dir/experiment_manifest.json"; do
     if [[ ! -e "$required" ]]; then
         echo "Missing required final-run artifact: $required" >&2
         exit 1
@@ -57,29 +58,38 @@ printf '%s\n' \
     > "$analysis_dir/provenance.txt"
 cp "$script_path" "$analysis_dir/run_revision_postprocessing.sh"
 
-echo "[1/5] Segment-speed distribution"
+echo "[1/6] Polygon-safe final export"
+if [[ ! -f "$bers_dir/land_repair_manifest.json" ]]; then
+    uv run python -u revision/task7_landfree_export.py \
+        --input-dir "$bers_source_dir" \
+        --output-dir "$bers_dir"
+else
+    echo "Reusing verified export: $bers_dir"
+fi
+
+echo "[2/6] Segment-speed distribution"
 uv run python -u revision/task1_speed_distribution.py \
     --real-ocean-dir "$bers_dir" \
     --output-dir "$analysis_dir"
 
-echo "[2/5] Paired GC / CMA-ES / BERS improvements"
+echo "[3/6] Paired GC / CMA-ES / BERS improvements"
 uv run python -u revision/task3_paired_improvements.py \
     --bers-dir "$bers_dir" \
     --cmaes-dir "$cmaes_dir" \
     --output-dir "$analysis_dir"
 
-echo "[3/5] Wind and wave distributions and exceedances"
+echo "[4/6] Wind and wave distributions and exceedances"
 uv run python -u revision/task4_weather_violations.py \
     --real-ocean-dir "$bers_dir" \
     --output-dir "$analysis_dir"
 
-echo "[4/5] Exact real-ocean coastline intersection"
+echo "[5/6] Exact real-ocean coastline intersection"
 uv run python -u revision/task7_land_verification.py \
     --real-ocean-dir "$bers_dir" \
     --output-dir "$analysis_dir" \
     --no-include-synthetic
 
-echo "[5/5] Route-by-route local-optimality audit"
+echo "[6/6] Route-by-route local-optimality audit"
 uv run python -u revision/task8_local_optimality.py \
     --real-ocean-dir "$bers_dir" \
     --output-dir "$analysis_dir" \

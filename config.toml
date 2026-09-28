@@ -426,8 +426,8 @@ cases = ["PO_WPS", "PO_noWPS", "PGC_WPS", "PGC_noWPS"]
 n_points = 293
 
 [swopp3.experiments.bers_revision_final]
-description = "Corrected 2024 BERS run with a bounded coastal-clearance penalty and hard land rejection."
-source_script = "scripts/run_bers_revision_2024_timefix.sh"
+description = "Final 2024 BERS run with a bounded coastal-clearance penalty, FMS rollback, and polygon validation."
+source_script = "scripts/run_bers_revision_2024.sh"
 output_dir = "output/bers_revision_2024_final/bers"
 
 [swopp3.experiments.bers_revision_final.defaults]
