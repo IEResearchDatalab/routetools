@@ -1,0 +1,32 @@
+{
+ "problem": "fourvortices",
+ "route_file": "routes/fourvortices_cmaes.npy",
+ "J_route": 8.949507718175411,
+ "mode": "family",
+ "n_vars": 198,
+ "certified": true,
+ "margin_mR2_over_g": 2.499999497275014,
+ "J_center": [
+  8.949502315017874,
+  8.949502315017877
+ ],
+ "J_star_enclosure": [
+  8.949502315017872,
+  8.949502315017877
+ ],
+ "grad_norm_upper": 1.6707867287910866e-17,
+ "R": 7.321721011848255e-15,
+ "m_lower": 0.011409792793995222,
+ "float_lam_min_center": 0.022819590176781708,
+ "den_min_lower_on_box": 0.48399212104015027,
+ "hessian_box_max_width": 2.2918129616300575e-09,
+ "seconds": 1.4,
+ "eig_lam_est_center": 0.02281959017683946,
+ "eig_shift_s": 0.01140979508841973,
+ "eig_normE": 3.427127058674323e-12,
+ "eig_normD1": 8.647947013131265e-15,
+ "eig_normDelta": 2.290988732058867e-09,
+ "eig_m_lower": 0.011409792793995222,
+ "max_abs_transverse_offset_to_certified_min": 0.0008283857483350836,
+ "cost_gap_route_minus_certified": 5.403157533834246e-06
+}

@@ -1,0 +1,33 @@
+{
+ "problem": "swirlys",
+ "route_file": "/home/SHARED/routetools/output/review_20260928/synthetic_local_optimality_proof/bers_routes/swirlys_seed2.npy",
+ "J_route": 1.9710852281913371,
+ "mode": "full",
+ "n_vars": 396,
+ "certified": false,
+ "margin_mR2_over_g": null,
+ "J_center": [
+  1.9710785199961258,
+  1.9710785199961263
+ ],
+ "J_star_enclosure": [
+  1.9710785199961256,
+  1.9710785199961263
+ ],
+ "grad_norm_upper": 5.520221926016929e-14,
+ "R": 0.0012694033073705469,
+ "m_lower": -0.05484045526606045,
+ "float_lam_min_center": 4.3486746048043356e-10,
+ "den_min_lower_on_box": null,
+ "hessian_box_max_width": 0.041743505354009613,
+ "seconds": 0.2,
+ "eig_lam_est_center": 1.0066198601603997e-06,
+ "eig_shift_s": 5.033099300801999e-07,
+ "eig_normE": 1.5022915897406648e-12,
+ "eig_normD1": 1.567695823630731e-15,
+ "eig_normDelta": 0.05484095857448667,
+ "eig_m_lower": -0.05484045526606045,
+ "dist_route_to_certified_min": 20.405495106533493,
+ "cost_gap_route_minus_certified": 6.708195210869405e-06,
+ "seed": 2
+}

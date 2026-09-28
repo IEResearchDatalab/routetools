@@ -5,20 +5,17 @@ Continuous Hybrid Evolutionary–Variational Algorithm for Maritime Weather
 Routing with Just-in-Time Arrival_: the code, the vessel performance model,
 the data, and the script that produces each table and figure.
 
-> **Status:** draft for the revision. Items marked **TODO** are still being
-> completed (owner: Francisco Suárez); the rest is in the repository today.
-
 ## 1. Environment
 
 ```bash
-git clone https://github.com/Weather-Routing-Research/routetools.git
+git clone https://github.com/IEResearchDatalab/routetools.git
 cd routetools
 uv sync            # Python 3.12, JAX 0.8.1 (see pyproject.toml / uv.lock)
 ```
 
-The synthetic experiments and the local-optimality checks (Tasks 9–10) run on
-a laptop CPU. The real-ocean runs were made on a Linux server with SLURM (the scripts
-request 64 CPU cores per job).
+The synthetic experiments and the local-optimality checks run on a CPU. The
+full real-ocean sweep requires the 2024 ERA5 files and was run on a Linux
+server with an NVIDIA RTX A6000 GPU.
 
 ## 2. Components
 
@@ -48,8 +45,6 @@ uv run scripts/download_era5.py --backend cds  # or the Copernicus CDS API
 ```
 
 The files are written to `data/era5/` with the names the run scripts expect.
-This is the same procedure used by the SWOPP3 benchmark participants.
-**TODO:** link to the public benchmark page.
 
 ## 4. Results
 
@@ -62,17 +57,19 @@ This is the same procedure used by the SWOPP3 benchmark participants.
 | Land experiments, Figures 5–6                     | `uv run scripts/results_land_avoidance.py`                                                     |
 | Table 8 (λ_land sensitivity)                      | `uv run python revision/task6_lambda_land_sensitivity.py`                                      |
 | Export BERS routes; numerical audit               | `uv run python revision/task10_synthetic_local_optimality.py`                                  |
-| Computer-assisted proof (Section 3.3, Appendix E) | see `revision/synthetic_local_optimality_proof/README.md`                                      |
+| Computer-assisted proof (Section 3.3, Appendix E) | see `supplementary/synthetic_local_optimality_proof/certificate_report.md`                     |
 
 ### Real-ocean corridors (Section 4)
 
-Route generation (server):
+Route generation (server, complete 2024 sweep):
 
 ```bash
-sbatch scripts/swopp3_slurm_atlantic_k10.sh        # CMA-ES, Atlantic
-sbatch scripts/swopp3_slurm_pacific_k15_p400.sh    # CMA-ES, Pacific
-bash   scripts/run_fms_sweep_combined_strict.sh    # FMS refinement, both
+bash scripts/run_bers_revision_2024_timefix.sh RUN_NAME
 ```
+
+The launcher records the Git commit, resolved configuration, environment,
+input-file metadata and run log below `output/RUN_NAME/`. It can resume an
+interrupted run with `--resume RUN_NAME`.
 
 Post-processing (no route is re-optimized):
 
@@ -85,15 +82,14 @@ Post-processing (no route is re-optimized):
 | Table 11 (exact land audit)               | `revision/task7_land_verification.py`                                       |
 | Table 14 (route-wise derivative audit)    | `revision/task8_local_optimality.py`                                        |
 | Operating-envelope Hessian (Appendix E)   | `revision/task9_envelope_hessian.py`                                        |
-| Distance to a certified local minimum     | `revision/task11_real_ocean_newton_polish.py`                               |
 
 `revision/run_revision_postprocessing.sh` and
 `revision/run_revision_local_optimality.sh` run these steps in order and
 record provenance (git commit, host, settings).
 
-**TODO:** publish the final route files (CSV tracks for all 366 departures ×
-4 configurations) with a DOI (Zenodo) so that the post-processing can be run
-without regenerating the routes.
+The post-processing scripts take the generated route directories as explicit
+arguments. The final route files may additionally be deposited with a DOI so
+the tables and figures can be regenerated without repeating the optimization.
 
 ## 5. What depends on external data
 

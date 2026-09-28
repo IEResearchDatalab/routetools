@@ -1,0 +1,28 @@
+{
+ "problem": "circular",
+ "mode": "family",
+ "n_vars": 198,
+ "certified": true,
+ "margin_mR2_over_g": 2.499996035111401,
+ "J_center": [
+  1.9749596410101715,
+  1.974959641010172
+ ],
+ "J_star_enclosure": [
+  1.9749596410101713,
+  1.974959641010172
+ ],
+ "grad_norm_upper": 1.8660101329409103e-17,
+ "R": 5.195454381610534e-15,
+ "m_lower": 0.01795807485228604,
+ "float_lam_min_center": 0.03591620666607542,
+ "den_min_lower_on_box": 0.19638821915720303,
+ "hessian_box_max_width": 2.845996505129733e-08,
+ "seconds": 0.2,
+ "eig_lam_est_center": 0.035916206666249326,
+ "eig_shift_s": 0.017958103333124663,
+ "eig_normE": 2.6050964651036476e-11,
+ "eig_normD1": 6.640904190150295e-14,
+ "eig_normDelta": 2.845472124593588e-08,
+ "eig_m_lower": 0.01795807485228604
+}
