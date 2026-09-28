@@ -379,6 +379,47 @@ class Land:
         point_penalty = 1.0 / (edt_vals + epsilon)
         return weight * jnp.sum(point_penalty, axis=-1)
 
+    @partial(jit, static_argnums=(0, 4))
+    def clearance_penalty(
+        self,
+        curve: jnp.ndarray,
+        weight: float = 1.0,
+        clearance_cells: float = 5.0,
+        endpoint_margin: int = 0,
+    ) -> jnp.ndarray:
+        """Penalize only the portion of a route inside a coastal buffer.
+
+        Unlike :meth:`distance_penalty`, this bounded penalty becomes exactly
+        zero once the sampled EDT distance reaches ``clearance_cells``.  The
+        mean squared shortfall is independent of route sampling resolution,
+        so a fixed weight has the same scale in CMA-ES and FMS.  A small
+        endpoint margin can exclude unavoidable port-adjacent points.
+        """
+        x_coords = curve[..., 0]
+        y_coords = curve[..., 1]
+        x_norm = (x_coords - self.xmin) * self.xnorm
+        y_norm = (y_coords - self.ymin) * self.ynorm
+        edt_vals = map_coordinates(
+            self._edt,
+            [x_norm, y_norm],
+            order=self._map_order,
+            mode=self._map_mode,
+        )
+        if getattr(self, "outbounds_is_land", False):
+            oob_mask = (
+                (x_coords < self.xmin)
+                | (x_coords > self.xmax)
+                | (y_coords < self.ymin)
+                | (y_coords > self.ymax)
+            )
+            edt_vals = jnp.where(oob_mask, 0.0, edt_vals)
+
+        if endpoint_margin > 0 and curve.shape[-2] > 2 * endpoint_margin:
+            edt_vals = edt_vals[..., endpoint_margin:-endpoint_margin]
+        safe_clearance = jnp.maximum(clearance_cells, jnp.finfo(edt_vals.dtype).eps)
+        shortfall = jnp.maximum(safe_clearance - edt_vals, 0.0) / safe_clearance
+        return weight * jnp.mean(shortfall**2, axis=-1)
+
     def distance_to_land(
         self, curve: jnp.ndarray, haversine: bool = False
     ) -> jnp.ndarray:

@@ -367,6 +367,8 @@ def _run_swopp3_configuration(
     distance_penalty_weight: float,
     land_distance_weight: float,
     land_distance_epsilon: float,
+    land_clearance_cells: float,
+    land_endpoint_margin: int,
     land_crossing_penalty: float,
     dt_eval_minutes: float,
     cmaes_k: int,
@@ -378,6 +380,8 @@ def _run_swopp3_configuration(
     fms_maxfevals: int,
     dataload_limit: int,
     cmaes_verbose: bool,
+    log_memory: bool,
+    resume: bool,
     quiet: bool,
 ) -> None:
     """Execute one resolved SWOPP3 run configuration."""
@@ -390,7 +394,7 @@ def _run_swopp3_configuration(
         load_natural_earth_land_mask,
     )
     from routetools.swopp3 import SWOPP3_CASES, departures_2024
-    from routetools.swopp3_runner import run_case
+    from routetools.swopp3_runner import _load_resumable_rows, run_case
 
     if (
         cmaes_output_dir is not None
@@ -567,6 +571,9 @@ def _run_swopp3_configuration(
 
         import jax
 
+        from routetools.fms import clear_fms_caches
+
+        clear_fms_caches()
         gc.collect()
         if hasattr(jax, "clear_caches"):
             jax.clear_caches()
@@ -581,6 +588,28 @@ def _run_swopp3_configuration(
             f"  strategy={case['strategy']}  wps={case['wps']}  route={corridor}"
         )
         typer.echo(f"{'=' * 60}")
+
+        if resume:
+            requested = {
+                departure.replace(tzinfo=None) if departure.tzinfo else departure
+                for departure in departures
+            }
+            _, bers_completed = _load_resumable_rows(
+                cid,
+                output_dir,
+                submission=submission,
+            )
+            if cmaes_output_dir is None:
+                cmaes_completed = bers_completed
+            else:
+                _, cmaes_completed = _load_resumable_rows(
+                    cid,
+                    cmaes_output_dir,
+                    submission=submission,
+                )
+            if requested.issubset(bers_completed & cmaes_completed):
+                typer.echo(f"[{cid}] all {len(requested)} departures already complete")
+                continue
 
         land = None
         results = []
@@ -622,17 +651,22 @@ def _run_swopp3_configuration(
                 windfield=windfield,
                 wavefield=wavefield,
                 land=land,
-                output_dir=None,
+                output_dir=output_dir,
+                cmaes_output_dir=cmaes_output_dir,
                 submission=submission,
                 n_points=n_points,
                 verbose=not quiet,
                 dataset_epoch=wind_epoch,
+                log_memory=log_memory,
+                resume=resume or batch_i > 1,
                 weather_penalty_weight=weather_penalty_weight,
                 wind_penalty_weight=wind_penalty_weight,
                 wave_penalty_weight=wave_penalty_weight,
                 distance_penalty_weight=distance_penalty_weight,
                 land_distance_weight=land_distance_weight,
                 land_distance_epsilon=land_distance_epsilon,
+                land_clearance_cells=land_clearance_cells,
+                land_endpoint_margin=land_endpoint_margin,
                 penalty=land_crossing_penalty,
                 dt_eval_minutes=dt_eval_minutes,
                 K=cmaes_k,
@@ -645,30 +679,11 @@ def _run_swopp3_configuration(
                 cmaes_verbose=cmaes_verbose,
             )
             results.extend(batch_results)
-
             # The high-resolution arrays are captured in JAX executables.
             # Keep only the active monthly window so the full year does not
             # accumulate on the host/GPU across batches and cases.
             del batch_results, vectorfield, windfield, wavefield
             _release_weather_batch(corridor, batch_start, batch_end)
-
-        # Persist outputs once per case after all monthly batches complete.
-        from routetools.swopp3_runner import _write_case_outputs
-
-        _write_case_outputs(
-            cid,
-            results,
-            output_dir,
-            submission=submission,
-        )
-        if cmaes_output_dir is not None:
-            cmaes_results = [result.cmaes_result or result for result in results]
-            _write_case_outputs(
-                cid,
-                cmaes_results,
-                cmaes_output_dir,
-                submission=submission,
-            )
 
         energies = [r.energy_mwh for r in results]
         total_time = sum(r.comp_time_s for r in results)
@@ -805,16 +820,28 @@ def main(
     land_distance_weight: float = typer.Option(  # noqa: B008
         50.0,
         "--land-distance-weight",
-        help=(
-            "Shared CMA-ES/FMS inverse-distance coast penalty weight. "
-            "The final BERS revision run uses 100."
-        ),
+        help=("Shared CMA-ES/FMS coast-clearance penalty weight."),
     ),
     land_distance_epsilon: float = typer.Option(  # noqa: B008
         1.0,
         "--land-distance-epsilon",
         min=0.000001,
         help="Regularisation epsilon for the inverse-distance coast penalty.",
+    ),
+    land_clearance_cells: float = typer.Option(  # noqa: B008
+        0.0,
+        "--land-clearance-cells",
+        min=0.0,
+        help=(
+            "When positive, replace the unbounded inverse-distance term with "
+            "a resolution-independent penalty inside this EDT-cell buffer."
+        ),
+    ),
+    land_endpoint_margin: int = typer.Option(  # noqa: B008
+        0,
+        "--land-endpoint-margin",
+        min=0,
+        help="Route points excluded at each port from the smooth coast penalty.",
     ),
     land_crossing_penalty: float = typer.Option(  # noqa: B008
         1e6,
@@ -1074,6 +1101,12 @@ def main(
                     land_distance_epsilon=float(
                         run.get("land_distance_epsilon", land_distance_epsilon)
                     ),
+                    land_clearance_cells=float(
+                        run.get("land_clearance_cells", land_clearance_cells)
+                    ),
+                    land_endpoint_margin=int(
+                        run.get("land_endpoint_margin", land_endpoint_margin)
+                    ),
                     land_crossing_penalty=float(
                         run.get("land_crossing_penalty", land_crossing_penalty)
                     ),
@@ -1087,6 +1120,8 @@ def main(
                     fms_maxfevals=int(run.get("fms_maxfevals", 5000)),
                     dataload_limit=int(run.get("dataload_limit", dataload_limit)),
                     cmaes_verbose=bool(run.get("cmaes_verbose", cmaes_verbose)),
+                    log_memory=log_memory,
+                    resume=resume,
                     quiet=quiet,
                 )
             return
@@ -1209,6 +1244,9 @@ def main(
                 gc.collect()
                 import jax
 
+                from routetools.fms import clear_fms_caches
+
+                clear_fms_caches()
                 jax.clear_caches()
                 typer.echo(
                     f"[info] Freed {prev_corridor} corridor data before"
@@ -1245,6 +1283,8 @@ def main(
                     "distance_penalty_weight": distance_penalty_weight,
                     "land_distance_weight": land_distance_weight,
                     "land_distance_epsilon": land_distance_epsilon,
+                    "land_clearance_cells": land_clearance_cells,
+                    "land_endpoint_margin": land_endpoint_margin,
                     "penalty": land_crossing_penalty,
                     "dt_eval_minutes": dt_eval_minutes,
                     "K": control_points if control_points is not None else cmaes_k,

@@ -181,3 +181,14 @@ codabench/test_submission/
 # Separate repo
 routingviz/
 *.whl
+
+# Generated Ocean Engineering revision results
+revision/*.csv
+revision/*.pdf
+revision/synthetic_local_optimality_proof
+revision/*.tex
+revision/*.txt
+
+# Agents
+.codex_upload/
+tmp_*

@@ -1,0 +1,28 @@
+{
+ "problem": "techy",
+ "mode": "family",
+ "n_vars": 198,
+ "certified": true,
+ "margin_mR2_over_g": 2.4999353949435874,
+ "J_center": [
+  1.031765869172934,
+  1.0317658691729343
+ ],
+ "J_star_enclosure": [
+  1.0317658691729337,
+  1.0317658691729343
+ ],
+ "grad_norm_upper": 4.6371131839434676e-17,
+ "R": 1.1759402364047709e-14,
+ "m_lower": 0.019716109747790915,
+ "float_lam_min_center": 0.039433238530221744,
+ "den_min_lower_on_box": 0.631921535795146,
+ "hessian_box_max_width": 4.782712608175643e-07,
+ "seconds": 5.8,
+ "eig_lam_est_center": 0.03943323853038355,
+ "eig_shift_s": 0.019716619265191776,
+ "eig_normE": 2.4190569546219142e-11,
+ "eig_normD1": 6.123947094163651e-14,
+ "eig_normDelta": 5.094931490491215e-07,
+ "eig_m_lower": 0.019716109747790915
+}

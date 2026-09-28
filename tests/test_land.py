@@ -172,3 +172,55 @@ class TestDistancePenalty:
         assert pen.shape == (2,)
         # Second route is closer to / on land → higher penalty
         assert pen[1] > pen[0]
+
+
+class TestClearancePenalty(TestDistancePenalty):
+    """Tests for the bounded, resolution-independent coast penalty."""
+
+    def test_zero_outside_clearance_buffer(self):
+        land = self._land_with_strip()
+        curve = jnp.array([[[-4.0, -2.0], [-4.0, 0.0], [-4.0, 2.0]]])
+
+        penalty = land.clearance_penalty(
+            curve,
+            weight=10.0,
+            clearance_cells=5.0,
+        )
+
+        assert penalty.shape == (1,)
+        assert penalty[0] == pytest.approx(0.0)
+
+    def test_same_repeated_point_is_resolution_independent(self):
+        land = self._land_with_strip()
+        short = jnp.array([[[-0.2, -2.0], [-0.2, 0.0], [-0.2, 2.0]]])
+        dense = jnp.repeat(short[:, :1, :], 21, axis=1)
+        short = jnp.repeat(short[:, :1, :], 3, axis=1)
+
+        short_penalty = land.clearance_penalty(
+            short,
+            weight=10.0,
+            clearance_cells=5.0,
+        )
+        dense_penalty = land.clearance_penalty(
+            dense,
+            weight=10.0,
+            clearance_cells=5.0,
+        )
+
+        assert short_penalty[0] > 0.0
+        assert dense_penalty[0] == pytest.approx(float(short_penalty[0]))
+
+    def test_endpoint_margin_excludes_port_adjacent_points(self):
+        land = self._land_with_strip()
+        curve = jnp.array(
+            [[[-0.2, -2.0], [-4.0, -1.0], [-4.0, 0.0], [-4.0, 1.0], [-0.2, 2.0]]]
+        )
+
+        penalty = land.clearance_penalty(
+            curve,
+            weight=10.0,
+            clearance_cells=5.0,
+            endpoint_margin=1,
+        )
+
+        assert penalty[0] == pytest.approx(0.0)

@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Protocol
 
 import jax.numpy as jnp
+import numpy as np
 
 from routetools.era5.loader import (
     load_dataset_epoch,
@@ -232,6 +233,81 @@ def read_track_curve(track_path: Path) -> jnp.ndarray:
     )
 
 
+def normalise_route_longitudes(
+    curve: jnp.ndarray | np.ndarray,
+    longitude_bounds: tuple[float, float] | None = None,
+) -> jnp.ndarray:
+    """Return a route continuous across the antimeridian and on a target grid.
+
+    Track CSVs use wrapped longitudes in ``[-180, 180]``.  Pacific ERA5 files
+    use an unwrapped positive range (approximately ``[100, 250]``).  Averaging
+    wrapped endpoint coordinates would place an antimeridian-crossing segment
+    near zero degrees, so longitudes are unwrapped before any midpoint is
+    formed.  When grid bounds are supplied, an equivalent multiple-of-360
+    representation is selected and every point is checked against the grid.
+
+    Parameters
+    ----------
+    curve : array-like
+        Route coordinates with shape ``(L, 2)`` in ``(lon, lat)`` order.
+    longitude_bounds : tuple of float, optional
+        Inclusive longitude extent of the target weather or land grid.
+
+    Raises
+    ------
+    ValueError
+        If the route has the wrong shape, contains non-finite coordinates, or
+        cannot be represented wholly within the supplied grid bounds.
+    """
+    result = np.asarray(curve, dtype=np.float64).copy()
+    if result.ndim != 2 or result.shape[1] != 2:
+        raise ValueError("curve must have shape (L, 2)")
+    if not np.all(np.isfinite(result)):
+        raise ValueError("curve contains non-finite coordinates")
+    if len(result) > 1:
+        result[:, 0] = np.rad2deg(np.unwrap(np.deg2rad(result[:, 0])))
+
+    if longitude_bounds is not None and len(result):
+        lower, upper = map(float, longitude_bounds)
+        if not np.isfinite(lower) or not np.isfinite(upper) or lower > upper:
+            raise ValueError(f"invalid longitude bounds: {longitude_bounds!r}")
+        grid_centre = 0.5 * (lower + upper)
+        route_centre = float(np.median(result[:, 0]))
+        shift = 360.0 * round((grid_centre - route_centre) / 360.0)
+        result[:, 0] += shift
+        tolerance = 1e-4
+        if np.any(result[:, 0] < lower - tolerance) or np.any(
+            result[:, 0] > upper + tolerance
+        ):
+            route_min = float(np.min(result[:, 0]))
+            route_max = float(np.max(result[:, 0]))
+            raise ValueError(
+                "route longitude range "
+                f"[{route_min:.3f}, {route_max:.3f}] is outside ERA5 grid "
+                f"[{lower:.3f}, {upper:.3f}] after antimeridian normalisation"
+            )
+
+    return jnp.asarray(result, dtype=jnp.float32)
+
+
+def weather_longitude_bounds(
+    resources: CorridorWeatherResources,
+) -> tuple[float, float]:
+    """Return and validate the longitude bounds attached to ERA5 callables."""
+    wind_bounds = getattr(resources.windfield, "longitude_bounds", None)
+    wave_bounds = getattr(resources.wavefield, "longitude_bounds", None)
+    if wind_bounds is None or wave_bounds is None:
+        raise ValueError("weather resources do not expose ERA5 longitude bounds")
+    wind_bounds = tuple(map(float, wind_bounds))
+    wave_bounds = tuple(map(float, wave_bounds))
+    if not np.allclose(wind_bounds, wave_bounds, atol=1e-6):
+        raise ValueError(
+            "wind and wave longitude grids differ: "
+            f"wind={wind_bounds!r}, wave={wave_bounds!r}"
+        )
+    return wind_bounds
+
+
 def departure_offset_hours(departure: datetime, dataset_epoch: datetime) -> float:
     """Return departure offset in hours relative to the dataset epoch."""
     departure_naive = departure.replace(tzinfo=None) if departure.tzinfo else departure
@@ -360,8 +436,11 @@ def count_folder_violations(
                     # Reuse the same track sample for the soft penalties so the
                     # weather totals line up with the voyage-level threshold counts.
                     departure = datetime.strptime(row["departure_time_utc"], _DTFMT)
-                    curve = read_track_curve(track_path)[None, ...]
                     resources = weather_resources[corridor]
+                    curve = normalise_route_longitudes(
+                        read_track_curve(track_path),
+                        weather_longitude_bounds(resources),
+                    )[None, ...]
                     time_offset = departure_offset_hours(
                         departure,
                         resources.dataset_epoch,
