@@ -7,6 +7,8 @@ configurations, validation and interval-certificate scripts, instructions for
 downloading the public environmental data, and the scripts behind every table
 and figure in the paper.
 
+Official website: https://weatherrouting.org/
+
 ## Structure
 
 The repository is structured into the following directories:
