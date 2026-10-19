@@ -1,0 +1,33 @@
+{
+ "problem": "fourvortices",
+ "route_file": "/home/SHARED/routetools/output/review_20260928/synthetic_local_optimality_proof/bers_routes/fourvortices_seed3.npy",
+ "J_route": 8.949494454314046,
+ "mode": "family",
+ "n_vars": 198,
+ "certified": true,
+ "margin_mR2_over_g": 2.4999995780038153,
+ "J_center": [
+  8.949492034842942,
+  8.949492034842946
+ ],
+ "J_star_enclosure": [
+  8.94949203484294,
+  8.949492034842946
+ ],
+ "grad_norm_upper": 2.5595349030160026e-17,
+ "R": 1.2266016956201237e-14,
+ "m_lower": 0.010433437684416427,
+ "float_lam_min_center": 0.020866878891130165,
+ "den_min_lower_on_box": 0.48394447939771307,
+ "hessian_box_max_width": 1.7598722479306161e-09,
+ "seconds": 0.2,
+ "eig_lam_est_center": 0.02086687889112889,
+ "eig_shift_s": 0.010433439445564446,
+ "eig_normE": 2.5412557674233645e-12,
+ "eig_normD1": 6.385167174984838e-15,
+ "eig_normDelta": 1.7586003764353644e-09,
+ "eig_m_lower": 0.010433437684416427,
+ "max_abs_transverse_offset_to_certified_min": 0.0015655403429806981,
+ "cost_gap_route_minus_certified": 2.4194710999125846e-06,
+ "seed": 3
+}

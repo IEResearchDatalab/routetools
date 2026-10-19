@@ -113,6 +113,8 @@ def _penalized_rise_cost(
     land: Any | None = None,
     land_distance_weight: float = 0.0,
     land_distance_epsilon: float = 1.0,
+    land_clearance_cells: float = 0.0,
+    land_endpoint_margin: int = 0,
     distance_penalty_weight: float = 0.0,
 ) -> jnp.ndarray:
     """Return the SWOPP3 optimisation objective used by CMA-ES and FMS."""
@@ -171,11 +173,19 @@ def _penalized_rise_cost(
         )
 
     if land is not None and land_distance_weight > 0:
-        total_cost = total_cost + land.distance_penalty(
-            curve,
-            weight=land_distance_weight,
-            epsilon=land_distance_epsilon,
-        )
+        if land_clearance_cells > 0:
+            total_cost = total_cost + land.clearance_penalty(
+                curve,
+                weight=land_distance_weight,
+                clearance_cells=land_clearance_cells,
+                endpoint_margin=land_endpoint_margin,
+            )
+        else:
+            total_cost = total_cost + land.distance_penalty(
+                curve,
+                weight=land_distance_weight,
+                epsilon=land_distance_epsilon,
+            )
 
     if land is not None and distance_penalty_weight > 0:
         total_cost = total_cost + land.distance_penalty(
@@ -599,6 +609,8 @@ def run_optimised_departure(
         wave_penalty_weight = float(defaults_cmaes.pop("wave_penalty_weight", 0.0))
         land_distance_weight = float(defaults_cmaes.pop("land_distance_weight", 50.0))
         land_distance_epsilon = float(defaults_cmaes.pop("land_distance_epsilon", 1.0))
+        land_clearance_cells = float(defaults_cmaes.pop("land_clearance_cells", 0.0))
+        land_endpoint_margin = int(defaults_cmaes.pop("land_endpoint_margin", 0))
         distance_penalty_weight = float(
             defaults_cmaes.pop("distance_penalty_weight", 0.0)
         )
@@ -637,6 +649,8 @@ def run_optimised_departure(
                 land=land,
                 land_distance_weight=land_distance_weight,
                 land_distance_epsilon=land_distance_epsilon,
+                land_clearance_cells=land_clearance_cells,
+                land_endpoint_margin=land_endpoint_margin,
                 distance_penalty_weight=distance_penalty_weight,
             )
 
@@ -656,6 +670,8 @@ def run_optimised_departure(
             "land": land,
             "land_distance_weight": land_distance_weight,
             "land_distance_epsilon": land_distance_epsilon,
+            "land_clearance_cells": land_clearance_cells,
+            "land_endpoint_margin": land_endpoint_margin,
             "distance_penalty_weight": distance_penalty_weight,
         }
 

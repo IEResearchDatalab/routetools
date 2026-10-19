@@ -6,30 +6,7 @@ The CMA-ES optimizer in `routetools` was designed for **ocean-current** routing 
 
 ---
 
-## Issue 1: Time Offset — All Departures Sampled Weather at t=0
-
-**Location:** `routetools/swopp3_runner.py` → `run_case()`, `routetools/cost.py` → `cost_function()`
-
-**Problem:** `departure_offset_h` was hardcoded to `0.0` in `run_case()`. All 366 departures optimised against January 1 weather regardless of their actual departure date.
-
-**Root cause:** `cost_function()` had no `time_offset` parameter. The time-variant cost functions computed segment timestamps starting from `t=0`.
-
-**Fix (committed `73e8b05`):**
-
-- Added `time_offset: float = 0.0` to `cost_function`, `cost_function_constant_cost_time_variant`, `_cma_evolution_strategy`, `optimize`, and `optimize_with_increasing_penalization`
-- Made `time_offset` a **non-static** JAX argument (not in `static_argnames`) so changing it per-departure does not trigger JIT recompilation
-- `run_case()` now computes offset from the dataset epoch:
-
-```python
-# routetools/swopp3_runner.py — run_case()
-departure_offset_h = (dep_naive - epoch_naive).total_seconds() / 3600.0
-```
-
-**Status:** ✅ Fixed and verified — second departure takes 0.1s (JIT cache hit), different energy values confirm per-departure weather.
-
----
-
-## Issue 2: Wind Treated as Ocean Current (Fundamental Model Mismatch)
+## Issue 1: Wind Treated as Ocean Current (Fundamental Model Mismatch)
 
 **Location:** `routetools/cost.py` — all `cost_function_constant_cost_*` variants
 
@@ -87,7 +64,7 @@ This is kinetic energy of the ship's velocity _relative to the medium_ (water + 
 
 ---
 
-## Issue 3: Unit Mismatch — SOG in m/h vs Wind in m/s
+## Issue 2: Unit Mismatch — SOG in m/h vs Wind in m/s
 
 **Location:** `routetools/cost.py` → `cost_function_constant_cost_time_variant()`
 
@@ -118,7 +95,7 @@ return cost * dt_s
 
 ---
 
-## Issue 4: Pacific Longitude Wrapping (Antimeridian)
+## Issue 3: Pacific Longitude Wrapping (Antimeridian)
 
 **Location:** `routetools/swopp3.py` → `case_endpoints()`, `great_circle_route()`, `routetools/cmaes.py` → endpoint validation
 
@@ -153,7 +130,7 @@ dst_opt = jnp.array([gc_init[-1, 0], gc_init[-1, 1]])
 
 ---
 
-## Issue 5: CMA-ES Sigma Scaling for Large Coordinate Spans
+## Issue 4: CMA-ES Sigma Scaling for Large Coordinate Spans
 
 **Location:** `routetools/cmaes.py` → `optimize()`
 
@@ -191,7 +168,7 @@ This gives effective sigma ≈ 5° for Pacific, ≈ 3° for Atlantic.
 
 ---
 
-## Issue 6: Waves Not Incorporated in Fixed-Time Cost Functions
+## Issue 5: Waves Not Incorporated in Fixed-Time Cost Functions
 
 **Location:** `routetools/cost.py`
 
@@ -226,34 +203,6 @@ For the constant-cost (fixed-time) variants, wave effects would need to be incor
 
 ---
 
-## Issue 7: Weather Penalty Uses t=0 for Time-Variant Fields
-
-**Location:** `routetools/weather.py` → `weather_penalty()`
-
-**Problem:** The `weather_penalty()` function always queries fields at `t=0`, ignoring the departure time:
-
-```python
-# routetools/weather.py — weather_penalty()
-mid_lon = (curve[:, :-1, 0] + curve[:, 1:, 0]) / 2
-mid_lat = (curve[:, :-1, 1] + curve[:, 1:, 1]) / 2
-t_zeros = jnp.zeros_like(mid_lon)   # ← always t=0
-
-if windfield is not None:
-    u10, v10 = windfield(mid_lon, mid_lat, t_zeros)
-    tws = jnp.sqrt(u10**2 + v10**2)
-    violations = violations + jnp.sum(tws > tws_limit, axis=1)
-
-if wavefield is not None:
-    hs, _ = wavefield(mid_lon, mid_lat, t_zeros)
-    violations = violations + jnp.sum(hs > hs_limit, axis=1)
-```
-
-When `weather_penalty_weight > 0`, the penalty would be based on January 1 weather regardless of actual departure date.
-
-**Status:** ⚠️ Not critical since `weather_penalty_weight` defaults to `0.0`, but would need fixing if weather penalties are enabled.
-
----
-
 ## Summary
 
 ### What Works
@@ -261,7 +210,7 @@ When `weather_penalty_weight > 0`, the penalty would be based on January 1 weath
 | Component                   | Status                                                   |
 | --------------------------- | -------------------------------------------------------- |
 | GC cases (all 8)            | ✅ Great-circle + RISE energy evaluation. Valid outputs. |
-| Per-departure time offset   | ✅ Each departure samples correct weather.               |
+| Per-departure weather time  | ✅ Each departure samples its corresponding weather.     |
 | ERA5 data loading           | ✅ Per-corridor caching, correct longitude handling.     |
 | Unit conversion (m/h → m/s) | ✅ `dt_s = dt * 3600` in time-variant cost.              |
 | Pacific longitude wrapping  | ✅ Unwrapped endpoints passed to CMA-ES.                 |

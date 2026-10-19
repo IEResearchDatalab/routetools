@@ -1,0 +1,33 @@
+{
+ "problem": "circular",
+ "route_file": "/home/SHARED/routetools/output/review_20260928/synthetic_local_optimality_proof/bers_routes/circular_seed3.npy",
+ "J_route": 1.9749678979655299,
+ "mode": "family",
+ "n_vars": 198,
+ "certified": true,
+ "margin_mR2_over_g": 2.499882968969141,
+ "J_center": [
+  1.9749613308502192,
+  1.9749613308502196
+ ],
+ "J_star_enclosure": [
+  1.974961330850219,
+  1.9749613308502196
+ ],
+ "grad_norm_upper": 1.8558945941729887e-16,
+ "R": 6.535153388863481e-14,
+ "m_lower": 0.014198654605662752,
+ "float_lam_min_center": 0.028398638620106584,
+ "den_min_lower_on_box": 0.20030128489169938,
+ "hessian_box_max_width": 6.647541113125044e-07,
+ "seconds": 0.1,
+ "eig_lam_est_center": 0.028398638620161273,
+ "eig_shift_s": 0.014199319310080637,
+ "eig_normE": 1.614705112572723e-11,
+ "eig_normD1": 4.104205811939298e-14,
+ "eig_normDelta": 6.646882297907095e-07,
+ "eig_m_lower": 0.014198654605662752,
+ "max_abs_transverse_offset_to_certified_min": 0.0016555127472768865,
+ "cost_gap_route_minus_certified": 6.567115310218696e-06,
+ "seed": 3
+}

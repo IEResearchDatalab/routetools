@@ -1,0 +1,33 @@
+{
+ "problem": "doublegyre",
+ "route_file": "/home/SHARED/routetools/output/review_20260928/synthetic_local_optimality_proof/bers_routes/doublegyre_seed3.npy",
+ "J_route": 0.988842383122979,
+ "mode": "family",
+ "n_vars": 198,
+ "certified": true,
+ "margin_mR2_over_g": 2.4997899844880536,
+ "J_center": [
+  0.9888051755234666,
+  0.9888051755234668
+ ],
+ "J_star_enclosure": [
+  0.9888051755234665,
+  0.9888051755234668
+ ],
+ "grad_norm_upper": 5.24610643827419e-16,
+ "R": 1.2437123226167126e-13,
+ "m_lower": 0.021088742297518653,
+ "float_lam_min_center": 0.04218102806311855,
+ "den_min_lower_on_box": 0.8985756740384973,
+ "hessian_box_max_width": 1.7382177475155913e-06,
+ "seconds": 2.7,
+ "eig_lam_est_center": 0.042181028063095344,
+ "eig_shift_s": 0.021090514031547672,
+ "eig_normE": 2.733451283004604e-11,
+ "eig_normD1": 6.88204291341845e-14,
+ "eig_normDelta": 1.7717066256844898e-06,
+ "eig_m_lower": 0.021088742297518653,
+ "max_abs_transverse_offset_to_certified_min": 0.002911449669782255,
+ "cost_gap_route_minus_certified": 3.7207599512201206e-05,
+ "seed": 3
+}

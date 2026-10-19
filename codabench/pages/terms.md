@@ -23,4 +23,4 @@ This benchmark is open to academic and industry researchers worldwide.
 
 ## Contact
 
-For questions about the benchmark, open an issue on the [routetools GitHub repository](https://github.com/Weather-Routing-Research/routetools) or contact the organizers.
+For questions about the benchmark, open an issue on the [routetools GitHub repository](https://github.com/IEResearchDatalab/routetools) or contact the organizers.

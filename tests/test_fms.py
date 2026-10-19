@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import routetools.fms as fms_module
 from routetools.cost import cost_function_rise
 from routetools.fms import (
     _apply_curve_constraints,
@@ -15,6 +16,37 @@ from routetools.fms import (
     optimize_fms,
 )
 from routetools.vectorfield import vectorfield_fourvortices
+
+
+def test_clear_fms_caches_releases_custom_evaluator_and_solver_references():
+    """Monthly ERA5 closures must not remain held by Python LRU caches."""
+
+    def custom_cost(curve, **kwargs):
+        del kwargs
+        return jnp.sum(curve, axis=(1, 2))
+
+    evaluator = fms_module._build_custom_evaluate_cost(
+        custom_cost,
+        (("weather_token", object()),),
+        True,
+        False,
+        ("curve",),
+        1.0,
+        0.0,
+        True,
+    )
+    fms_module._build_travel_time_custom_solver(evaluator, 0.9, 1.0)
+    fms_module._build_travel_stw_custom_solver(evaluator, 0.9, 1.0, 5.0)
+
+    assert fms_module._build_custom_evaluate_cost.cache_info().currsize > 0
+    assert fms_module._build_travel_time_custom_solver.cache_info().currsize > 0
+    assert fms_module._build_travel_stw_custom_solver.cache_info().currsize > 0
+
+    fms_module.clear_fms_caches()
+
+    assert fms_module._build_custom_evaluate_cost.cache_info().currsize == 0
+    assert fms_module._build_travel_time_custom_solver.cache_info().currsize == 0
+    assert fms_module._build_travel_stw_custom_solver.cache_info().currsize == 0
 
 
 def _curve() -> jnp.ndarray:

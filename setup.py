@@ -8,7 +8,7 @@ setup(
     author="Weather Routing Research",
     description="Routing tools for continuous vector fields",
     long_description_content_type="text/markdown",
-    url="https://github.com/Weather-Routing-Research/cmaes_bezier_demo",
+    url="https://github.com/IEResearchDatalab/routetools",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

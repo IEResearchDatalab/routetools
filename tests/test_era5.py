@@ -176,6 +176,26 @@ class TestLoadERA5Windfield:
             np.testing.assert_allclose(float(u[0]), -5.0, atol=0.1)
             np.testing.assert_allclose(float(v[0]), 4.0, atol=0.1)
 
+    def test_equivalent_wrapped_longitude_uses_same_grid_point(self) -> None:
+        """Modulo-360 longitudes are converted to the dataset convention."""
+        from routetools.era5.loader import load_era5_windfield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nc_path = Path(tmpdir) / "wind.nc"
+            _make_wind_nc(nc_path)
+            wf = load_era5_windfield(nc_path)
+
+            lon = jnp.array([-50.0, 310.0])
+            lat = jnp.array([40.0, 40.0])
+            t = jnp.array([0.0, 0.0])
+
+            u, v = wf(lon, lat, t)
+
+            np.testing.assert_allclose(u, [-5.0, -5.0], atol=0.1)
+            np.testing.assert_allclose(v, [4.0, 4.0], atol=0.1)
+            assert wf.longitude_bounds == (-70.0, -20.0)
+            assert wf.latitude_bounds == (30.0, 50.0)
+
     def test_batch_2d_input(self) -> None:
         """Windfield handles 2D batched inputs (B, L-1)."""
         from routetools.era5.loader import load_era5_windfield

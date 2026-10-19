@@ -388,7 +388,7 @@ def weather_penalty_smooth(
 
         ``penalty_i = sharpness · max(0, value - limit)²``
 
-    This is averaged over all segments per route and scaled by ``penalty``,
+    The maximum over the segments of each route is scaled by ``penalty``,
     making the penalty independent of route resolution.
 
     Parameters
@@ -475,7 +475,7 @@ def wind_penalty_smooth(
 
         ``penalty_i = max(0, TWS_i - tws_limit)²``
 
-    The per-segment penalties are averaged and scaled by ``weight``,
+    The maximum per-segment penalty of each route is scaled by ``weight``,
     making the penalty independent of route resolution.
 
     Parameters
@@ -487,7 +487,7 @@ def wind_penalty_smooth(
     tws_limit : float
         TWS threshold in m/s (default 20).
     weight : float
-        Scaling factor applied to the mean squared-excess penalty
+        Scaling factor applied to the maximum squared-excess penalty
         (default 50).
     travel_stw : float, optional
         Constant speed through water (m/s).
@@ -533,7 +533,7 @@ def wave_penalty_smooth(
 
         ``penalty_i = max(0, Hs_i - hs_limit)²``
 
-    The per-segment penalties are averaged and scaled by ``weight``,
+    The maximum per-segment penalty of each route is scaled by ``weight``,
     making the penalty independent of route resolution.
 
     Parameters
@@ -545,7 +545,7 @@ def wave_penalty_smooth(
     hs_limit : float
         Hs threshold in m (default 7).
     weight : float
-        Scaling factor applied to the mean squared-excess penalty
+        Scaling factor applied to the maximum squared-excess penalty
         (default 50).
     travel_stw : float, optional
         Constant speed through water (m/s).

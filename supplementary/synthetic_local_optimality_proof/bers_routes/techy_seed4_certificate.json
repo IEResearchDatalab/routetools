@@ -1,0 +1,33 @@
+{
+ "problem": "techy",
+ "route_file": "/home/SHARED/routetools/output/review_20260928/synthetic_local_optimality_proof/bers_routes/techy_seed4.npy",
+ "J_route": 1.0317289524473807,
+ "mode": "family",
+ "n_vars": 198,
+ "certified": true,
+ "margin_mR2_over_g": 2.499882764487547,
+ "J_center": [
+  1.0317222459557729,
+  1.0317222459557733
+ ],
+ "J_star_enclosure": [
+  1.0317222459557727,
+  1.0317222459557733
+ ],
+ "grad_norm_upper": 7.763400500902093e-17,
+ "R": 2.0132271378706495e-14,
+ "m_lower": 0.019280080961501595,
+ "float_lam_min_center": 0.03856197025594086,
+ "den_min_lower_on_box": 0.6321182147804894,
+ "hessian_box_max_width": 8.418620041084068e-07,
+ "seconds": 2.4,
+ "eig_lam_est_center": 0.03856197025581531,
+ "eig_shift_s": 0.019280985127907654,
+ "eig_normE": 2.249338138282503e-11,
+ "eig_normD1": 5.866692390482753e-14,
+ "eig_normDelta": 9.041438540074184e-07,
+ "eig_m_lower": 0.019280080961501595,
+ "max_abs_transverse_offset_to_certified_min": 0.0009356035033220597,
+ "cost_gap_route_minus_certified": 6.706491607388898e-06,
+ "seed": 4
+}

@@ -1,4 +1,11 @@
-# CMA-ES Bézier
+# routetools
+
+`routetools` is the open-source implementation and complete reproduction
+workflow for the BERS paper. The repository contains the synthetic benchmarks,
+CMA-ES and FMS optimization tools, vessel-consumption models, experiment
+configurations, validation and interval-certificate scripts, instructions for
+downloading the public environmental data, and the scripts behind every table
+and figure in the paper.
 
 ## Structure
 
@@ -24,6 +31,8 @@ Tools:
 
 ## Documentation
 
+- [Reproducing the BERS paper](docs/REPRODUCING_BERS_PAPER.md) — complete
+  environment, data, experiment, validation, table, and figure workflow.
 - [Parametric Performance Model](docs/parametric_model.md) — closed-form RISE model for ship power prediction (hull, wind, wave, and wingsail components).
 
 ## Installation
@@ -34,7 +43,12 @@ Install package and pinned dependencies with the [`uv`](https://docs.astral.sh/u
 
 1. Install `uv`. See instructions for Windows, Linux or MacOS [here](https://docs.astral.sh/uv/getting-started/installation/).
 
-2. Clone repository
+2. Clone the repository:
+
+   ```bash
+   git clone https://github.com/IEResearchDatalab/routetools.git
+   cd routetools
+   ```
 
 3. Install package and dependencies in a virtual environment:
 
@@ -84,10 +98,10 @@ Install package and pinned dependencies with the [`uv`](https://docs.astral.sh/u
 Install a specific version of the package with `pip` or `uv pip`:
 
 ```{bash}
-pip install git+ssh://git@github.com:Weather-Routing-Research/cmaes_bezier_demo.git
+pip install git+https://github.com/IEResearchDatalab/routetools.git
 ```
 
-### Benchmark data
+### Legacy current-field benchmark data
 
 To be able to run the code, you need to download oceanographic data from [Google Drive](https://drive.google.com/file/d/1jE4adphfGBOWhPETZbNcmh17m6kmOet5/view?usp=sharing). This data is stored in a zip file (15.5 GB) and should be extracted to a folder (24.0 GB).
 
@@ -227,35 +241,12 @@ To add a new experiment:
 
 ## Reproduce the results (paper)
 
-To reproduce the results from the paper, run the following command:
-
-```bash
-sh scripts/run_results.sh
-```
-
-(Preferably, using `nohup` to avoid interruption if you close the terminal, and redirecting output to a log file for later review):
-
-This will run BERS across all instance for the synthetic scenarios and output the results to `output/` folder.
-
-Next, to generate the plots and tables related to the synthetic scenarios, run:
-
-```bash
-uv run scripts/synthetic/figures.py
-uv run scripts/synthetic/tables.py
-```
-
-In order to generate the results for the real-world scenarios, make sure you have downloaded the benchmark data as described in the [Benchmark data](#benchmark-data) section. Then run:
-
-```bash
-uv run scripts/realworld/results.py
-```
-
-Finally, to generate the plots and tables for the paper, run:
-
-```bash
-uv run scripts/realworld/figures.py
-uv run scripts/realworld/tables.py
-```
+The full workflow is documented in
+[Reproducing the BERS paper](docs/REPRODUCING_BERS_PAPER.md). It starts from a
+fresh clone, downloads the open ERA5 and Natural Earth inputs, runs the
+synthetic and real-ocean experiments with the open vessel-consumption model,
+executes the validation and local-optimality checks, and regenerates every
+reported table and figure. No proprietary software or data are required.
 
 ## Using GPU with JAX
 

@@ -373,6 +373,19 @@ def _build_field_closure(
         else:
             shape = None
 
+        # Put equivalent wrapped longitudes into the dataset convention.  For
+        # example, a Pacific point stored as -179 degrees is sampled at 181
+        # degrees on a [100, 250] ERA5 grid.  Values with no modulo-360
+        # equivalent inside the grid remain unchanged so the configured
+        # boundary mode still governs genuinely out-of-domain queries.
+        lon_equivalent = lon + 360.0 * jnp.round(
+            (0.5 * (lon_min + lon_max) - lon) / 360.0
+        )
+        equivalent_in_bounds = (lon_equivalent >= lon_min) & (
+            lon_equivalent <= lon_max
+        )
+        lon = jnp.where(equivalent_in_bounds, lon_equivalent, lon)
+
         # Build coordinates: [t, lat, lon]
         x = jnp.stack([ts_full, lat, lon], axis=-1)
 
@@ -397,6 +410,21 @@ def _build_field_closure(
             b = b.reshape(shape)
 
         return a, b
+
+    # Preserve the spatial grid extent on the callable.  Analysis code that
+    # reads submitted tracks can then put equivalent longitudes (for example
+    # -179 and 181 degrees) into the same convention as the ERA5 grid before
+    # evaluating segment midpoints.  Without this metadata, JAX's ``nearest``
+    # boundary mode can silently clamp a wrapped Pacific route to the edge of
+    # the dataset.
+    lat_min = float(begin[0, 1])
+    lon_min = float(begin[0, 2])
+    _field.latitude_bounds = (  # type: ignore[attr-defined]
+        lat_min,
+        lat_min + float(spacing[0, 1]) * (data_a.shape[1] - 1),
+    )
+    lon_max = lon_min + float(spacing[0, 2]) * (data_a.shape[2] - 1)
+    _field.longitude_bounds = (lon_min, lon_max)  # type: ignore[attr-defined]
 
     if add_time_variant_attr:
         _field = time_variant(_field)
