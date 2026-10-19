@@ -1,20 +1,20 @@
 # Computer-assisted proof of local optimality — synthetic benchmarks: results
 
-Companion to `SPEC_synthetic_local_optimality.md`. The interval implementation reproduces the discrete objectives in `routetools` (commit `8462156`), with L = 200 waypoints. The archived route-wise results in `bers_routes/` were produced from the 25 routes exported by `revision/task10_synthetic_local_optimality.py` at commit `4ba7618`.
+Companion to `SPEC_synthetic_local_optimality.md`. The interval implementation reproduces the discrete objectives in `routetools` (commit `8462156`), with L = 200 waypoints. The reported route-wise results were produced from the 25 routes exported by `revision/task10_synthetic_local_optimality.py` at commit `4ba7618`.
 
 ## 1. Result
 
 At benchmark level, every synthetic problem has at least one **certified strict local minimizer** of the discrete action. For the four travel-time problems, the reference certificate agrees with the BERS value to the reported precision. For Swirlys, an independently found certified minimizer is about 5% below the reported BERS value; this rules out global optimality but does not rule out a different local minimum near a BERS route. Section 5 gives the result tied to the actual 25 exported BERS routes: 23 are certified near strict local minima.
 
-| Benchmark | Objective | Variations | Dim. | Certified J\* (enclosure width < 1e-12) | BERS (Table 5, mean) | ‖∇J(X̃)‖ ≤ | Ball radius R | min eig ∇²J on ball ≥ | Safety margin mR/(2‖∇J‖) |
-|---|---|---|---|---|---|---|---|---|---|
-| Circular | time | full waypoint space | 396 | 1.974958838640 | 1.9750 | 1.2e-38 | 4.4e-16 | 9.4e-7 | 1.7e16 |
-| Circular | time | transverse | 198 | 1.974959641010 | 1.9750 | 1.9e-17 | 5.2e-15 | 1.8e-2 | 2.5 |
-| Four Vortices | time | transverse | 198 | 8.949543208712 | 8.9495 | 1.4e-17 | 6.4e-15 | 1.1e-2 | 2.5 |
-| Double Gyre | time (time-dependent) | transverse | 198 | 0.988842908792 | 0.9888 | 9.5e-17 | 1.9e-14 | 2.5e-2 | 2.5 |
-| Techy | time (time-dependent) | full waypoint space | 396 | 1.031713402953 | 1.0317 | 3.4e-36 | 4.4e-16 | 7.9e-5 | 5.2e15 |
-| Techy | time (time-dependent) | transverse | 198 | 1.031765869173 | 1.0317 | 4.6e-17 | 1.2e-14 | 2.0e-2 | 2.5 |
-| Swirlys | fixed-time energy | full waypoint space | 396 | **1.867882848240** | **1.9702** | 6.4e-14 | 1.7e-10 | 1.9e-3 | 2.5 |
+| Benchmark     | Objective             | Variations          | Dim. | Certified J\* (enclosure width < 1e-12) | BERS (Table 5, mean) | ‖∇J(X̃)‖ ≤ | Ball radius R | min eig ∇²J on ball ≥ | Safety margin mR/(2‖∇J‖) |
+| ------------- | --------------------- | ------------------- | ---- | --------------------------------------- | -------------------- | --------- | ------------- | --------------------- | ------------------------ |
+| Circular      | time                  | full waypoint space | 396  | 1.974958838640                          | 1.9750               | 1.2e-38   | 4.4e-16       | 9.4e-7                | 1.7e16                   |
+| Circular      | time                  | transverse          | 198  | 1.974959641010                          | 1.9750               | 1.9e-17   | 5.2e-15       | 1.8e-2                | 2.5                      |
+| Four Vortices | time                  | transverse          | 198  | 8.949543208712                          | 8.9495               | 1.4e-17   | 6.4e-15       | 1.1e-2                | 2.5                      |
+| Double Gyre   | time (time-dependent) | transverse          | 198  | 0.988842908792                          | 0.9888               | 9.5e-17   | 1.9e-14       | 2.5e-2                | 2.5                      |
+| Techy         | time (time-dependent) | full waypoint space | 396  | 1.031713402953                          | 1.0317               | 3.4e-36   | 4.4e-16       | 7.9e-5                | 5.2e15                   |
+| Techy         | time (time-dependent) | transverse          | 198  | 1.031765869173                          | 1.0317               | 4.6e-17   | 1.2e-14       | 2.0e-2                | 2.5                      |
+| Swirlys       | fixed-time energy     | full waypoint space | 396  | **1.867882848240**                      | **1.9702**           | 6.4e-14   | 1.7e-10       | 1.9e-3                | 2.5                      |
 
 A margin above 1 means the certificate holds. Each certificate runs in about 0.2–6 s.
 
@@ -41,9 +41,9 @@ For the fixed-time energy objective (Swirlys) the schedule is fixed and there is
 ## 3. How the rigour is obtained
 
 - **Objective.** The segment costs and fields reproduce `routetools/cost.py` and `vectorfield.py`: midpoint field evaluation, sequential time propagation for time-dependent fields, and the fixed-time cost ½|d/h − w|²h. They were cross-checked against an independent plain-numpy transcription to 1e-16. For travel time the algebraically identical form Δt = |d|² / (√((d·w)² + (S² − |w|²)|d|²) + d·w) is used, and S² − |w|² > 0 is verified on every box (the smallest value is at least 0.19).
-- **Gradient at the centre.** Rigorous 150-bit interval arithmetic (mpmath.iv), with dual numbers per segment and an adjoint of the time recursion t_{n+1} = t_n + Δt_n.
+- **Gradient at the centre.** Rigorous 150-bit interval arithmetic (mpmath.iv), with dual numbers per segment and an adjoint of the time recursion t\_{n+1} = t_n + Δt_n.
 - **Hessian over the box ‖X − X̃‖∞ ≤ R**, which contains the ball. Interval second-order automatic differentiation in binary64 with outward rounding by one ulp after every +, −, ×, ÷, √ (IEEE-754, round-to-nearest). sin, cos and π are enclosed with mpmath.iv. For time-dependent fields the dense Hessian is propagated through the time recursion.
-- **Eigenvalue bound.** The interval Hessian is split as centre ± radius. A floating-point Cholesky factorisation of (centre − sI) gives the bound, with a priori matrix-product rounding bounds (Higham, *Accuracy and Stability of Numerical Algorithms*, Thm 3.5). The result is m ≥ s − ‖residual‖₂ − ‖rounding‖₂ − ‖radius‖₂, with ‖·‖₂ bounded by the ∞-norm of symmetric non-negative matrices.
+- **Eigenvalue bound.** The interval Hessian is split as centre ± radius. A floating-point Cholesky factorisation of (centre − sI) gives the bound, with a priori matrix-product rounding bounds (Higham, _Accuracy and Stability of Numerical Algorithms_, Thm 3.5). The result is m ≥ s − ‖residual‖₂ − ‖rounding‖₂ − ‖radius‖₂, with ‖·‖₂ bounded by the ∞-norm of symmetric non-negative matrices.
 - **High-precision centres.** For the two full-space travel-time certificates the tangential eigenvalue is so small that the ball radius must be about 4e-16. The centre is therefore kept in 150-bit precision, polished by Newton steps to a gradient of 1e-36.
 - **Self-test.** Interval enclosures of J, ∇J and ∇²J were checked against point evaluations at random points in boxes of radius 1e-6 to 1e-5 for all benchmarks: zero violations.
 - **Constants.** π, 2/3, 1.7, 0.9, cos(π/6), etc. are treated as exact reals, enclosed in intervals. The code uses their binary64 values; the difference is about 1e-16 relative and far inside every margin, but formally the theorem is about the exact-constant problem.
@@ -57,11 +57,12 @@ This establishes that the reported BERS routes are not globally optimal. It does
 
 ## 5. Certificates for the 25 exported BERS routes
 
-The route-wise run is complete. The archive `bers_routes/` contains the exact
-200-by-2 route array and JSON certificate for each of the five seeds of each
-benchmark, plus `summary.json`. All 20 travel-time routes are certified in the
-198-dimensional transverse family. Swirlys seeds 1, 3 and 4 are certified in
-the full 396-dimensional waypoint space at J* = 1.9683892432. Swirlys seeds 0
+The route-wise run is complete. Its generated output consists of a 200-by-2
+route array and JSON certificate for each of the five seeds of each benchmark,
+plus `summary.json`; these machine-generated files are not tracked. All 20
+travel-time routes are certified in the 198-dimensional transverse family.
+Swirlys seeds 1, 3 and 4 are certified in
+the full 396-dimensional waypoint space at J\* = 1.9683892432. Swirlys seeds 0
 and 2 reach stationary points with a smallest point-Hessian eigenvalue of
 approximately 4.35e-10, but the interval lower bound over the required ball is
 negative, so those two routes are not certified. Thus 23 of the 25 exported
@@ -75,10 +76,16 @@ in the revised manuscript.
 To repeat the batch from a Task 10 output directory:
 
 ```bash
-cd supplementary/synthetic_local_optimality_proof
+cd reproducibility/synthetic_local_optimality_proof
 uv run --with mpmath==1.3.0 --with scipy \
   python certify_bers_routes.py /path/to/task10_synthetic_local_opt/curves
 ```
+
+This writes generated routes and certificates to `bers_routes/`. To reproduce
+the benchmark-level certificates and their reference routes, run
+`bash run_all.sh`; it writes generated files to `routes/` and `certificates/`.
+All three output directories are ignored by Git and can be removed and
+regenerated at any time.
 
 ## 6. Claim used in the revised paper
 
@@ -89,10 +96,10 @@ This replaces the Legendre-type argument in the earlier draft. The travel-time L
 ## 7. Files
 
 - `SPEC_synthetic_local_optimality.md`: specification.
-- `certificates/*.json`: one certificate per row of the table, plus `summary.json`.
-- `bers_routes/`: the 25 exported BERS routes, their route-wise certificates,
-  and a combined `summary.json`.
-- `routes/`: reference routes. `<name>.npy` is the full-space route; `<name>_family.npz` holds the transverse base, normals and s; `<name>_full_hpcentre.npy` holds the 150-bit centres as decimal strings; `<name>_cmaes.npy` is the stage-1 route.
+- Generated output (not committed): `certificates/` contains benchmark-level
+  certificate JSON; `bers_routes/` contains the 25 exported BERS route arrays,
+  route-wise certificate JSON, and summary; `routes/` contains generated
+  reference routes and intermediate data.
 - Code:
   - `jets.py`: interval arithmetic and second-order AD.
   - `problems.py`, `action.py`, `family.py`: objectives.
@@ -102,4 +109,5 @@ This replaces the Legendre-type argument in the earlier draft. The travel-time L
   - `certify_bers_routes.py`: batch driver for the 25 Task 10 routes.
   - `global_search.py`, `refine.py`, `refine_family.py`, `polish_hp.py`: route finding.
   - `selftest.py`, `reference_numpy.py`: checks.
-- Reproduce with `bash run_all.sh`.
+- Reproduce the benchmark-level results with `bash run_all.sh`; reproduce the
+  route-wise results with `certify_bers_routes.py` and the Task 10 curve cache.

@@ -1,0 +1,6 @@
+/bers_routes/*.json
+/bers_routes/*.npy
+/certificates/*.json
+/routes/*.json
+/routes/*.npy
+/routes/*.npz
