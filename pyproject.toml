@@ -69,6 +69,8 @@ fallback_version = "0+unknown"
 
 [tool.ruff]
 line-length = 88
+extend-exclude = ["reproducibility/synthetic_local_optimality_proof"]
+force-exclude = true
 [tool.ruff.lint]
 select = [
     "E",    # pycodestyle

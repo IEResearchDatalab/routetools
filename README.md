@@ -13,8 +13,19 @@ Official website: https://weatherrouting.org/
 
 The repository is structured into the following directories:
 
-- `/routetools`: Python source code
-- `/tests`: Python code for testing via pytest
+- `routetools/`: installable Python package
+- `tests/`: automated tests
+- `scripts/`: synthetic, real-world, and data-preparation workflows
+- `revision/`: paper-revision analyses and validation scripts
+- `reproducibility/synthetic_local_optimality_proof/`: standalone proof
+  implementation and documentation; generated routes and certificates are
+  recreated locally
+- `docs/`: user and paper-reproduction documentation
+- `codabench/`: competition package
+- `tools/`: development utilities
+
+Large datasets and generated run outputs belong in the ignored `data/` and
+`output/` directories; they are not part of the tracked source tree.
 
 Conveniently, a set of workflows via Github Actions are already installed:
 

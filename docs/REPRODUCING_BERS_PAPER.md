@@ -63,7 +63,7 @@ automatically by Cartopy when the land-mask or exact-geometry checks first run.
 | Land experiments, Figures 5–6                     | `uv run scripts/results_land_avoidance.py`                                                     |
 | Table 8 (λ_land sensitivity)                      | `uv run python revision/task6_lambda_land_sensitivity.py`                                      |
 | Export BERS routes; numerical audit               | `uv run python revision/task10_synthetic_local_optimality.py`                                  |
-| Computer-assisted proof (Section 3.3, Appendix E) | see `supplementary/synthetic_local_optimality_proof/certificate_report.md`                     |
+| Computer-assisted proof (Section 3.3, Appendix E) | see `reproducibility/synthetic_local_optimality_proof/certificate_report.md`                   |
 
 ### Real-ocean corridors (Section 4)
 
@@ -79,15 +79,15 @@ interrupted run with `--resume RUN_NAME`.
 
 Post-processing (no route is re-optimized):
 
-| Paper item                                | Command                                                                     |
-| ----------------------------------------- | --------------------------------------------------------------------------- |
-| Tables 12, 15; Figures 1, 7–9, 11         | `uv run scripts/realworld/figures.py`, `uv run scripts/realworld/tables.py` |
-| Table 10, Figure 7 (segment speeds)       | `revision/task1_speed_distribution.py`                                      |
-| Table 13, Figure 10 (paired improvements) | `revision/task3_paired_improvements.py`                                     |
-| Table 15, Figure 12 (weather exposure)    | `revision/task4_weather_violations.py`                                      |
-| Table 11 (land-safe export and audit)      | `revision/task7_landfree_export.py`, then `revision/task7_land_verification.py` |
-| Table 14 (route-wise derivative audit)    | `revision/task8_local_optimality.py`                                        |
-| Operating-envelope Hessian (Appendix E)   | `revision/task9_envelope_hessian.py`                                        |
+| Paper item                                | Command                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------- |
+| Tables 12, 15; Figures 1, 7–9, 11         | `uv run scripts/realworld/figures.py`, `uv run scripts/realworld/tables.py`     |
+| Table 10, Figure 7 (segment speeds)       | `revision/task1_speed_distribution.py`                                          |
+| Table 13, Figure 10 (paired improvements) | `revision/task3_paired_improvements.py`                                         |
+| Table 15, Figure 12 (weather exposure)    | `revision/task4_weather_violations.py`                                          |
+| Table 11 (land-safe export and audit)     | `revision/task7_landfree_export.py`, then `revision/task7_land_verification.py` |
+| Table 14 (route-wise derivative audit)    | `revision/task8_local_optimality.py`                                            |
+| Operating-envelope Hessian (Appendix E)   | `revision/task9_envelope_hessian.py`                                            |
 
 `revision/run_revision_postprocessing.sh` and
 `revision/run_revision_local_optimality.sh` run these steps in order and
