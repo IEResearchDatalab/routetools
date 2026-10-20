@@ -1,0 +1,62 @@
+# run_tag=bers_revision_2024_final_20260923; run_git_commit=8671607609694d208a4c635b11b41edf87d8ae78; analysis_git_commit=fa451908fd0c4254b7fe0d9ff25c6dd21c4c7f34; input_run_roots=/home/SHARED/routetools/output/bers_revision_2024_final_20260923; /home/SHARED/routetools/output/bers_revision_2024_final_20260923/bers; /home/SHARED/routetools/output/bers_revision_2024_final_20260923/cmaes
+section,scope,parameter,manuscript_value,actual_value,match,notes
+configuration,Atlantic,CMA-ES K,10,10,yes,Control-point count.
+configuration,Atlantic,CMA-ES population P,400,200,no,Population size.
+configuration,Atlantic,CMA-ES sigma0,0.300000,0.100000,no,
+configuration,Atlantic,CMA-ES maximum evaluations,50000,25000,no,Configured evaluation cap.
+configuration,Atlantic,Sampled-land penalty,1000,1000000.000000,no,
+configuration,Atlantic,Distance-to-land weight,10,100.000000,no,
+configuration,Atlantic,CMA-ES wind weight,50,50.000000,yes,
+configuration,Atlantic,CMA-ES wave weight,50,50.000000,yes,
+configuration,Atlantic,FMS wind weight,50,50.000000,yes,Shared wind weight recorded in the run manifest.
+configuration,Atlantic,FMS wave weight,50,50.000000,yes,Shared wave weight recorded in the run manifest.
+configuration,Atlantic,FMS damping,0.950000,0.900000,no,
+configuration,Atlantic,FMS patience,200,50,no,
+configuration,Atlantic,FMS maximum sweeps,10000,5000,no,"Recorded as fms_maxfevals, not as sweeps."
+configuration,Atlantic,Waypoints,178,178,yes,
+configuration,Atlantic,Evaluation grid (minutes),30,30.000000,yes,
+configuration,Atlantic,Wind threshold (m/s),20,20.000000,yes,Default at the run's recorded source commit.
+configuration,Atlantic,Wave threshold (m),7,7.000000,yes,Default at the run's recorded source commit.
+configuration,Pacific,CMA-ES K,15,10,no,Control-point count.
+configuration,Pacific,CMA-ES population P,400,200,no,Population size.
+configuration,Pacific,CMA-ES sigma0,0.300000,0.100000,no,
+configuration,Pacific,CMA-ES maximum evaluations,50000,25000,no,Configured evaluation cap.
+configuration,Pacific,Sampled-land penalty,1000,1000000.000000,no,
+configuration,Pacific,Distance-to-land weight,10,100.000000,no,
+configuration,Pacific,CMA-ES wind weight,50,50.000000,yes,
+configuration,Pacific,CMA-ES wave weight,200,50.000000,no,
+configuration,Pacific,FMS wind weight,50,50.000000,yes,Shared wind weight recorded in the run manifest.
+configuration,Pacific,FMS wave weight,50,50.000000,yes,Shared wave weight recorded in the run manifest.
+configuration,Pacific,FMS damping,0.950000,0.900000,no,
+configuration,Pacific,FMS patience,200,50,no,
+configuration,Pacific,FMS maximum sweeps,10000,5000,no,"Recorded as fms_maxfevals, not as sweeps."
+configuration,Pacific,Waypoints,293,293,yes,
+configuration,Pacific,Evaluation grid (minutes),30,30.000000,yes,
+configuration,Pacific,Wind threshold (m/s),20,20.000000,yes,Default at the run's recorded source commit.
+configuration,Pacific,Wave threshold (m),7,7.000000,yes,Default at the run's recorded source commit.
+Table 11,AO_noWPS,GC mean voyage energy (MWh),310.300000,305.478222,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 11,AO_noWPS,CMA-ES mean voyage energy (MWh),220.200000,257.572439,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 11,AO_noWPS,BERS mean voyage energy (MWh),206.200000,236.648971,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 12,AO_noWPS,BERS over GC mean paired improvement (%),27.500000,15.414800,no,Mean per-departure percentage; baseline=GC.
+Table 12,AO_noWPS,BERS over CMA-ES mean paired improvement (%),6.000000,8.041275,no,Mean per-departure percentage; baseline=CMA-ES.
+Table 11,AO_WPS,GC mean voyage energy (MWh),253.300000,248.734759,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 11,AO_WPS,CMA-ES mean voyage energy (MWh),159.900000,194.027139,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 11,AO_WPS,BERS mean voyage energy (MWh),139.500000,168.726762,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 12,AO_WPS,BERS over GC mean paired improvement (%),38.900000,24.117325,no,Mean per-departure percentage; baseline=GC.
+Table 12,AO_WPS,BERS over CMA-ES mean paired improvement (%),12.500000,13.129674,no,Mean per-departure percentage; baseline=CMA-ES.
+Table 11,PO_noWPS,GC mean voyage energy (MWh),251.700000,250.621382,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 11,PO_noWPS,CMA-ES mean voyage energy (MWh),200.200000,224.626270,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 11,PO_noWPS,BERS mean voyage energy (MWh),194.800000,212.009250,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 12,PO_noWPS,BERS over GC mean paired improvement (%),17.500000,9.337396,no,Mean per-departure percentage; baseline=GC.
+Table 12,PO_noWPS,BERS over CMA-ES mean paired improvement (%),2.600000,5.552094,no,Mean per-departure percentage; baseline=CMA-ES.
+Table 11,PO_WPS,GC mean voyage energy (MWh),158.000000,158.145878,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 11,PO_WPS,CMA-ES mean voyage energy (MWh),87.300000,115.353537,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 11,PO_WPS,BERS mean voyage energy (MWh),64.100000,89.223670,no,Arithmetic mean over 366 departure_time_utc-matched summary rows.
+Table 12,PO_WPS,BERS over GC mean paired improvement (%),55.200000,36.283110,no,Mean per-departure percentage; baseline=GC.
+Table 12,PO_WPS,BERS over CMA-ES mean paired improvement (%),30.600000,25.814027,no,Mean per-departure percentage; baseline=CMA-ES.
+Table 14,GC Atlantic,Maximum wind exceedance,6.570000,6.571400,yes,Maximum of route-summary maxima minus 20 threshold.
+Table 14,GC Atlantic,Maximum wave exceedance,4.990000,4.989000,yes,Maximum of route-summary maxima minus 7 threshold.
+Table 14,GC Pacific,Maximum wind exceedance,10.640000,10.634200,no,Maximum of route-summary maxima minus 20 threshold.
+Table 14,GC Pacific,Maximum wave exceedance,6.170000,6.174600,yes,Maximum of route-summary maxima minus 7 threshold.
+Table 14,BERS All,Maximum wind exceedance,0.320000,0.283700,no,Maximum of route-summary maxima minus 20 threshold.
+Table 14,BERS All,Maximum wave exceedance,2.160000,0.487700,no,Maximum of route-summary maxima minus 7 threshold.
