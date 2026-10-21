@@ -192,3 +192,14 @@ revision/*.txt
 # Agents
 .codex_upload/
 tmp_*
+
+# Generated Review 2 evidence (rebuild with the scripts in revision2/)
+revision2/*.csv*
+revision2/*.json
+revision2/*.tex
+revision2/*.pdf
+revision2/*.md
+revision2/**/*.npy
+revision2/figures/
+!revision2/review2_report.md
+!revision2/SUMMARY2.md
