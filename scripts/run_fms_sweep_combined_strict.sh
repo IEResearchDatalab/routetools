@@ -26,8 +26,8 @@ OUTPUT_DIR="output/sweep_combined_fms_strict"
 # Both corridors used wind_pw=50, wave_pw=50
 WIND_PW=50
 WAVE_PW=50
-TWS_LIMIT=19.9
-HS_LIMIT=6.9
+TWS_LIMIT=20.0
+HS_LIMIT=7.0
 
 # ERA5 data paths
 WIND_ATL="data/era5/era5_wind_atlantic_2024.nc"
@@ -62,8 +62,15 @@ for f in "$WIND_ATL" "$WAVE_ATL" "$WIND_PAC" "$WAVE_PAC"; do
         echo "ERROR: Missing data file: $f" >&2
         exit 1
     fi
+    # Late-December voyages need the next-year continuation next to each file
+    # (e.g. era5_wind_atlantic_2025_01.nc); without it FMS would stop with a
+    # weather-coverage error, so fail here instead of retrying.
+    if ! compgen -G "${f/2024.nc/2025}*.nc" > /dev/null; then
+        echo "ERROR: Missing January-2025 continuation for: $f" >&2
+        exit 1
+    fi
 done
-echo "All ERA5 data files present."
+echo "All ERA5 data files present (2024 + January-2025 continuation)."
 
 mkdir -p "$OUTPUT_DIR"
 

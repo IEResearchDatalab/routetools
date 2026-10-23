@@ -188,6 +188,13 @@ revision/*.pdf
 revision/synthetic_local_optimality_proof
 revision/*.tex
 revision/*.txt
+revision2/*.csv
+revision2/*.gz
+revision2/*.json
+revision2/*.md
+revision2/*.pdf
+revision2/*.tex
+revision2/figures/
 
 # Agents
 .codex_upload/
