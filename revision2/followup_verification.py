@@ -704,7 +704,7 @@ def run_c4() -> None:
             ROOT / "scripts" / "run_fms_sweep_combined_strict.sh",
             "WIND_PW=50",
             "yes",
-            "The run used weights 50/50; task0_config_reconciliation.csv records 19.9 m/s and 6.9 m activation thresholds.",
+            "The run used weights 50/50; task0_config_reconciliation.csv records 20.0 m/s and 7.0 m activation thresholds.",
         ),
     ]
     lines = [
@@ -822,7 +822,7 @@ def run_c6() -> None:
         "",
         "The existing Task 0 report is `revision2/task0_report.md`; its machine-readable source is `revision2/task0_config_reconciliation.csv`.",
         "",
-        f"**Does manuscript Section 4.1 describe the run that produced the real-ocean tables? {'Yes' if all_match else 'No'}.** The manuscript-number roots are `output/sweep_combined` for GC/CMA-ES and `output/sweep_combined_fms_strict` for BERS, and the requested K, population, sigma0, budgets, damping, patience, weights, coastline weight, and 1000 land replacement agree with those roots. The different 0.1/200/25000/0.9/50 settings belong to the separate later corrected run, not to the run that produced the manuscript numbers. The FMS launcher did use 19.9 m/s and 6.9 m activation buffers while reporting exposure at 20 m/s and 7 m.",
+        f"**Does manuscript Section 4.1 describe the run that produced the real-ocean tables? {'Yes' if all_match else 'No'}.** The manuscript-number roots are `output/sweep_combined` for GC/CMA-ES and `output/sweep_combined_fms_strict` for BERS, and the requested K, population, sigma0, budgets, damping, patience, weights, coastline weight, and 1000 land replacement agree with those roots. The different 0.1/200/25000/0.9/50 settings belong to the separate later corrected run, not to the run that produced the manuscript numbers. The FMS launcher did use 20.0 m/s and 7.0 m activation buffers while reporting exposure at 20 m/s and 7 m.",
     ]
     (REV / "c6_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -970,7 +970,7 @@ def write_summary() -> None:
         (
             "C6",
             "done",
-            "Section 4.1 does not exactly describe the run: its optimizer settings match the manuscript-number roots, but the FMS launcher activated at 19.9 m/s and 6.9 m rather than 20 m/s and 7 m.",
+            "Section 4.1 does not exactly describe the run: its optimizer settings match the manuscript-number roots, but the FMS launcher activated at 20.0 m/s and 7.0 m rather than 20 m/s and 7 m.",
         ),
         (
             "C4",

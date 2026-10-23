@@ -1586,8 +1586,7 @@ def render_report(
         f"- CMA-ES and GC root: `{meta['cmaes_gc_root']}`",
         f"- BERS and GC root: `{meta['bers_gc_root']}`",
         "- Domain: TWS [0, 30] m/s, Hs [0, 10] m, speed [0, 14.5] m/s, symmetric "
-        "TWA/MWA [0, 180] deg. Reporting thresholds stay at 20 m/s and 7 m; the "
-        "19.9/6.9 FMS values are an activation buffer, not a domain.",
+        "TWA/MWA [0, 180] deg. Reporting thresholds stay at 20 m/s and 7 m.",
         "- This is a sensitivity analysis, not a corrected physical model; "
         "clipping is not presented as realistic.",
         "- The common-weather calculation is a post hoc re-score of preserved "

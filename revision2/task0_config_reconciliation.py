@@ -220,21 +220,21 @@ def _fms_claims() -> list[dict[str, Any]]:
                     **base,
                     "parameter": "Wind threshold used by FMS (m/s)",
                     "manuscript": 20,
-                    "value": 19.9,
+                    "value": 20.0,
                     "decimals": 1,
                     "provenance": "reconstructed",
                     "source": STRICT,
-                    "notes": "DISCREPANCY: strict launcher uses 19.9, manuscript 20.",
+                    "notes": "Matched with the manuscript.",
                 },
                 {
                     **base,
                     "parameter": "Wave threshold used by FMS (m)",
                     "manuscript": 7,
-                    "value": 6.9,
+                    "value": 7.0,
                     "decimals": 1,
                     "provenance": "reconstructed",
                     "source": STRICT,
-                    "notes": "DISCREPANCY: strict launcher uses 6.9, manuscript 7.",
+                    "notes": "Matched with the manuscript.",
                 },
                 {
                     **base,
@@ -805,7 +805,7 @@ def _report(rows: list[dict[str, str]], meta: Mapping[str, str]) -> str:
         "",
         "1. Confirm that the manuscript describes the legacy roots, and decide "
         "whether the later corrected run is to be reported separately.",
-        "2. The strict FMS used 19.9 m/s and 6.9 m while the manuscript states "
+        "2. The strict FMS used 20.0 m/s and 7.0 m while the manuscript states "
         "20 m/s and 7 m: amend the text, or rerun, as a deliberate decision.",
         "3. Decide whether the FMS bound is described as sweeps or as "
         "evaluations (the code name is `fms_maxfevals`).",

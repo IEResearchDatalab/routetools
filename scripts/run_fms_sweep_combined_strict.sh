@@ -26,8 +26,8 @@ OUTPUT_DIR="output/sweep_combined_fms_strict"
 # Both corridors used wind_pw=50, wave_pw=50
 WIND_PW=50
 WAVE_PW=50
-TWS_LIMIT=19.9
-HS_LIMIT=6.9
+TWS_LIMIT=20.0
+HS_LIMIT=7.0
 
 # ERA5 data paths
 WIND_ATL="data/era5/era5_wind_atlantic_2024.nc"
