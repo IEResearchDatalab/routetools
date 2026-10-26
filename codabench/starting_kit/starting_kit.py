@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""SWOPP3 Starting Kit — Great Circle Baseline.
+"""Weather Routing Benchmark 001 Starting Kit — Great Circle Baseline.
 
 This script generates a valid submission using the simplest possible
 strategy: great-circle routes at constant speed. No external libraries
@@ -140,8 +140,10 @@ def haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def main() -> None:
-    """Generate a great-circle baseline submission for all SWOPP3 cases."""
-    parser = argparse.ArgumentParser(description="SWOPP3 baseline: great circle.")
+    """Generate a great-circle baseline submission for all Benchmark 001 cases."""
+    parser = argparse.ArgumentParser(
+        description="Benchmark 001 baseline: great circle."
+    )
     parser.add_argument("--output-dir", default="submission", help="Output directory.")
     parser.add_argument("--team", default=TEAM, help="Team name.")
     parser.add_argument(

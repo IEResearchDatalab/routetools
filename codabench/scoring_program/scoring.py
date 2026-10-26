@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""CodaBench scoring program for the SWOPP3 Weather Routing Benchmark.
+"""CodaBench scoring program for Weather Routing Benchmark 001.
 
 CodaBench invokes this script with two arguments:
     python scoring.py <input_dir> <output_dir>
@@ -59,7 +59,7 @@ output_dir.mkdir(parents=True, exist_ok=True)
 EXPECTED_DEPARTURES = 366
 DTFMT = "%Y-%m-%d %H:%M:%S"
 
-# Operational limits (SWOPP3)
+# Operational limits
 MAX_WIND_MPS = 20.0  # True wind speed limit (m/s)
 MAX_HS_M = 7.0  # Significant wave height limit (m)
 
@@ -1342,7 +1342,7 @@ def _write_detailed_results(
         ".warn { color: #e67e22; } .err { color: #e74c3c; } .ok { color: #27ae60; }",
         "img { max-width: 100%; margin: 10px 0; }",
         "</style></head><body>",
-        "<h1>SWOPP3 — Detailed Results</h1>",
+        "<h1>Weather Routing Benchmark 001 — Detailed Results</h1>",
     ]
 
     # Scores table
@@ -1460,7 +1460,7 @@ def _write_detailed_results(
 
 
 def score_submission() -> dict:
-    """Validate and score a SWOPP3 submission."""
+    """Validate and score a Benchmark 001 submission."""
     all_errors: list[str] = []
     all_warnings: list[str] = []
     scores: dict[str, float] = {}

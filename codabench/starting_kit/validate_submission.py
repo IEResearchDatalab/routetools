@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a SWOPP3 submission directory or ZIP before uploading it."""
+"""Validate a Benchmark 001 submission directory or ZIP before uploading it."""
 
 from __future__ import annotations
 
@@ -121,16 +121,20 @@ def extract_archive(archive_path: Path, destination: Path) -> None:
         for member in archive.infolist():
             member_path = (destination / member.filename).resolve()
             if not member_path.is_relative_to(destination_root):
-                raise ValueError(f"Archive member escapes destination: {member.filename}")
+                raise ValueError(
+                    f"Archive member escapes destination: {member.filename}"
+                )
         archive.extractall(destination)
 
 
 def main() -> int:
     """Validate the requested submission directory or ZIP archive."""
     parser = argparse.ArgumentParser(
-        description="Validate a SWOPP3 submission before uploading it to CodaBench."
+        description="Validate a Benchmark 001 submission before uploading it."
     )
-    parser.add_argument("submission", type=Path, help="Submission directory or .zip file")
+    parser.add_argument(
+        "submission", type=Path, help="Submission directory or .zip file"
+    )
     args = parser.parse_args()
 
     submission_path = args.submission
