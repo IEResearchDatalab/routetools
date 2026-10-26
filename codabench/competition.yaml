@@ -13,9 +13,9 @@ description: "Ongoing benchmark for weather-routing optimisation. Benchmark 001 
 image: logo.png
 registration_auto_approve: true
 
-# Dependencies only (numpy, netCDF4, pyshp, shapely, matplotlib, RISE wheel).
+# Dependencies only (numpy, netCDF4, pyshp, shapely, matplotlib, scipy).
 # scoring.py ships in scoring_program/, so scorer changes need no image rebuild.
-docker_image: "fjsuarez/swopp3-scorer:latest"
+docker_image: "fjsuarez/weather-routing-scorer:001"
 
 # Route submissions to the lab compute worker holding the hourly ERA5 release at
 # /codabench/data. Without this they land on the shared public queue, which has

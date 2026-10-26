@@ -46,7 +46,7 @@ and a combined `competition_bundle.zip`. See `build_bundle.sh` for details.
    - **Title:** `Weather Routing Benchmark 001`
    - **Logo:** Upload a logo (PNG)
    - **Description:** Copy from `pages/overview.md` or write a summary
-   - **Competition Docker Image:** Use `fjsuarez/swopp3-scorer:latest`
+   - **Competition Docker Image:** Use `fjsuarez/weather-routing-scorer:001`
    - **Competition Type:** Competition
 4. **Pages** tab:
    - Add pages from the `pages/` directory (Overview, Data, Submission, Evaluation, Terms)
@@ -80,7 +80,7 @@ and Data pages.
 The scoring program is **self-contained** — it uses only `numpy`, `netCDF4`,
 `pyshp`, `shapely`, and `matplotlib` (listed in `scoring_program/requirements.txt`).
 No `routetools` or JAX installation is needed on the CodaBench worker.
-The Docker image `fjsuarez/swopp3-scorer:latest` has all dependencies pre-installed.
+The Docker image `fjsuarez/weather-routing-scorer:001` has all dependencies pre-installed.
 
 ### 4. Starting Kit
 
