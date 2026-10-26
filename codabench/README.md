@@ -1,7 +1,7 @@
-# SWOPP3 Weather Routing Benchmark — CodaBench Setup
+# Weather Routing Benchmark 001 — CodaBench Setup
 
-This directory contains everything needed to host the SWOPP3 Weather Routing
-Benchmark on [CodaBench](https://www.codabench.org/).
+This directory contains everything needed to host Weather Routing Benchmark 001
+on [CodaBench](https://www.codabench.org/competitions/18048/).
 
 ## Directory Structure
 
@@ -43,7 +43,7 @@ and a combined `competition_bundle.zip`. See `build_bundle.sh` for details.
 1. Go to **[codabench.org](https://www.codabench.org/)** and sign in.
 2. Click **Benchmarks/Competitions** → **Create**.
 3. Fill in the **Details** tab:
-   - **Title:** `SWOPP3 Weather Routing Benchmark`
+   - **Title:** `Weather Routing Benchmark 001`
    - **Logo:** Upload a logo (PNG)
    - **Description:** Copy from `pages/overview.md` or write a summary
    - **Competition Docker Image:** Use `fjsuarez/swopp3-scorer:latest`
@@ -72,9 +72,10 @@ there first and falls back to `reference_data/` only if that mount is absent.
 
 Publish the participant copy of the weather files **externally**. A CodaBench
 account has a 15 GB storage quota covering all datasets, programs and
-submissions, so the 19.57 GB release cannot be hosted on the platform. Publish
-`SHA256SUMS` alongside it so entrants can confirm they hold the same frozen
-release the scorer uses, then link the download from the Overview page.
+submissions, so the 19.57 GB release cannot be hosted on the platform. It is
+published on Zenodo ([doi:10.5281/zenodo.23470870](https://doi.org/10.5281/zenodo.23470870))
+together with the land shapefile and `SHA256SUMS`, and linked from the Overview
+and Data pages.
 
 The scoring program is **self-contained** — it uses only `numpy`, `netCDF4`,
 `pyshp`, `shapely`, and `matplotlib` (listed in `scoring_program/requirements.txt`).
@@ -123,7 +124,7 @@ cat /tmp/codabench_output/scoring_log.txt
 
 ## Key CodaBench Concepts
 
-| Concept             | Meaning in SWOPP3                                      |
+| Concept             | Meaning in Benchmark 001                               |
 | ------------------- | ------------------------------------------------------ |
 | **Phase**           | Single evaluation phase (all 366 departures × 8 cases) |
 | **Scoring Program** | `scoring.py` — validates and scores submissions        |

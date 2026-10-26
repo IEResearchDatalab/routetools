@@ -37,15 +37,19 @@ The scoring program performs the following checks automatically:
 12. **Minimum waypoints:** At least 2 waypoints per track.
 13. **Timestamp ordering:** Waypoint timestamps are strictly increasing.
 14. **Coordinate bounds:** Latitudes in [−90, 90], longitudes in [−360, 360].
-15. **Start position:** First waypoint within 0.5° of the expected source port.
-16. **End position:** Last waypoint within 0.5° of the expected destination port.
+15. **Start position:** First waypoint within 0.5° of the case's offshore start point.
+16. **End position:** Last waypoint within 0.5° of the case's offshore end point.
 17. **Start time:** First waypoint timestamp matches the departure time from File A.
 18. **End time:** Last waypoint timestamp matches the arrival time from File A.
-19. **Land crossing:** Sampled waypoints checked against a Natural Earth land shapefile (optimised cases only; when available on the server).
+19. **Land crossing:** Every point of the track, resampled every 30 minutes along the great-circle legs, is checked against the Natural Earth 1:10m land polygons (optimised cases only).
 
 #### Cross-Case Checks
 
 20. **WPS consistency:** With-wingsail cases should have ≤ energy compared to without-wingsail cases (warning, not error).
+
+#### Re-evaluated Weather (Warnings)
+
+During re-evaluation the scorer also computes wind speed and wave height from ERA5 at every 15-minute point of each optimised track, and reports the number of points above 20 m/s or 7 m as warnings in the detailed results.
 
 Submissions with validation errors still receive a score, but the error count is displayed on the leaderboard.
 
@@ -63,8 +67,8 @@ Submissions may be disqualified if:
 
 All participants use:
 
-- **The same fixed ERA5 weather-data release** (0.25° grid, hourly, 2024 plus January 2025)
+- **The same fixed ERA5 weather-data release** (0.25° grid, hourly, 2024 plus January 2025; [doi:10.5281/zenodo.23470870](https://doi.org/10.5281/zenodo.23470870))
 - **The same RISE performance model** (formulas provided in the **Data** tab)
-- **The same route definitions** (ports, passage times, departure schedule)
+- **The same route definitions** (offshore start and end points, passage times, departure schedule)
 
 The only variable is the optimization algorithm. This ensures that differences in the leaderboard reflect genuine algorithmic improvements.

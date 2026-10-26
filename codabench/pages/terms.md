@@ -6,8 +6,9 @@ This benchmark is open to academic and industry researchers worldwide.
 
 ## Data Usage
 
-- ERA5 weather data is provided by ECMWF under the [Copernicus Climate Data Store licence](https://cds.climate.copernicus.eu/cdsapp/#!/terms/licence-to-use-copernicus-products).
-- The RISE performance model is documented on the evaluation page and implemented inline in the scoring program. No external dependencies are required.
+- ERA5 weather data is provided by ECMWF under the [Licence to Use Copernicus Products](https://cds.climate.copernicus.eu/cdsapp/#!/terms/licence-to-use-copernicus-products) (CC-BY). The Benchmark 001 release ([doi:10.5281/zenodo.23470870](https://doi.org/10.5281/zenodo.23470870)) contains modified Copernicus Climate Change Service information 2026. Neither the European Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or data it contains.
+- Land polygons are from [Natural Earth](https://www.naturalearthdata.com/) and are in the public domain.
+- The RISE performance model is documented on the **Data & Performance Model** page and implemented inline in the scoring program. No external dependencies are required.
 - Benchmark data and the performance-model specification may be used to develop, evaluate, and compare weather-routing methods.
 
 ## Submissions

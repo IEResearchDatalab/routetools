@@ -6,16 +6,14 @@ The **Weather Routing Benchmark** is an ongoing, open benchmark for weather-rout
 
 **Benchmark 001** evaluates optimisers on real ERA5 weather data using the RISE performance model for an 88 m cargo ship with optional wingsails. Its conditions are frozen: the RISE wingsail performance model, a fixed hourly ERA5 release, and deterministic route definitions. Future benchmark numbers may define different conditions, such as probabilistic weather or a different performance model.
 
-> Benchmark 001 reuses the scenarios and data first used for the SWOPP3 workshop challenge, so results remain directly comparable with that earlier evaluation.
-
 ### The Challenge
 
 Participants must find minimum-energy routes across **two ocean corridors**:
 
-| Route              | From              | To                  | Passage Time | GC Distance |
-| ------------------ | ----------------- | ------------------- | ------------ | ----------- |
-| **Trans-Atlantic** | Santander (ESSDR) | New York (USNYC)    | 354 hours    | 2,833 nm    |
-| **Trans-Pacific**  | Tokyo (JPTYO)     | Los Angeles (USLAX) | 583 hours    | 4,663 nm    |
+| Route              | From      | To          | Passage Time | GC Distance |
+| ------------------ | --------- | ----------- | ------------ | ----------- |
+| **Trans-Atlantic** | Santander | New York    | 354 hours    | 2,833 nm    |
+| **Trans-Pacific**  | Tokyo     | Los Angeles | 583 hours    | 4,663 nm    |
 
 For each route, there are **4 cases** combining route optimisation strategy and wingsail configuration:
 
@@ -28,14 +26,20 @@ For each route, there are **4 cases** combining route optimisation strategy and 
 
 This gives **8 cases total** × **366 daily departures** (every day of 2024, noon UTC) = **2,928 route evaluations per submission**.
 
-### Port Coordinates
+### Start and End Points
 
-| Port Code | City             | Latitude | Longitude |
-| --------- | ---------------- | -------- | --------- |
-| ESSDR     | Santander, Spain | 43.60° N | 4.00° W   |
-| USNYC     | New York, USA    | 40.53° N | 73.80° W  |
-| JPTYO     | Tokyo, Japan     | 34.80° N | 140.00° E |
-| USLAX     | Los Angeles, USA | 34.40° N | 121.00° W |
+Routes start and end at fixed **offshore points**, not at the port berths. Each
+point lies at sea, off the approaches to the named port, so harbour pilotage and
+coastal legs are excluded from the benchmark.
+
+| Point                      | Latitude | Longitude | Decimal (lat, lon) |
+| -------------------------- | -------- | --------- | ------------------ |
+| Santander approach (start) | 43.60° N | 4.00° W   | (43.60, −4.00)     |
+| New York approach (end)    | 40.60° N | 69.00° W  | (40.60, −69.00)    |
+| Tokyo approach (start)     | 34.80° N | 140.00° E | (34.80, 140.00)    |
+| Los Angeles approach (end) | 34.40° N | 121.00° W | (34.40, −121.00)   |
+
+> The New York point lies about 220 nm east of New York harbour, south of Nantucket. Use these exact coordinates, not the harbour position: the first and last waypoints of every track must be within 0.5° of them (see **Submission Format**).
 
 ### Operational Constraints
 
@@ -43,11 +47,11 @@ This gives **8 cases total** × **366 daily departures** (every day of 2024, noo
 
 | Constraint                  | Limit            | Description                         |
 | --------------------------- | ---------------- | ----------------------------------- |
-| **Significant wave height** | Hs < **7 m**     | Maximum wave height along the route |
-| **True wind speed**         | TWS < **20 m/s** | Maximum wind speed along the route  |
-| **Land avoidance**          | No crossings     | Route waypoints must not cross land |
+| **Significant wave height** | Hs ≤ **7 m**     | Maximum wave height along the route |
+| **True wind speed**         | TWS ≤ **20 m/s** | Maximum wind speed along the route  |
+| **Land avoidance**          | No crossings     | No part of the route may be on land |
 
-> **Note on Great Circle cases:** GC cases follow a fixed geodesic path that participants cannot modify. Because the great circle may cross land (e.g. the Atlantic route clips Newfoundland) and traverse severe weather, **operational and land-crossing checks are not enforced** for GC cases.
+> **Note on Great Circle cases:** GC cases follow a fixed great-circle path that participants cannot modify; only the speed along it may vary. Because the path is fixed and may traverse severe weather, **operational and land-crossing checks are not enforced** for GC cases.
 
 ### What Makes This Different
 
@@ -63,7 +67,7 @@ You can choose between two approaches to obtain the ERA5 data:
 
 **Option A — Download the frozen release** (recommended):
 
-1. Download the pre-built ERA5 `.nc` files from the link on the **Data** tab, and verify them against the published `SHA256SUMS`
+1. Download the pre-built ERA5 `.nc` files from Zenodo ([doi:10.5281/zenodo.23470870](https://doi.org/10.5281/zenodo.23470870)), and verify them against the published `SHA256SUMS`
 2. Implement the RISE performance model (formulas provided in the **Data** tab)
 3. Submit a zip file with your CSV results
 

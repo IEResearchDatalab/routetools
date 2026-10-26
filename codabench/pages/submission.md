@@ -60,8 +60,8 @@ Each file has **366 rows** (one per departure) with these columns:
 
 ```csv
 departure_time_utc,arrival_time_utc,energy_cons_mwh,max_wind_mps,max_hs_m,sailed_distance_nm,details_filename
-2024-01-01 12:00:00,2024-01-16 06:00:00,336.375913,17.3875,7.8464,3022.5591,TeamName-1-AO_WPS-20240101.csv
-2024-01-02 12:00:00,2024-01-17 06:00:00,199.891800,17.3153,7.3659,3022.5591,TeamName-1-AO_WPS-20240102.csv
+2024-01-01 12:00:00,2024-01-16 06:00:00,336.375913,17.3875,6.8464,2891.2207,TeamName-1-AO_WPS-20240101.csv
+2024-01-02 12:00:00,2024-01-17 06:00:00,199.891800,17.3153,6.3659,2874.9013,TeamName-1-AO_WPS-20240102.csv
 ```
 
 ## File B — Track Waypoints (one per departure per case)
@@ -78,11 +78,22 @@ departure_time_utc,arrival_time_utc,energy_cons_mwh,max_wind_mps,max_hs_m,sailed
 
 ```csv
 time_utc,lat_deg,lon_deg
-2024-01-01 12:00:00,43.4600,-3.8100
-2024-01-01 15:32:00,43.5100,-5.2300
+2024-01-01 12:00:00,43.6000,-4.0000
+2024-01-01 15:30:00,43.5700,-4.6400
 ...
-2024-01-16 06:00:00,40.5300,-73.8000
+2024-01-16 06:00:00,40.6000,-69.0000
 ```
+
+### How the Scorer Reads a Track
+
+- Consecutive waypoints are joined by the **shorter great-circle arc**, sailed at
+  **constant speed** between the two timestamps. The scorer resamples every
+  track along these arcs before evaluating energy, constraints and land.
+- Place waypoints densely enough that these arcs stay at sea, especially near
+  coasts and headlands.
+- Longitudes may be given in [−180, 180] or [0, 360). Pacific tracks may cross
+  the antimeridian (e.g. from 179.9 to −179.9); this is treated as a short step
+  east, not a jump around the globe.
 
 ## Important Rules
 
@@ -95,23 +106,38 @@ time_utc,lat_deg,lon_deg
 - **All 366 departures required:** One row per day from 2024-01-01 to 2024-12-31, departing at **12:00 UTC**.
 - Departure timestamps must match the official schedule exactly.
 
-### Endpoint Positions
+### Start and End Points
 
-- First waypoint in File B must be within **0.5°** of the expected source port.
-- Last waypoint in File B must be within **0.5°** of the expected destination port.
-- First/last waypoint timestamps must match the departure/arrival times from File A.
+Every track starts and ends at the fixed offshore points below, not at the port
+berths:
+
+| Cases     | Start (lat, lon)                 | End (lat, lon)                       |
+| --------- | -------------------------------- | ------------------------------------ |
+| `A*` (4)  | (43.60, −4.00) Santander approach | (40.60, −69.00) New York approach    |
+| `P*` (4)  | (34.80, 140.00) Tokyo approach   | (34.40, −121.00) Los Angeles approach |
+
+- **Position:** the first and last waypoints of File B must each be within
+  **0.5°** of these points, measured as $\sqrt{\Delta\text{lat}^2 + \Delta\text{lon}^2}$
+  in degrees (longitude difference wrapped to [−180°, 180°]). We recommend
+  placing them exactly on the points.
+- **Time:** the first waypoint timestamp must equal `departure_time_utc` and the
+  last must equal `arrival_time_utc` from File A, to the second.
 
 ### Operational Constraints (Optimised Cases Only)
 
-- **True wind speed:** `max_wind_mps` must be < **20 m/s** along the route.
-- **Significant wave height:** `max_hs_m` must be < **7 m** along the route.
-- Submissions exceeding these limits receive a validation error per violation.
+- **True wind speed:** `max_wind_mps` must not exceed **20 m/s** along the route.
+- **Significant wave height:** `max_hs_m` must not exceed **7 m** along the route.
+- Each File A row reporting a value above these limits counts as a validation error.
+  The scorer also recomputes wind and waves from ERA5 along your track and reports
+  any exceedances it finds as warnings.
 - **Not enforced for GC cases** — the great circle path is fixed and may traverse severe weather.
 
 ### Land Avoidance (Optimised Cases Only)
 
-- Waypoints in File B must not cross land. The scoring program checks a sample of waypoints against a Natural Earth shapefile.
-- **Not enforced for GC cases** — the great circle path is fixed and may cross land (e.g. Newfoundland on the Atlantic route).
+- No part of the track may be on land. The scoring program resamples the track
+  every 30 minutes along the great-circle legs and checks every resampled point
+  against the Natural Earth 1:10m land polygons included in the data release.
+- **Not enforced for GC cases** — the great circle path is fixed.
 
 ### Numeric Values
 
