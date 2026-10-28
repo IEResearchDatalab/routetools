@@ -40,7 +40,7 @@ if [[ "${SKIP_TASK11:-0}" != "1" ]]; then
     uv run python revision/task11_real_ocean_newton_polish.py \
         --real-ocean-dir output/sweep_combined_fms_strict \
         --experiment-manifest revision/task8_sweep_combined_fms_strict_manifest.json \
-        --tws-limit 19.9 --hs-limit 6.9 --land-distance-weight 0 \
+        --tws-limit 20.0 --hs-limit 7.0 --land-distance-weight 0 \
         --output-dir "$out_root/task11_newton_polish" \
         --checkpoint-dir "$out_root/task11_newton_polish/checkpoints"
 fi

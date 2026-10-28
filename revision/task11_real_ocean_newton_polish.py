@@ -28,7 +28,7 @@ Run on the server after Task 8, CPU only::
     JAX_PLATFORMS=cpu uv run python revision/task11_real_ocean_newton_polish.py \\
       --real-ocean-dir output/sweep_combined_fms_strict \\
       --experiment-manifest revision/task8_sweep_combined_fms_strict_manifest.json \\
-      --tws-limit 19.9 --hs-limit 6.9 --land-distance-weight 0 \\
+      --tws-limit 20.0 --hs-limit 7.0 --land-distance-weight 0 \\
       --output-dir output/task11_newton_polish
 
 Outputs (under ``--output-dir``)

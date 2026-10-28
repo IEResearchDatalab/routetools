@@ -38,8 +38,8 @@ from routetools.weather import DEFAULT_HS_LIMIT, DEFAULT_TWS_LIMIT
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 WEATHER_PENALTY_WEIGHTS = (25.0, 50.0, 100.0)
-STRICT_TWS_LIMIT = 19.9
-STRICT_HS_LIMIT = 6.9
+STRICT_TWS_LIMIT = 20
+STRICT_HS_LIMIT = 7
 FMS_MAXFEVALS = 2000
 
 # Two stress departures per configuration, selected from the annual Task 4
@@ -77,11 +77,7 @@ def prepare_stress_subset(input_dir: Path, subset_dir: Path) -> Path:
     for case_id, dates in STRESS_DEPARTURES.items():
         source_summary = input_dir / f"{team_prefix}-{case_id}.csv"
         rows = _read_rows(source_summary)
-        selected = [
-            row
-            for row in rows
-            if row["departure_time_utc"][:10] in set(dates)
-        ]
+        selected = [row for row in rows if row["departure_time_utc"][:10] in set(dates)]
         selected_dates = {row["departure_time_utc"][:10] for row in selected}
         missing_dates = set(dates) - selected_dates
         if missing_dates:
@@ -116,14 +112,10 @@ def run_weight_sweep(
         apply_fms_to_outputs(
             subset_dir,
             output_dir=result_dir,
-            wind_path_atlantic=REPO_ROOT
-            / "data/era5/era5_wind_atlantic_2024.nc",
-            wave_path_atlantic=REPO_ROOT
-            / "data/era5/era5_waves_atlantic_2024.nc",
-            wind_path_pacific=REPO_ROOT
-            / "data/era5/era5_wind_pacific_2024.nc",
-            wave_path_pacific=REPO_ROOT
-            / "data/era5/era5_waves_pacific_2024.nc",
+            wind_path_atlantic=REPO_ROOT / "data/era5/era5_wind_atlantic_2024.nc",
+            wave_path_atlantic=REPO_ROOT / "data/era5/era5_waves_atlantic_2024.nc",
+            wind_path_pacific=REPO_ROOT / "data/era5/era5_wind_pacific_2024.nc",
+            wave_path_pacific=REPO_ROOT / "data/era5/era5_waves_pacific_2024.nc",
             fms_patience=200,
             fms_damping=0.95,
             fms_maxfevals=FMS_MAXFEVALS,
@@ -174,13 +166,10 @@ def collect_run_rows(
                         / baseline,
                         "max_tws_mps": max_tws,
                         "max_hs_m": max_hs,
-                        "wind_exceedance_mps": max(
-                            max_tws - DEFAULT_TWS_LIMIT, 0.0
-                        ),
+                        "wind_exceedance_mps": max(max_tws - DEFAULT_TWS_LIMIT, 0.0),
                         "wave_exceedance_m": max(max_hs - DEFAULT_HS_LIMIT, 0.0),
                         "any_violation": bool(
-                            max_tws > DEFAULT_TWS_LIMIT
-                            or max_hs > DEFAULT_HS_LIMIT
+                            max_tws > DEFAULT_TWS_LIMIT or max_hs > DEFAULT_HS_LIMIT
                         ),
                         "details_filename": row["details_filename"],
                     }
@@ -192,9 +181,7 @@ def build_summary_table(rows: list[dict[str, object]]) -> list[dict[str, object]
     """Aggregate the paired eight-route stress test by penalty weight."""
     summary: list[dict[str, object]] = []
     for weight in sorted({float(row["weather_penalty_weight"]) for row in rows}):
-        group = [
-            row for row in rows if float(row["weather_penalty_weight"]) == weight
-        ]
+        group = [row for row in rows if float(row["weather_penalty_weight"]) == weight]
         energy_changes = np.asarray(
             [float(row["energy_change_vs_cmaes_pct"]) for row in group]
         )
@@ -243,9 +230,7 @@ def plot_tradeoff(summary: list[dict[str, object]], out_path: Path) -> None:
     """Plot violation count and paired energy change against penalty weight."""
     weights = [float(row["weather_penalty_weight"]) for row in summary]
     violations = [int(row["n_with_any_violation"]) for row in summary]
-    energy_change = [
-        float(row["mean_energy_change_vs_cmaes_pct"]) for row in summary
-    ]
+    energy_change = [float(row["mean_energy_change_vs_cmaes_pct"]) for row in summary]
 
     fig, ax = plt.subplots(figsize=(6.4, 4.2))
     ax.plot(weights, violations, "o-", color="firebrick", label="Routes violating")
