@@ -9,6 +9,8 @@ and figure in the paper.
 
 Official website: https://weatherrouting.org/
 
+Data repository in Zenodo: https://zenodo.org/records/23470870
+
 ## Structure
 
 The repository is structured into the following directories:
@@ -140,7 +142,7 @@ data
 └── earth-seas-2km5-valid.geo.json
 ```
 
-> Note: This data only includes ocean currents. If you want to include wave data, you need to download the full data folder (121 GB, compressed to 43.5 GB) from [here](https://drive.google.com/file/d/1aWQ8u6kT3v5nUo1YJ5u6F2X1Z3Zk9KXW/view?usp=sharing) instead.
+You can download the data from our Zenodo repository: https://zenodo.org/records/23470870
 
 ## Run examples
 
