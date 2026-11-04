@@ -1,4 +1,4 @@
-"""Tests for scripts/validate_routes.py land-intersection validation."""
+"""Tests for the route land-intersection validation script."""
 
 from __future__ import annotations
 
@@ -13,7 +13,10 @@ from shapely.geometry import Polygon
 
 _spec = importlib.util.spec_from_file_location(
     "validate_routes",
-    Path(__file__).resolve().parent.parent / "scripts" / "validate_routes.py",
+    Path(__file__).resolve().parent.parent
+    / "scripts"
+    / "validation"
+    / "validate_routes.py",
 )
 _mod = importlib.util.module_from_spec(_spec)
 sys.modules["validate_routes"] = _mod

@@ -44,8 +44,8 @@ The ERA5 files (about 20 GB) are not redistributed because they are available
 from public archives; download them with:
 
 ```bash
-uv run scripts/download_era5.py              # Google Cloud ERA5 archive, no key
-uv run scripts/download_era5.py --backend cds  # or the Copernicus CDS API
+uv run scripts/data/download_era5.py              # Google Cloud ERA5 archive, no key
+uv run scripts/data/download_era5.py --backend cds  # or the Copernicus CDS API
 ```
 
 The files are written to `data/era5/` with the names the run scripts expect.
@@ -56,21 +56,24 @@ automatically by Cartopy when the land-mask or exact-geometry checks first run.
 
 ### Synthetic fields (Section 3)
 
+The paper-pinned land and no-land experiment matrices live beside their runner
+as `scripts/paper/synthetic/config_land.toml` and `config_noland.toml`.
+
 | Paper item                                        | Command                                                                                        |
 | ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Tables 3, 6; Figures 2–4                          | `uv run scripts/synthetic/results.py` then `uv run scripts/synthetic/figures.py` / `tables.py` |
-| Table 5 (seed dispersion)                         | `uv run python revision/task2_synthetic_dispersion.py`                                         |
-| Land experiments, Figures 5–6                     | `uv run scripts/results_land_avoidance.py`                                                     |
-| Table 8 (λ_land sensitivity)                      | `uv run python revision/task6_lambda_land_sensitivity.py`                                      |
-| Export BERS routes; numerical audit               | `uv run python revision/task10_synthetic_local_optimality.py`                                  |
-| Computer-assisted proof (Section 3.3, Appendix E) | see `reproducibility/synthetic_local_optimality_proof/certificate_report.md`                   |
+| Tables 3, 6; Figures 2–4                          | `uv run scripts/paper/synthetic/results.py` then `uv run scripts/paper/synthetic/figures.py` / `tables.py` |
+| Table 5 (seed dispersion)                         | `uv run python scripts/paper/revision1/task2_synthetic_dispersion.py`                                         |
+| Land experiments, Figures 5–6                     | `uv run scripts/paper/synthetic/results_land_avoidance.py`                                                     |
+| Table 8 (λ_land sensitivity)                      | `uv run python scripts/paper/revision1/task6_lambda_land_sensitivity.py`                                      |
+| Export BERS routes; numerical audit               | `uv run python scripts/paper/revision1/task10_synthetic_local_optimality.py`                                  |
+| Computer-assisted proof (Section 3.3, Appendix E) | see `scripts/paper/reproducibility/synthetic_local_optimality/certificate_report.md`                   |
 
 ### Real-ocean corridors (Section 4)
 
 Route generation (server, complete 2024 sweep):
 
 ```bash
-bash scripts/run_bers_revision_2024.sh RUN_NAME
+bash scripts/paper/run_bers_revision_2024.sh RUN_NAME
 ```
 
 The launcher records the Git commit, resolved configuration, environment,
@@ -81,16 +84,16 @@ Post-processing (no route is re-optimized):
 
 | Paper item                                | Command                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------- |
-| Tables 12, 15; Figures 1, 7–9, 11         | `uv run scripts/realworld/figures.py`, `uv run scripts/realworld/tables.py`     |
-| Table 10, Figure 7 (segment speeds)       | `revision/task1_speed_distribution.py`                                          |
-| Table 13, Figure 10 (paired improvements) | `revision/task3_paired_improvements.py`                                         |
-| Table 15, Figure 12 (weather exposure)    | `revision/task4_weather_violations.py`                                          |
-| Table 11 (land-safe export and audit)     | `revision/task7_landfree_export.py`, then `revision/task7_land_verification.py` |
-| Table 14 (route-wise derivative audit)    | `revision/task8_local_optimality.py`                                            |
-| Operating-envelope Hessian (Appendix E)   | `revision/task9_envelope_hessian.py`                                            |
+| Tables 12, 15; Figures 1, 7–9, 11         | `uv run scripts/paper/real_world/figures.py`, `uv run scripts/paper/real_world/tables.py`     |
+| Table 10, Figure 7 (segment speeds)       | `scripts/paper/revision1/task1_speed_distribution.py`                                          |
+| Table 13, Figure 10 (paired improvements) | `scripts/paper/revision1/task3_paired_improvements.py`                                         |
+| Table 15, Figure 12 (weather exposure)    | `scripts/paper/revision1/task4_weather_violations.py`                                          |
+| Table 11 (land-safe export and audit)     | `scripts/paper/revision1/task7_landfree_export.py`, then `scripts/paper/revision1/task7_land_verification.py` |
+| Table 14 (route-wise derivative audit)    | `scripts/paper/revision1/task8_local_optimality.py`                                            |
+| Operating-envelope Hessian (Appendix E)   | `scripts/paper/revision1/task9_envelope_hessian.py`                                            |
 
-`revision/run_revision_postprocessing.sh` and
-`revision/run_revision_local_optimality.sh` run these steps in order and
+`scripts/paper/revision1/run_revision_postprocessing.sh` and
+`scripts/paper/revision1/run_revision_local_optimality.sh` run these steps in order and
 record provenance (git commit, host, settings).
 
 The post-processing scripts take the generated route directories as explicit
@@ -98,10 +101,10 @@ arguments. Before producing the final tables, create the polygon-checked export
 and verify it:
 
 ```bash
-uv run python revision/task7_landfree_export.py \
+uv run python scripts/paper/revision1/task7_landfree_export.py \
   --input-dir output/sweep_combined_fms \
   --output-dir output/sweep_combined_fms_landfree
-uv run python revision/task7_land_verification.py \
+uv run python scripts/paper/revision1/task7_land_verification.py \
   --real-ocean-dir output/sweep_combined_fms_landfree \
   --output-dir output/sweep_combined_fms_landfree/audit \
   --no-include-synthetic

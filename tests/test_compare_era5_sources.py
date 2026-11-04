@@ -1,4 +1,4 @@
-"""Tests for scripts/compare_era5_sources.py."""
+"""Tests for scripts/data/compare_era5_sources.py."""
 
 from __future__ import annotations
 
@@ -10,9 +10,12 @@ import routetools.era5.download_gcs as download_gcs
 
 
 def _load_compare_module():
-    """Load the comparison script directly from scripts/compare_era5_sources.py."""
+    """Load the ERA5 comparison script directly from its workflow folder."""
     module_path = (
-        Path(__file__).resolve().parents[1] / "scripts" / "compare_era5_sources.py"
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "data"
+        / "compare_era5_sources.py"
     )
     spec = importlib.util.spec_from_file_location("compare_era5_sources", module_path)
     if spec is None or spec.loader is None:
