@@ -159,15 +159,15 @@ Temporary Items
 .apdisk
 
 # User folders
-data/
-notebooks/
-output/
-output*
+/data/
+/notebooks/
+/output/
+/output*
 
 # User files
 nohup.out
 *.zip
-output/
+/output/
 
 # CodaBench competition — large data & build artifacts
 codabench/reference_data/*.nc
@@ -181,20 +181,6 @@ codabench/test_submission/
 # Separate repo
 routingviz/
 *.whl
-
-# Generated Ocean Engineering revision results
-revision/*.csv
-revision/*.pdf
-revision/synthetic_local_optimality_proof
-revision/*.tex
-revision/*.txt
-revision2/*.csv
-revision2/*.gz
-revision2/*.json
-revision2/*.md
-revision2/*.pdf
-revision2/*.tex
-revision2/figures/
 
 # Agents
 .codex_upload/

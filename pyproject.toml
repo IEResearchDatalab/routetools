@@ -49,9 +49,6 @@ era5-gcs = ["gcsfs>=2024.1.0", "zarr>=2.17.0"]
 [project.urls]
 homepage = "https://github.com/IEResearchDatalab/routetools"
 
-[project.scripts]
-main = "routetools.main:main"
-
 [tool.setuptools]
 packages = [
     "routetools",
@@ -69,7 +66,7 @@ fallback_version = "0+unknown"
 
 [tool.ruff]
 line-length = 88
-extend-exclude = ["reproducibility/synthetic_local_optimality_proof"]
+extend-exclude = ["scripts/paper/reproducibility/synthetic_local_optimality"]
 force-exclude = true
 [tool.ruff.lint]
 select = [

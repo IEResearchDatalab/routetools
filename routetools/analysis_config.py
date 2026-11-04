@@ -1,7 +1,7 @@
 """Shared configuration helpers for SWOPP3 analysis.
 
 This module provides the stable, importable API used by both
-``scripts/swopp3_analysis.py`` and its test suite.  Keeping these helpers
+``scripts/swopp3/swopp3_analysis.py`` and its test suite.  Keeping these helpers
 in a proper library module avoids the fragile ``importlib`` pattern that
 would otherwise be needed to test them.
 """

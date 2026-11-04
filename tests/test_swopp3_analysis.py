@@ -16,8 +16,13 @@ from routetools.analysis_config import (
 
 
 def _load_swopp3_analysis_module():
-    """Load the plotting script directly from scripts/swopp3_analysis.py."""
-    module_path = Path(__file__).resolve().parents[1] / "scripts" / "swopp3_analysis.py"
+    """Load the plotting script directly from its SWOPP3 workflow folder."""
+    module_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "swopp3"
+        / "swopp3_analysis.py"
+    )
     spec = importlib.util.spec_from_file_location("swopp3_analysis", module_path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load module spec for {module_path}")

@@ -17,9 +17,10 @@ The repository is structured into the following directories:
 
 - `routetools/`: installable Python package
 - `tests/`: automated tests
-- `scripts/`: synthetic, real-world, and data-preparation workflows
-- `revision/`: paper-revision analyses and validation scripts
-- `reproducibility/synthetic_local_optimality_proof/`: standalone proof
+- `scripts/`: categorized executable workflows; see [`scripts/README.md`](scripts/README.md)
+- `scripts/paper/revision1/` and `scripts/paper/revision2/`: the two Ocean
+  Engineering review rounds
+- `scripts/paper/reproducibility/synthetic_local_optimality/`: standalone proof
   implementation and documentation; generated routes and certificates are
   recreated locally
 - `docs/`: user and paper-reproduction documentation
@@ -149,13 +150,13 @@ You can download the data from our Zenodo repository: https://zenodo.org/records
 There are several examples in the `scripts/` folder. You can run them with `uv run`, for instance:
 
 ```bash
-uv run scripts/single_run.py
+uv run scripts/experiments/single_run.py
 ```
 
 If your computer does not have a GPU, you can force JAX to use the CPU with `JAX_PLATFORMS=cpu` before the command. For instance:
 
 ```bash
-JAX_PLATFORMS=cpu uv run scripts/single_run.py
+JAX_PLATFORMS=cpu uv run scripts/experiments/single_run.py
 ```
 
 ### ERA5 weather data pipeline
@@ -169,7 +170,7 @@ for weather routing. Two download backends are available:
 **1. Download ERA5 data** for the Atlantic corridor (USNYC ↔ DEHAM):
 
 ```bash
-uv run scripts/download_era5.py --corridor atlantic --year 2023
+uv run scripts/data/download_era5.py --corridor atlantic --year 2023
 ```
 
 This creates `data/era5/era5_wind_atlantic_2023.nc` and
@@ -178,10 +179,10 @@ This creates `data/era5/era5_wind_atlantic_2023.nc` and
 **2. Run the real-world benchmark** (New York → Hamburg, Jan 8 2023):
 
 ```bash
-uv run scripts/era5_benchmark.py --departure 2023-01-08T00:00:00
+uv run scripts/benchmarks/era5_benchmark.py --departure 2023-01-08T00:00:00
 ```
 
-See `scripts/download_era5.py --help` and `scripts/era5_benchmark.py --help`
+See `scripts/data/download_era5.py --help` and `scripts/benchmarks/era5_benchmark.py --help`
 for all available options.
 
 ### SWOPP3 ERA5 pipeline
@@ -189,12 +190,12 @@ for all available options.
 The default SWOPP3 competition pipeline is:
 
 ```bash
-uv run scripts/download_era5.py
-uv run scripts/swopp3_run.py
+uv run scripts/data/download_era5.py
+uv run scripts/swopp3/swopp3_run.py
 ```
 
 These two commands line up without extra path flags. The downloader writes the
-four default 2024 files that `scripts/swopp3_run.py` expects:
+four default 2024 files that `scripts/swopp3/swopp3_run.py` expects:
 
 ```text
 data/era5/era5_wind_atlantic_2024.nc
@@ -203,7 +204,7 @@ data/era5/era5_wind_pacific_2024.nc
 data/era5/era5_waves_pacific_2024.nc
 ```
 
-`scripts/swopp3_run.py` validates these files before running any case. If one
+`scripts/swopp3/swopp3_run.py` validates these files before running any case. If one
 or more inputs are missing, it exits immediately with a precise error message
 instead of silently substituting a great-circle route or running without
 weather data. This is intentional:
@@ -213,23 +214,23 @@ weather data. This is intentional:
   data for the final SWOPP3 energy evaluation.
 
 If you download a different year or only one corridor, pass matching
-`--wind-path*` and `--wave-path*` options to `scripts/swopp3_run.py`.
+`--wind-path*` and `--wave-path*` options to `scripts/swopp3/swopp3_run.py`.
 
 ### Reproducible SWOPP3 experiment profiles
 
-`scripts/swopp3_run.py` supports named experiment profiles stored in
+`scripts/swopp3/swopp3_run.py` supports named experiment profiles stored in
 `config.toml`.
 
 Run a named experiment:
 
 ```bash
-uv run scripts/swopp3_run.py k15_p400_w1000
+uv run scripts/swopp3/swopp3_run.py k15_p400_w1000
 ```
 
 Use another TOML file if needed:
 
 ```bash
-uv run scripts/swopp3_run.py k15_p400_w1000 --config-path path/to/experiments.toml
+uv run scripts/swopp3/swopp3_run.py k15_p400_w1000 --config-path path/to/experiments.toml
 ```
 
 Relative paths inside a profile are resolved from the directory that contains
@@ -252,7 +253,7 @@ To add a new experiment:
 2. Put shared parameters under `[swopp3.experiments.<name>.defaults]`.
 3. Add one or more `[[swopp3.experiments.<name>.runs]]` entries.
 4. Set `source_script` to the script or workflow the profile replaces.
-5. Run `uv run scripts/swopp3_run.py <name>`.
+5. Run `uv run scripts/swopp3/swopp3_run.py <name>`.
 
 ## Reproduce the results (paper)
 
@@ -270,7 +271,7 @@ reported table and figure. No proprietary software or data are required.
 Source the activation script to prefer GPU for JAX in your current shell:
 
 ```bash
-source scripts/activate_gpu.sh
+source scripts/environment/activate_gpu.sh
 ```
 
 This sets `JAX_PLATFORM_NAME=cuda`, `CUDA_VISIBLE_DEVICES=0`, and `XLA_PYTHON_CLIENT_PREALLOCATE=false` so JAX will pick the local GPU by default.
@@ -280,7 +281,7 @@ This sets `JAX_PLATFORM_NAME=cuda`, `CUDA_VISIBLE_DEVICES=0`, and `XLA_PYTHON_CL
 The repository includes a `.env` file with the same defaults; tools that read `.env` (or your CI) can load it. You can also set the variables per-command:
 
 ```bash
-JAX_PLATFORM_NAME=cuda CUDA_VISIBLE_DEVICES=0 uv run scripts/single_run.py
+JAX_PLATFORM_NAME=cuda CUDA_VISIBLE_DEVICES=0 uv run scripts/experiments/single_run.py
 ```
 
 ## Setup development environment (Unix)
