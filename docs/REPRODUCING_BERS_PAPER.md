@@ -61,7 +61,7 @@ as `scripts/paper/synthetic/config_land.toml` and `config_noland.toml`.
 
 | Paper item                                        | Command                                                                                        |
 | ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Tables 3, 6; Figures 2–4                          | `uv run scripts/paper/synthetic/results.py` then `uv run scripts/paper/synthetic/figures.py` / `tables.py` |
+| Tables 3, 6; Figures 2–4 | Run `uv run scripts/paper/synthetic/results.py --experiment noland` and `uv run scripts/paper/synthetic/results.py --experiment land`, then `uv run scripts/paper/synthetic/figures.py` and `uv run scripts/paper/synthetic/tables.py`. |
 | Table 5 (seed dispersion)                         | `uv run python scripts/paper/revision1/task2_synthetic_dispersion.py`                                         |
 | Land experiments, Figures 5–6                     | `uv run scripts/paper/synthetic/results_land_avoidance.py`                                                     |
 | Table 8 (λ_land sensitivity)                      | `uv run python scripts/paper/revision1/task6_lambda_land_sensitivity.py`                                      |
