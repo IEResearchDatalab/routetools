@@ -10,7 +10,7 @@
     "notes": [
       "The legacy output predates embedded experiment manifests.",
       "The objective below is reconstructed from the preserved strict launcher and FMS defaults at the cited commit.",
-      "The post-FMS routes used split smooth wind and wave penalties of 50, conservative thresholds of 19.9 m/s and 6.9 m, no smooth land-distance term, and spherical longitude correction inside FMS. Sampled land violations were handled by rollback rather than by the differentiated action."
+      "The post-FMS routes used split smooth wind and wave penalties of 50, conservative thresholds of 20.0 m/s and 7.0 m, no smooth land-distance term, and spherical longitude correction inside FMS. Sampled land violations were handled by rollback rather than by the differentiated action."
     ]
   },
   "route_inventory": {
@@ -26,12 +26,12 @@
         "AO_noWPS"
       ],
       "distance_penalty_weight": 0.0,
-      "hs_limit": 6.9,
+      "hs_limit": 7.0,
       "land_distance_epsilon": 1.0,
       "land_distance_weight": 0.0,
       "name": "atlantic",
       "spherical_correction": true,
-      "tws_limit": 19.9,
+      "tws_limit": 20.0,
       "wave_penalty_weight": 50.0,
       "weather_penalty_weight": 0.0,
       "wind_penalty_weight": 50.0
@@ -42,12 +42,12 @@
         "PO_noWPS"
       ],
       "distance_penalty_weight": 0.0,
-      "hs_limit": 6.9,
+      "hs_limit": 7.0,
       "land_distance_epsilon": 1.0,
       "land_distance_weight": 0.0,
       "name": "pacific",
       "spherical_correction": true,
-      "tws_limit": 19.9,
+      "tws_limit": 20.0,
       "wave_penalty_weight": 50.0,
       "weather_penalty_weight": 0.0,
       "wind_penalty_weight": 50.0

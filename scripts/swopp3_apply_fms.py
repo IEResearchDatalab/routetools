@@ -18,6 +18,14 @@ Use explicit ERA5 paths for both corridors::
         --wave-path-atlantic data/era5/era5_waves_atlantic_2024.nc \
         --wind-path-pacific  data/era5/era5_wind_pacific_2024.nc \
         --wave-path-pacific  data/era5/era5_waves_pacific_2024.nc
+
+Next-year continuation files (e.g. ``era5_wind_atlantic_2025_01.nc``) next to
+the 2024 files are loaded automatically. A route whose voyage extends beyond the
+loaded weather raises an error instead of being refined on clamped weather.
+
+Resume works per route: a route is skipped when the output summary already has
+its row and its track file exists. To recompute specific routes, delete their
+track files from ``<output-dir>/tracks`` and run the script again.
 """
 
 from __future__ import annotations
@@ -350,23 +358,82 @@ def _copy_case_outputs(case_file: CaseFile, input_dir: Path, output_dir: Path) -
         shutil.copy2(src, dst)
 
 
-def _case_output_complete(case_file: CaseFile, output_dir: Path) -> bool:
-    """Return whether a case summary and all referenced tracks already exist."""
+def _completed_rows(case_file: CaseFile, output_dir: Path) -> dict[str, dict[str, str]]:
+    """Return existing output rows, keyed by departure, whose track file exists."""
     summary_path = output_dir / case_file.summary_path.name
     if not summary_path.exists():
-        return False
+        return {}
 
     try:
         rows = _read_file_a_rows(summary_path)
     except (OSError, csv.Error, KeyError):
-        return False
+        return {}
 
-    if not rows:
-        return False
+    return {
+        row["departure_time_utc"]: row
+        for row in rows
+        if (output_dir / "tracks" / row["details_filename"]).exists()
+    }
 
-    return all(
-        (output_dir / "tracks" / row["details_filename"]).exists() for row in rows
+
+def _case_output_complete(case_file: CaseFile, output_dir: Path) -> bool:
+    """Return whether every input route of a case has an output row and track."""
+    try:
+        departures = {
+            row["departure_time_utc"]
+            for row in _read_file_a_rows(case_file.summary_path)
+        }
+    except (OSError, csv.Error, KeyError):
+        return False
+    return bool(departures) and departures <= set(
+        _completed_rows(case_file, output_dir)
     )
+
+
+def _era5_time_end(paths: list[Path]) -> datetime:
+    """Return the last timestamp covered by a list of ERA5 files."""
+    import numpy as np
+    import xarray as xr
+
+    last: np.datetime64 | None = None
+    for path in paths:
+        with xr.open_dataset(path) as ds:
+            for name in ("time", "valid_time"):
+                if name in ds.coords:
+                    file_last = ds[name].values.max()
+                    break
+            else:
+                raise KeyError(f"No time coordinate found in {path}")
+        last = file_last if last is None else max(last, file_last)
+    seconds = (last - np.datetime64("1970-01-01T00:00:00")) / np.timedelta64(1, "s")
+    return datetime(1970, 1, 1) + timedelta(seconds=float(seconds))
+
+
+def _weather_time_end(wind_path: Path, wave_path: Path) -> datetime:
+    """Return the last timestamp covered by both wind and wave inputs."""
+    return min(
+        _era5_time_end(_loadable_era5_paths(wind_path)),
+        _era5_time_end(_loadable_era5_paths(wave_path)),
+    )
+
+
+def _check_weather_coverage(
+    departure: datetime,
+    passage_hours: float,
+    weather_end: datetime,
+    case_id: str,
+) -> None:
+    """Fail instead of refining a route on weather clamped at the data end."""
+    arrival = departure + timedelta(hours=passage_hours)
+    if arrival > weather_end:
+        raise RuntimeError(
+            f"{case_id} departure {departure:%Y-%m-%d %H:%M} arrives at "
+            f"{arrival:%Y-%m-%d %H:%M}, after the last available ERA5 timestamp "
+            f"({weather_end:%Y-%m-%d %H:%M}). Add the next-year continuation files "
+            "(e.g. era5_wind_<corridor>_2025_01.nc and "
+            "era5_waves_<corridor>_2025_01.nc) "
+            "next to the 2024 files and run again."
+        )
 
 
 def _release_fms_state() -> None:
@@ -477,11 +544,24 @@ def apply_fms_to_outputs(
         output_rows: list[dict[str, str]] = []
         resources: CorridorResources | None = None
         reload_after: datetime | None = None
+        existing_rows = _completed_rows(case_file, resolved_output_dir)
+        output_summary = resolved_output_dir / case_file.summary_path.name
+        weather_end = _weather_time_end(
+            corridor_wind[corridor], corridor_wave[corridor]
+        )
 
         try:
             rows = _read_file_a_rows(case_file.summary_path)
             for idx, row in enumerate(rows, start=1):
                 departure = datetime.strptime(row["departure_time_utc"], _DTFMT)
+                existing = existing_rows.get(row["departure_time_utc"])
+                if existing is not None:
+                    output_rows.append(existing)
+                    continue
+
+                _check_weather_coverage(
+                    departure, passage_hours, weather_end, case_file.case_id
+                )
                 if (
                     resources is None
                     or reload_after is None
@@ -599,6 +679,16 @@ def apply_fms_to_outputs(
                         distance_nm=distance_nm,
                         details_filename=details_filename,
                     )
+                )
+                # Persist progress after every route so an interrupted run
+                # resumes from the next missing route.
+                done = {r["departure_time_utc"] for r in output_rows}
+                pending = [r for d, r in existing_rows.items() if d not in done]
+                write_file_a(
+                    sorted(
+                        output_rows + pending, key=lambda r: r["departure_time_utc"]
+                    ),
+                    output_summary,
                 )
 
                 if not quiet:
