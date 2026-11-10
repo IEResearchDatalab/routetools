@@ -45,8 +45,13 @@ SUMMARY_FIELDS = [
     "departure_time_utc",
     "case",
     "passage_hours",
+    "forecast_cmaes_forecast_mwh",
+    "forecast_cmaes_truth_mwh",
     "forecast_route_forecast_mwh",
     "forecast_route_truth_mwh",
+    "fms_forecast_delta_mwh",
+    "fms_truth_delta_mwh",
+    "fms_truth_delta_pct",
     "truth_route_forecast_mwh",
     "truth_route_truth_mwh",
     "information_regret_mwh",
@@ -95,6 +100,7 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _atomic_routes(
     path: Path,
+    forecast_cmaes_route: np.ndarray,
     forecast_route: np.ndarray,
     truth_route: np.ndarray,
 ) -> None:
@@ -103,6 +109,7 @@ def _atomic_routes(
     with tmp.open("wb") as stream:
         np.savez_compressed(
             stream,
+            forecast_cmaes_route_lon_lat=forecast_cmaes_route,
             forecast_route_lon_lat=forecast_route,
             truth_route_lon_lat=truth_route,
         )
@@ -258,6 +265,15 @@ def run_departure(
         truth_wind,
         truth_wave,
     )
+    if forecast_result.cmaes_result is None:
+        raise RuntimeError("forecast optimization did not retain its CMA-ES stage")
+    forecast_cmaes_on_truth = _score(
+        forecast_result.cmaes_result.curve,
+        departure,
+        case,
+        truth_wind,
+        truth_wave,
+    )
     truth_on_forecast = _score(
         truth_result.curve,
         departure,
@@ -267,6 +283,10 @@ def run_departure(
     )
     forecast_expected = float(forecast_result.energy_mwh)
     forecast_realized = float(forecast_on_truth[0])
+    forecast_cmaes_expected = float(forecast_result.cmaes_result.energy_mwh)
+    forecast_cmaes_realized = float(forecast_cmaes_on_truth[0])
+    fms_forecast_delta = forecast_expected - forecast_cmaes_expected
+    fms_truth_delta = forecast_realized - forecast_cmaes_realized
     truth_perfect = float(truth_result.energy_mwh)
     information_regret = forecast_realized - truth_perfect
     forecast_error = forecast_realized - forecast_expected
@@ -275,8 +295,13 @@ def run_departure(
         "departure_time_utc": departure.strftime("%Y-%m-%dT%H:%M:%S"),
         "case": case_id,
         "passage_hours": passage_hours,
+        "forecast_cmaes_forecast_mwh": forecast_cmaes_expected,
+        "forecast_cmaes_truth_mwh": forecast_cmaes_realized,
         "forecast_route_forecast_mwh": forecast_expected,
         "forecast_route_truth_mwh": forecast_realized,
+        "fms_forecast_delta_mwh": fms_forecast_delta,
+        "fms_truth_delta_mwh": fms_truth_delta,
+        "fms_truth_delta_pct": _pct(fms_truth_delta, forecast_cmaes_realized),
         "truth_route_forecast_mwh": float(truth_on_forecast[0]),
         "truth_route_truth_mwh": truth_perfect,
         "information_regret_mwh": information_regret,
@@ -301,6 +326,7 @@ def run_departure(
     }
     _atomic_routes(
         route_path,
+        np.asarray(forecast_result.cmaes_result.curve),
         np.asarray(forecast_result.curve),
         np.asarray(truth_result.curve),
     )
