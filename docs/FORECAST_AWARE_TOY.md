@@ -103,3 +103,6 @@ There is one JSON and one compressed route file per departure plus a cumulative
 as the ERA5-scored energy of the forecast-optimised route minus the ERA5-scored
 energy of the ERA5-optimised route.  Positive values are the cost of acting on
 the forecast relative to perfect information.
+
+The completed ten-departure results and interpretation are in
+[`FORECAST_AWARE_TOY_RESULTS.md`](FORECAST_AWARE_TOY_RESULTS.md).
