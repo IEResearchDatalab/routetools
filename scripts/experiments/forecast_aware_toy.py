@@ -63,8 +63,11 @@ SUMMARY_FIELDS = [
     "truth_optimisation_s",
     "seed",
     "n_points",
+    "cmaes_k",
     "maxfevals",
     "popsize",
+    "fms_patience",
+    "fms_maxfevals",
 ]
 
 
@@ -290,8 +293,11 @@ def run_departure(
         "truth_optimisation_s": float(truth_result.comp_time_s),
         "seed": seed,
         "n_points": n_points,
+        "cmaes_k": cmaes_k,
         "maxfevals": maxfevals,
         "popsize": popsize,
+        "fms_patience": fms_patience,
+        "fms_maxfevals": fms_maxfevals,
     }
     _atomic_routes(
         route_path,
