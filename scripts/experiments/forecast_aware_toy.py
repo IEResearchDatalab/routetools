@@ -31,7 +31,8 @@ from routetools.era5.loader import (
     load_natural_earth_land_mask,
 )
 from routetools.fms import clear_fms_caches
-from routetools.swopp3 import SWOPP3_CASES
+from routetools.swopp3 import SWOPP3_CASES, case_endpoints, great_circle_route
+from routetools.swopp3_output import sailed_distance_nm
 from routetools.swopp3_runner import evaluate_energy, run_optimised_departure
 
 DEFAULT_DATA_ROOT = Path("/home/SHARED/data/weather-routing")
@@ -54,6 +55,14 @@ SUMMARY_FIELDS = [
     "fms_truth_delta_pct",
     "truth_route_forecast_mwh",
     "truth_route_truth_mwh",
+    "great_circle_truth_mwh",
+    "great_circle_truth_max_tws_mps",
+    "great_circle_truth_max_hs_m",
+    "great_circle_distance_nm",
+    "forecast_vs_great_circle_saving_mwh",
+    "forecast_vs_great_circle_saving_pct",
+    "truth_vs_great_circle_saving_mwh",
+    "truth_vs_great_circle_saving_pct",
     "information_regret_mwh",
     "information_regret_pct",
     "forecast_error_mwh",
@@ -103,6 +112,7 @@ def _atomic_routes(
     forecast_cmaes_route: np.ndarray,
     forecast_route: np.ndarray,
     truth_route: np.ndarray,
+    great_circle: np.ndarray,
 ) -> None:
     """Write the paired routes as a compressed, atomically published NPZ."""
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -112,6 +122,7 @@ def _atomic_routes(
             forecast_cmaes_route_lon_lat=forecast_cmaes_route,
             forecast_route_lon_lat=forecast_route,
             truth_route_lon_lat=truth_route,
+            great_circle_route_lon_lat=great_circle,
         )
     os.replace(tmp, path)
 
@@ -224,6 +235,15 @@ def run_departure(
         time_start=departure,
         time_end=truth_end,
     )
+    src, dst = case_endpoints(case_id)
+    great_circle = great_circle_route(src, dst, n_points=n_points)
+    great_circle_on_truth = _score(
+        great_circle,
+        departure,
+        case,
+        truth_wind,
+        truth_wave,
+    )
 
     optimizer = {
         "K": cmaes_k,
@@ -288,8 +308,11 @@ def run_departure(
     fms_forecast_delta = forecast_expected - forecast_cmaes_expected
     fms_truth_delta = forecast_realized - forecast_cmaes_realized
     truth_perfect = float(truth_result.energy_mwh)
+    great_circle_truth = float(great_circle_on_truth[0])
     information_regret = forecast_realized - truth_perfect
     forecast_error = forecast_realized - forecast_expected
+    forecast_vs_great_circle = great_circle_truth - forecast_realized
+    truth_vs_great_circle = great_circle_truth - truth_perfect
 
     record: dict[str, Any] = {
         "departure_time_utc": departure.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -304,6 +327,20 @@ def run_departure(
         "fms_truth_delta_pct": _pct(fms_truth_delta, forecast_cmaes_realized),
         "truth_route_forecast_mwh": float(truth_on_forecast[0]),
         "truth_route_truth_mwh": truth_perfect,
+        "great_circle_truth_mwh": great_circle_truth,
+        "great_circle_truth_max_tws_mps": float(great_circle_on_truth[1]),
+        "great_circle_truth_max_hs_m": float(great_circle_on_truth[2]),
+        "great_circle_distance_nm": float(sailed_distance_nm(great_circle)),
+        "forecast_vs_great_circle_saving_mwh": forecast_vs_great_circle,
+        "forecast_vs_great_circle_saving_pct": _pct(
+            forecast_vs_great_circle,
+            great_circle_truth,
+        ),
+        "truth_vs_great_circle_saving_mwh": truth_vs_great_circle,
+        "truth_vs_great_circle_saving_pct": _pct(
+            truth_vs_great_circle,
+            great_circle_truth,
+        ),
         "information_regret_mwh": information_regret,
         "information_regret_pct": _pct(information_regret, truth_perfect),
         "forecast_error_mwh": forecast_error,
@@ -329,6 +366,7 @@ def run_departure(
         np.asarray(forecast_result.cmaes_result.curve),
         np.asarray(forecast_result.curve),
         np.asarray(truth_result.curve),
+        np.asarray(great_circle),
     )
     _atomic_json(result_path, record)
     print(
