@@ -1,11 +1,13 @@
 # routetools
 
-`routetools` is the open-source implementation and complete reproduction
-workflow for the BERS paper. The repository contains the synthetic benchmarks,
-CMA-ES and FMS optimization tools, vessel-consumption models, experiment
-configurations, validation and interval-certificate scripts, instructions for
-downloading the public environmental data, and the scripts behind every table
-and figure in the paper.
+`routetools` is the open-source implementation and reproduction workflow for
+the authors' experiments in the BERS paper. The repository contains the
+synthetic benchmarks, CMA-ES and FMS optimization tools, vessel-consumption
+models, experiment configurations, validation and interval-certificate
+scripts, instructions for obtaining the environmental data, and the scripts
+behind the paper's tables and figures. Scores and runtimes reported by other
+SWOPP3 participants are external benchmark information, not outputs of this
+workflow.
 
 Official website: https://weatherrouting.org/
 
@@ -258,11 +260,10 @@ To add a new experiment:
 ## Reproduce the results (paper)
 
 The full workflow is documented in
-[Reproducing the BERS paper](docs/REPRODUCING_BERS_PAPER.md). It starts from a
-fresh clone, downloads the open ERA5 and Natural Earth inputs, runs the
-synthetic and real-ocean experiments with the open vessel-consumption model,
-executes the validation and local-optimality checks, and regenerates every
-reported table and figure. No proprietary software or data are required.
+[Reproducing the BERS paper](docs/REPRODUCING_BERS_PAPER.md). It identifies the
+exact paper release, environment, archived inputs, experiment and validation
+steps, and final table and figure references. Its scope is the authors'
+experiments; the multi-participant SWOPP3 comparison remains external.
 
 ## Using GPU with JAX
 
