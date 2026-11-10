@@ -43,6 +43,25 @@ Variables use the ERA5 names in both products:
 - `mean_wave_direction`
 - `mean_wave_period`
 
+## Completed toy dataset
+
+The initial dataset was completed and validated on 2026-11-10:
+
+- ERA5: two files covering 2025-07-15 00:00 through 2025-08-08 23:00
+  (600 hourly timestamps; about 583 MiB on disk).
+- IFS: ten `oper` files and ten `wave` files, one 00 UTC run per day from
+  2025-07-15 through 2025-07-24 (85 lead times per file; about 827 MiB).
+- Total retained size: 1,476,993,245 bytes (about 1.48 GB).
+
+All files use the exact 141 x 361 BERS Atlantic grid.  The IFS files were
+also loaded through `routetools.era5.loader` and sampled at lead hours 0, 3,
+144, and 360.  Download logs are in
+`/home/SHARED/data/weather-routing/logs/toy_20250715_20250724`.
+
+Install the forecast readers with `uv sync --extra forecast`.  On Linux this
+also installs the bundled ecCodes runtime, avoiding dependence on the server's
+system ecCodes version.
+
 ## Download commands on vangelis
 
 ```bash
