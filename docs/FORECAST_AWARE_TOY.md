@@ -81,3 +81,25 @@ uv run --extra forecast scripts/data/download_ecmwf_forecasts.py \
 Both commands skip completed files, retry transient failures, and publish via an
 atomic rename.  Temporary global GRIB files are removed immediately after each
 run is cropped.
+
+## Run the routing comparison
+
+The initial routing comparison uses the Atlantic optimised WPS case (`AO_WPS`)
+for the same ten 00 UTC departures.  Each departure produces two routes using
+the same seed and optimisation budget: one using the IFS forecast and one using
+perfect-information ERA5.  Both routes are then scored on both weather
+products.
+
+```bash
+uv sync --extra forecast --extra cuda --no-dev --locked
+
+uv run --no-sync scripts/experiments/forecast_aware_toy.py
+```
+
+Results are resumable and are written by default under
+`/home/SHARED/data/weather-routing/results/toy_20250715_20250724/AO_WPS`.
+There is one JSON and one compressed route file per departure plus a cumulative
+`summary.csv`.  The main comparison column is `information_regret_mwh`, defined
+as the ERA5-scored energy of the forecast-optimised route minus the ERA5-scored
+energy of the ERA5-optimised route.  Positive values are the cost of acting on
+the forecast relative to perfect information.
