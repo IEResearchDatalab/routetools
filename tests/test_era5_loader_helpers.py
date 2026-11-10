@@ -9,7 +9,11 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from routetools.era5.loader import load_dataset_epoch, loadable_era5_paths
+from routetools.era5.loader import (
+    _get_coord_name,
+    load_dataset_epoch,
+    loadable_era5_paths,
+)
 
 
 def _write_dataset(
@@ -95,6 +99,25 @@ class TestLoadDatasetEpoch:
 
         with pytest.raises(KeyError, match="time"):
             load_dataset_epoch(nc)
+
+
+def test_prefers_forecast_valid_time_over_scalar_initialization() -> None:
+    """Forecast time lookup ignores the scalar run initialization coordinate."""
+    ds = xr.Dataset(
+        coords={
+            "step": np.array([0, 3], dtype="timedelta64[h]"),
+            "time": np.datetime64("2025-07-15T00:00:00"),
+            "valid_time": (
+                "step",
+                np.array(
+                    ["2025-07-15T00:00:00", "2025-07-15T03:00:00"],
+                    dtype="datetime64[ns]",
+                ),
+            ),
+        }
+    )
+
+    assert _get_coord_name(ds, ["time", "valid_time"]) == "valid_time"
 
 
 class TestLoadableEra5Paths:

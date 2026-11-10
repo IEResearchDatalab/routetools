@@ -155,9 +155,20 @@ def _load_datasets(
 
 
 def _get_coord_name(ds: xr.Dataset, candidates: list[str]) -> str:
-    """Return the first coordinate name that exists in *ds*."""
+    """Return the best coordinate name from *candidates*.
+
+    Dimension coordinates take precedence, followed by non-scalar auxiliary
+    coordinates.  This matters for forecast files, which contain both a scalar
+    initialization ``time`` and a one-dimensional ``valid_time`` over ``step``.
+    """
     for name in candidates:
-        if name in ds.coords or name in ds.dims:
+        if name in ds.dims:
+            return name
+    for name in candidates:
+        if name in ds.coords and ds[name].ndim > 0:
+            return name
+    for name in candidates:
+        if name in ds.coords:
             return name
     raise KeyError(
         f"None of {candidates} found in dataset coordinates: {list(ds.coords)}"
