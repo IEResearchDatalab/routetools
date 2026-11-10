@@ -128,7 +128,7 @@ def _write_summary(output_dir: Path) -> Path:
         writer = csv.DictWriter(stream, fieldnames=SUMMARY_FIELDS)
         writer.writeheader()
         for record in records:
-            writer.writerow({name: record[name] for name in SUMMARY_FIELDS})
+            writer.writerow({name: record.get(name, "") for name in SUMMARY_FIELDS})
     os.replace(tmp, summary)
     return summary
 
