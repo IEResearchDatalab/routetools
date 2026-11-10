@@ -103,21 +103,27 @@ def _open_grib(path: Path) -> xr.Dataset:
 
 
 def _write_cropped(
-    raw_path: Path,
+    raw_paths: list[Path],
     netcdf_part: Path,
     *,
     stream: str,
     corridor: str,
     expected_steps: int,
 ) -> None:
-    """Convert one temporary global GRIB into a corridor NetCDF."""
-    ds = _open_grib(raw_path)
+    """Merge temporary single-parameter GRIBs into a corridor NetCDF."""
+    datasets: list[xr.Dataset] = []
     try:
-        if ds.sizes.get("step") != expected_steps:
-            raise ValueError(
-                f"expected {expected_steps} forecast steps, got {ds.sizes.get('step')}"
-            )
-        ds = _crop_corridor(ds, corridor)
+        for raw_path in raw_paths:
+            parameter_ds = _open_grib(raw_path)
+            if parameter_ds.sizes.get("step") != expected_steps:
+                parameter_ds.close()
+                raise ValueError(
+                    "expected "
+                    f"{expected_steps} forecast steps, "
+                    f"got {parameter_ds.sizes.get('step')} in {raw_path.name}"
+                )
+            datasets.append(_crop_corridor(parameter_ds, corridor))
+        ds = xr.merge(datasets, compat="no_conflicts")
         rename = {
             old: new
             for old, new in STREAMS[stream]["rename"].items()
@@ -139,7 +145,8 @@ def _write_cropped(
         )
         ds.to_netcdf(netcdf_part, format="NETCDF4")
     finally:
-        ds.close()
+        for dataset in datasets:
+            dataset.close()
 
 
 def _download_run(
@@ -164,7 +171,10 @@ def _download_run(
 
     for attempt in range(1, max_retries + 1):
         token = f"{os.getpid()}.{attempt}"
-        raw_part = target.with_name(f".{target.name}.{token}.grib2.part")
+        raw_parts = [
+            target.with_name(f".{target.name}.{token}.{param}.grib2.part")
+            for param in STREAMS[stream]["params"]
+        ]
         nc_part = target.with_name(f".{target.name}.{token}.nc.part")
         try:
             LOG.info(
@@ -176,17 +186,24 @@ def _download_run(
                 attempt,
                 max_retries,
             )
-            client.retrieve(  # type: ignore[attr-defined]
-                date=run_date.strftime("%Y%m%d"),
-                time=hour,
-                stream=stream,
-                type="fc",
-                step=steps,
-                param=STREAMS[stream]["params"],
-                target=str(raw_part),
-            )
+            # Google Cloud Storage does not accept the multi-range HTTP request
+            # generated when multiple parameters from one GRIB are selected at
+            # once.  One parameter per request produces a single byte range and
+            # works consistently; the cropped fields are merged below.
+            for param, raw_part in zip(
+                STREAMS[stream]["params"], raw_parts, strict=True
+            ):
+                client.retrieve(  # type: ignore[attr-defined]
+                    date=run_date.strftime("%Y%m%d"),
+                    time=hour,
+                    stream=stream,
+                    type="fc",
+                    step=steps,
+                    param=param,
+                    target=str(raw_part),
+                )
             _write_cropped(
-                raw_part,
+                raw_parts,
                 nc_part,
                 stream=stream,
                 corridor=corridor,
@@ -201,7 +218,8 @@ def _download_run(
                 raise
             time.sleep(retry_delay * attempt)
         finally:
-            raw_part.unlink(missing_ok=True)
+            for raw_part in raw_parts:
+                raw_part.unlink(missing_ok=True)
             nc_part.unlink(missing_ok=True)
 
     raise RuntimeError("unreachable")
