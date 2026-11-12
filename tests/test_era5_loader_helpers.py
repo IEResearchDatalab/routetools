@@ -9,7 +9,12 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from routetools.era5.loader import load_dataset_epoch, loadable_era5_paths
+from routetools.era5.loader import (
+    _get_coord_name,
+    load_dataset_epoch,
+    load_era5_windfield,
+    loadable_era5_paths,
+)
 
 
 def _write_dataset(
@@ -95,6 +100,62 @@ class TestLoadDatasetEpoch:
 
         with pytest.raises(KeyError, match="time"):
             load_dataset_epoch(nc)
+
+
+def test_prefers_forecast_valid_time_over_scalar_initialization() -> None:
+    """Forecast time lookup ignores the scalar run initialization coordinate."""
+    ds = xr.Dataset(
+        coords={
+            "step": np.array([0, 3], dtype="timedelta64[h]"),
+            "time": np.datetime64("2025-07-15T00:00:00"),
+            "valid_time": (
+                "step",
+                np.array(
+                    ["2025-07-15T00:00:00", "2025-07-15T03:00:00"],
+                    dtype="datetime64[ns]",
+                ),
+            ),
+        }
+    )
+
+    assert _get_coord_name(ds, ["time", "valid_time"]) == "valid_time"
+
+
+def test_interpolates_native_nonuniform_forecast_steps(tmp_path: Path) -> None:
+    """Temporal interpolation uses valid times after the IFS cadence change."""
+    path = tmp_path / "forecast.nc"
+    valid_time = np.array(
+        [
+            "2025-07-15T00:00:00",
+            "2025-07-15T03:00:00",
+            "2025-07-15T09:00:00",
+        ],
+        dtype="datetime64[ns]",
+    )
+    values = np.broadcast_to(
+        np.array([0.0, 3.0, 9.0], dtype=np.float32)[:, None, None],
+        (3, 2, 2),
+    ).copy()
+    ds = xr.Dataset(
+        {
+            "u10": (("step", "latitude", "longitude"), values),
+            "v10": (("step", "latitude", "longitude"), np.zeros_like(values)),
+        },
+        coords={
+            "step": np.array([0, 3, 9], dtype="timedelta64[h]"),
+            "time": np.datetime64("2025-07-15T00:00:00"),
+            "valid_time": ("step", valid_time),
+            "latitude": np.array([1.0, 0.0]),
+            "longitude": np.array([0.0, 1.0]),
+        },
+    )
+    ds.to_netcdf(path, engine="scipy")
+    ds.close()
+
+    wind = load_era5_windfield(path, departure_time=valid_time[0])
+    u10, _ = wind(np.array([0.5]), np.array([0.5]), np.array([6.0]))
+
+    assert float(u10[0]) == pytest.approx(6.0)
 
 
 class TestLoadableEra5Paths:
