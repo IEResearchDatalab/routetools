@@ -11,6 +11,14 @@ workflow.
 
 Official website: https://weatherrouting.org/
 
+Official SWOPP3 performance model:
+https://github.com/RISE-Maritime/swopp3-performance-model
+
+The RISE Maritime repository is the authoritative source for the SWOPP3
+performance model and should be preferred for new benchmark work. The model
+implementation retained here supports reproduction of the BERS paper's pinned
+experiments.
+
 Data repository in Zenodo: https://zenodo.org/records/23470870
 
 ## Structure
