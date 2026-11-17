@@ -269,6 +269,21 @@ wheels = [
 ]
 
 [[package]]
+name = "cfgrib"
+version = "0.9.15.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "click" },
+    { name = "eccodes" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/51/cace2747a517667bbbe5fcab1f35958ad05c778251a452c461b8b3649dbe/cfgrib-0.9.15.1.tar.gz", hash = "sha256:d959d8b97e55a63646fa86686b297905ff7f2918a91e3a11d6292dab09598e4d", size = 9746591, upload-time = "2025-09-30T22:46:14.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/e8/16c58c57c9ce1474dd1e50090ebd78b008c70fc4f06793da65f9a0aba391/cfgrib-0.9.15.1-py3-none-any.whl", hash = "sha256:f1bee90e86917389be9f767051bf32d00f95f6f4e4312b344567511b3cfd62d2", size = 49123, upload-time = "2025-09-30T22:46:12.206Z" },
+]
+
+[[package]]
 name = "cfgv"
 version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -524,6 +539,47 @@ wheels = [
 ]
 
 [[package]]
+name = "eccodes"
+version = "2.45.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "cffi" },
+    { name = "findlibs" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e5/c3/41378ba5547fbbb08db9efc7c520bfd0ccf2684bf7fbba0e09eab53b9eff/eccodes-2.45.0.tar.gz", hash = "sha256:08fe1544e6fa597a416bde9a630af4b6e34a021bc3c209f0ece4f7ed5990f992", size = 2466789, upload-time = "2026-01-15T16:27:08.418Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/2a/721b05d551f90ed198aa05c2455fd056f4f1742967cee154347eaada2745/eccodes-2.45.0-cp312-cp312-win_amd64.whl", hash = "sha256:b661ce2d0e73ce0724f137606bf6b579fb2eba4db0f5b466b4345170cb4bf5f2", size = 7406814, upload-time = "2026-01-15T16:26:42.454Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/40/0a42c7441d76c373a7bef7ec1f535f26910a8c82a37e745ffcd3ea0cdf79/eccodes-2.45.0-py3-none-any.whl", hash = "sha256:0ba61dbd2844843f1fd466c8ca24107932cc40088338f6176428cf38c533c08c", size = 91433, upload-time = "2026-01-15T16:27:06.601Z" },
+]
+
+[[package]]
+name = "eccodeslib"
+version = "2.50.0.34"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "eckitlib", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/72/0e/3355455535ffcf8d86e82803a10eb72e2da5b2ab67b721d1e9b60fb7d2a3/eccodeslib-2.50.0.34-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:d8231224ce4113bc679796c660d9eded924d787f52c0d8ca94398bf5f8f07f97", size = 9058331, upload-time = "2026-11-06T07:27:55.104Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/33/e580d3176a570f0b6319c468407e397c75b86c4c67933c78b07f4e8046e2/eccodeslib-2.50.0.34-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:4cfd92427ff2f767a5ff134e773b969ae874243c5a37fd95452967be600db660", size = 8837464, upload-time = "2026-11-06T07:41:59.147Z" },
+    { url = "https://files.pythonhosted.org/packages/81/07/6c46a6a6a8f79a18779cd32d6b34df2842d96507f13f317c69a094c5ea03/eccodeslib-2.50.0.34-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:2b5ff86be33b23159b01e800378acc29c6389b34e1d9cc2a517af045d7466436", size = 9214117, upload-time = "2026-11-06T07:31:42.229Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/3b/1504128bbee24e483a866c294396452070ba5285c7a3722f701425f8191b/eccodeslib-2.50.0.34-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:e2da2e099f4b7a196cf9dcddeb1b651dd35d0f7fa693dc2ecc24800ad1ec9ba6", size = 8998185, upload-time = "2026-11-06T07:26:49.784Z" },
+]
+
+[[package]]
+name = "eckitlib"
+version = "2.5.0.34"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/59/83b2c70656353712955554804b7dd3f395353b8473971558450d9738a4b3/eckitlib-2.5.0.34-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:9b30af4079aecce77f5b1c83353a5b61586a7bbb506ede96ceb93a00b0500cbd", size = 6558631, upload-time = "2026-11-06T07:28:00.281Z" },
+    { url = "https://files.pythonhosted.org/packages/26/c7/ba5190b53f9bae58b0bef0fdd89a386989461b9ccfd602cd6494b31365e1/eckitlib-2.5.0.34-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:cd90e8b714027a635dc72bd456e011ced6c104807fe6ab6c57878a4465514462", size = 6612585, upload-time = "2026-11-06T07:42:07.243Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/9b/8be55f0e26b43876380915c11b0a88748878611f4b8dcd88acd1647e7cdf/eckitlib-2.5.0.34-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:e89ce6d92cd7c601e4bdbda87fbe52f27f6390631b85c6ea06b41c7ff6eb3c5b", size = 35218197, upload-time = "2026-11-06T07:31:47.758Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/c7/90e2867b35a2397b4c9bf4486c50a54adc6cfb0c0f8bfc631a1573e0d1aa/eckitlib-2.5.0.34-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:3a28e1a7e2ab1b341e1ffa5688d42a1cf2249eede379b3ec5b4dde044e0cebc4", size = 36168597, upload-time = "2026-11-06T07:27:00.27Z" },
+]
+
+[[package]]
 name = "ecmwf-datastores-client"
 version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -536,6 +592,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/51/60/f86eb3e57baf2b1780a7046148c234e9e57b0aeb550d30f39e50991da253/ecmwf_datastores_client-0.4.2.tar.gz", hash = "sha256:7cee1f5e5dab34edcc794cd62bee02c603fafb6f4cc2121c5f012806e0f7934d", size = 48205, upload-time = "2026-01-21T15:27:31.665Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/40/2ccf4c87a5f9c8198fe71600d5f307f5dada201c091af8774a9c1e360865/ecmwf_datastores_client-0.4.2-py3-none-any.whl", hash = "sha256:d22a675b35263286de09969502ec897da9ceb9e4c8ec4d709f7ebb3b90d3ae98", size = 29092, upload-time = "2026-01-21T15:27:30.452Z" },
+]
+
+[[package]]
+name = "ecmwf-opendata"
+version = "0.3.26"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "multiurl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b6/16/074aee6fd1fa21b6445fb8429a16c50dac91053b66f3c99ada86b09665e2/ecmwf_opendata-0.3.26.tar.gz", hash = "sha256:8b49eed2282c167e50663b38768631a5b6d758fd947c4ea764d37433ac92523a", size = 28873, upload-time = "2025-12-04T15:08:29.677Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/74/7795b50a4a74dd0d9b8f8b028912878da0e64969eb4889e64b7a75aeef63/ecmwf_opendata-0.3.26-py3-none-any.whl", hash = "sha256:e158bab54f86908dbc634c1660a527bd1d27dbe26ba4d8484f622cd8565185d6", size = 21818, upload-time = "2025-12-04T15:08:28.531Z" },
 ]
 
 [[package]]
@@ -563,6 +631,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/58/46/0028a82567109b5ef6e4d2a1f04a583fb513e6cf9527fcdd09afd817deeb/filelock-3.20.0.tar.gz", hash = "sha256:711e943b4ec6be42e1d4e6690b48dc175c822967466bb31c0c293f34334c13f4", size = 18922, upload-time = "2025-10-08T18:03:50.056Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/76/91/7216b27286936c16f5b4d0c530087e4a54eead683e6b0b73dd0c64844af6/filelock-3.20.0-py3-none-any.whl", hash = "sha256:339b4732ffda5cd79b13f4e2711a31b0365ce445d95d243bb996273d072546a2", size = 16054, upload-time = "2025-10-08T18:03:48.35Z" },
+]
+
+[[package]]
+name = "findlibs"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/ef/345b0f88b8e9d9e12051142a9cdcf590bf70206d20d81c3f773ade8d9e32/findlibs-0.1.2.tar.gz", hash = "sha256:1f56d220c69686392ebdc4c65b32ee344818bca633643a8c97592957d1728122", size = 11302, upload-time = "2025-07-28T09:15:03.675Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2f/ff/76dd547e129206899e4e26446c3ca7aeaff948c31b05250e9b8690e76883/findlibs-0.1.2-py3-none-any.whl", hash = "sha256:5348bbc7055d2a505962576c2e285b6c0aae6d749f82ba71296e7d41336e66e8", size = 10707, upload-time = "2025-07-28T09:15:02.733Z" },
 ]
 
 [[package]]
@@ -2288,6 +2365,12 @@ era5-gcs = [
     { name = "gcsfs" },
     { name = "zarr" },
 ]
+forecast = [
+    { name = "cfgrib" },
+    { name = "eccodes" },
+    { name = "eccodeslib", marker = "sys_platform != 'win32'" },
+    { name = "ecmwf-opendata" },
+]
 h3 = [
     { name = "h3" },
 ]
@@ -2306,8 +2389,12 @@ requires-dist = [
     { name = "borb", url = "https://files.pythonhosted.org/packages/7a/4e/b193d894ffb0fde0f773b0476d8b041528302fa86bccf2cc8006c79404e4/borb-3.0.1.tar.gz" },
     { name = "cartopy", specifier = ">=0.25.0" },
     { name = "cdsapi", marker = "extra == 'era5-cds'", specifier = ">=0.7.0" },
+    { name = "cfgrib", marker = "extra == 'forecast'", specifier = ">=0.9.15" },
     { name = "cma", specifier = ">=4.0.0" },
     { name = "dask", specifier = ">=2024.1.0" },
+    { name = "eccodes", marker = "extra == 'forecast'", specifier = ">=2.37.0" },
+    { name = "eccodeslib", marker = "sys_platform != 'win32' and extra == 'forecast'", specifier = ">=2.45.0" },
+    { name = "ecmwf-opendata", marker = "extra == 'forecast'", specifier = ">=0.3.24" },
     { name = "gcsfs", specifier = ">=2026.2.0" },
     { name = "gcsfs", marker = "extra == 'era5-gcs'", specifier = ">=2024.1.0" },
     { name = "h3", marker = "extra == 'h3'", specifier = "==4.0.0b2" },
@@ -2333,7 +2420,7 @@ requires-dist = [
     { name = "zarr", specifier = ">=3.1.5" },
     { name = "zarr", marker = "extra == 'era5-gcs'", specifier = ">=2.17.0" },
 ]
-provides-extras = ["cuda", "h3", "era5-cds", "era5-gcs"]
+provides-extras = ["cuda", "h3", "era5-cds", "era5-gcs", "forecast"]
 
 [package.metadata.requires-dev]
 dev = [

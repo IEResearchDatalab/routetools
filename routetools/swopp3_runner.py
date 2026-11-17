@@ -451,6 +451,10 @@ def run_optimised_departure(
     departure_offset_h: float = 0.0,
     n_points: int = 100,
     verbosity: int | None = None,
+    route_src: jnp.ndarray | None = None,
+    route_dst: jnp.ndarray | None = None,
+    route_travel_time: float | None = None,
+    initial_curve: jnp.ndarray | None = None,
     **cmaes_kwargs,
 ) -> DepartureResult:
     """Optimise and evaluate a single departure using CMA-ES and FMS.
@@ -499,8 +503,16 @@ def run_optimised_departure(
         great-circle route.
     """
     case = SWOPP3_CASES[case_id]
-    src, dst = case_endpoints(case_id)
-    travel_time = float(case["passage_hours"])
+    case_src, case_dst = case_endpoints(case_id)
+    src = case_src if route_src is None else jnp.asarray(route_src)
+    dst = case_dst if route_dst is None else jnp.asarray(route_dst)
+    travel_time = (
+        float(case["passage_hours"])
+        if route_travel_time is None
+        else float(route_travel_time)
+    )
+    if travel_time <= 0:
+        raise ValueError("route_travel_time must be positive")
     resolved_verbosity = _resolve_runner_verbosity(None, verbosity)
 
     t0 = _time.time()
@@ -521,7 +533,28 @@ def run_optimised_departure(
 
         # Initialise from the great-circle route so CMA-ES starts near
         # the geodesic.
-        gc_init = great_circle_route(src, dst, n_points=n_points)
+        gc_init = (
+            great_circle_route(src, dst, n_points=n_points)
+            if initial_curve is None
+            else jnp.asarray(initial_curve)
+        )
+        if gc_init.shape != (n_points, 2):
+            raise ValueError(
+                f"initial_curve must have shape ({n_points}, 2), got {gc_init.shape}"
+            )
+        if initial_curve is not None:
+            start_delta = gc_init[0] - src
+            end_delta = gc_init[-1] - dst
+            start_delta = start_delta.at[0].set(
+                jnp.mod(start_delta[0] + 180.0, 360.0) - 180.0
+            )
+            end_delta = end_delta.at[0].set(
+                jnp.mod(end_delta[0] + 180.0, 360.0) - 180.0
+            )
+            if not jnp.allclose(start_delta, 0.0) or not jnp.allclose(end_delta, 0.0):
+                raise ValueError(
+                    "initial_curve endpoints must match route_src and route_dst"
+                )
         # great_circle_route may unwrap longitude through the
         # antimeridian (e.g. -121° becomes 239°).  Use the unwrapped
         # endpoints so the CMA-ES endpoint check passes and the Bézier
@@ -702,11 +735,11 @@ def run_optimised_departure(
         energy_cmaes, max_tws_cmaes, max_hs_cmaes = evaluate_energy(
             curve_cmaes,
             departure,
-            case["passage_hours"],
+            objective_travel_time,
             wps=case["wps"],
             windfield=windfield,
             wavefield=wavefield,
-            departure_offset_h=departure_offset_h,
+            departure_offset_h=objective_time_offset,
         )
         cmaes_comp_time_s = _time.time() - cmaes_t0
         cmaes_result = DepartureResult(
@@ -743,11 +776,11 @@ def run_optimised_departure(
         energy_fms, max_tws_fms, max_hs_fms = evaluate_energy(
             curve_fms,
             departure,
-            case["passage_hours"],
+            objective_travel_time,
             wps=case["wps"],
             windfield=windfield,
             wavefield=wavefield,
-            departure_offset_h=departure_offset_h,
+            departure_offset_h=objective_time_offset,
         )
         fms_comp_time_s = _time.time() - fms_t0
         if resolved_verbosity >= 1:

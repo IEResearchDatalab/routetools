@@ -155,9 +155,20 @@ def _load_datasets(
 
 
 def _get_coord_name(ds: xr.Dataset, candidates: list[str]) -> str:
-    """Return the first coordinate name that exists in *ds*."""
+    """Return the best coordinate name from *candidates*.
+
+    Dimension coordinates take precedence, followed by non-scalar auxiliary
+    coordinates.  This matters for forecast files, which contain both a scalar
+    initialization ``time`` and a one-dimensional ``valid_time`` over ``step``.
+    """
     for name in candidates:
-        if name in ds.coords or name in ds.dims:
+        if name in ds.dims:
+            return name
+    for name in candidates:
+        if name in ds.coords and ds[name].ndim > 0:
+            return name
+    for name in candidates:
+        if name in ds.coords:
             return name
     raise KeyError(
         f"None of {candidates} found in dataset coordinates: {list(ds.coords)}"
@@ -296,6 +307,7 @@ def _build_field_closure(
     data_b: jnp.ndarray,
     begin: jnp.ndarray,
     spacing: jnp.ndarray,
+    times_hours: np.ndarray,
     departure_offset_h: float,
     order: int = 1,
     mode: str = "nearest",
@@ -312,6 +324,11 @@ def _build_field_closure(
         3-D arrays of shape ``(T, lat, lon)`` for the two field components.
     begin, spacing : jnp.ndarray
         Grid origin and step size, each of shape ``(1, 3)`` — ``[t, lat, lon]``.
+    times_hours : np.ndarray
+        Actual time coordinates in hours since the first timestamp.  Forecast
+        products may change cadence (for example, 3-hourly through lead 144
+        and 6-hourly afterwards), so temporal interpolation must not assume a
+        constant grid spacing.
     departure_offset_h : float
         Offset in hours to add to the ``t`` argument so that ``t=0`` maps to
         the departure time within the dataset.
@@ -328,6 +345,8 @@ def _build_field_closure(
         ``(lon, lat, t) -> (a, b)`` closure.
     """
     dep_offset = jnp.float32(departure_offset_h)
+    time_coords = jnp.asarray(times_hours, dtype=jnp.float32)
+    time_indices = jnp.arange(time_coords.shape[0], dtype=jnp.float32)
     use_cubic = order >= 3
 
     # For cubic interpolation, prefilter once at load time so that
@@ -381,16 +400,16 @@ def _build_field_closure(
         lon_equivalent = lon + 360.0 * jnp.round(
             (0.5 * (lon_min + lon_max) - lon) / 360.0
         )
-        equivalent_in_bounds = (lon_equivalent >= lon_min) & (
-            lon_equivalent <= lon_max
-        )
+        equivalent_in_bounds = (lon_equivalent >= lon_min) & (lon_equivalent <= lon_max)
         lon = jnp.where(equivalent_in_bounds, lon_equivalent, lon)
 
-        # Build coordinates: [t, lat, lon]
-        x = jnp.stack([ts_full, lat, lon], axis=-1)
-
-        # Normalise to grid indices
-        coords = (x - begin) / spacing  # shape (N, 3)
+        # Map the actual valid-time axis to fractional array indices.  This is
+        # identical to the regular-grid formula for ERA5, while also handling
+        # the native 3-hour/6-hour IFS cadence correctly.
+        time_idx = jnp.interp(ts_full, time_coords, time_indices)
+        lat_idx = (lat - begin[0, 1]) / spacing[0, 1]
+        lon_idx = (lon - begin[0, 2]) / spacing[0, 2]
+        coords = jnp.stack([time_idx, lat_idx, lon_idx], axis=-1)
 
         # Interpolate
         if use_cubic:
@@ -558,6 +577,7 @@ def load_era5_windfield(
         vmat,
         grid["begin"],
         grid["spacing"],
+        grid["times_hours"],
         grid["departure_offset_h"],
         order=order,
         mode="nearest",
@@ -735,6 +755,7 @@ def load_era5_wavefield(
         dmat,
         grid["begin"],
         grid["spacing"],
+        grid["times_hours"],
         grid["departure_offset_h"],
         order=order,
         mode="nearest",

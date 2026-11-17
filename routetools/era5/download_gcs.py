@@ -40,6 +40,7 @@ WIND_U_VAR = "10m_u_component_of_wind"
 WIND_V_VAR = "10m_v_component_of_wind"
 WAVE_HS_VAR = "significant_height_of_combined_wind_waves_and_swell"
 WAVE_DIR_VAR = "mean_wave_direction"
+WAVE_PERIOD_VAR = "mean_wave_period"
 
 
 def _ensure_deps() -> None:
