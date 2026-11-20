@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import numpy as np
 import xarray as xr
 
-from routetools.interpolate import map_coordinates_cubic, prefilter_cubic
+from routetools.interpolate import SegmentedCubicInterpolator
 from routetools.vectorfield import time_variant
 
 if TYPE_CHECKING:
@@ -300,6 +300,7 @@ def _build_field_closure(
     order: int = 1,
     mode: str = "nearest",
     add_time_variant_attr: bool = False,
+    timestamps: np.ndarray | jnp.ndarray | None = None,
 ) -> Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray],
     tuple[jnp.ndarray, jnp.ndarray],
@@ -321,6 +322,10 @@ def _build_field_closure(
         Boundary mode for ``map_coordinates``.
     add_time_variant_attr : bool
         If ``True``, mark the returned function as ``time_variant``.
+    timestamps : array-like, optional
+        Physical timestamps in hours.  Cubic interpolation uses this vector to
+        detect piecewise-uniform cadence; uniform grid metadata is used when
+        omitted for backward compatibility.
 
     Returns
     -------
@@ -333,12 +338,23 @@ def _build_field_closure(
     # For cubic interpolation, prefilter once at load time so that
     # the inner closure only needs JIT-compatible arithmetic.
     if use_cubic:
-        coeffs_a, npad = prefilter_cubic(np.asarray(data_a))
-        coeffs_b, _ = prefilter_cubic(np.asarray(data_b))
+        if timestamps is None:
+            timestamp_values = (
+                np.asarray(begin)[0, 0]
+                + np.arange(data_a.shape[0]) * np.asarray(spacing)[0, 0]
+            )
+        else:
+            timestamp_values = np.asarray(timestamps, dtype=np.float64)
+        timestamp_seconds = np.asarray(timestamp_values, dtype=np.float64) * 3600.0
+        interpolator_a = SegmentedCubicInterpolator(
+            timestamp_seconds, np.asarray(data_a)
+        )
+        interpolator_b = SegmentedCubicInterpolator(
+            timestamp_seconds, np.asarray(data_b)
+        )
     else:
         coeffs_a = data_a
         coeffs_b = data_b
-        npad = 0
 
     def _field(
         lon: jnp.ndarray,
@@ -381,22 +397,22 @@ def _build_field_closure(
         lon_equivalent = lon + 360.0 * jnp.round(
             (0.5 * (lon_min + lon_max) - lon) / 360.0
         )
-        equivalent_in_bounds = (lon_equivalent >= lon_min) & (
-            lon_equivalent <= lon_max
-        )
+        equivalent_in_bounds = (lon_equivalent >= lon_min) & (lon_equivalent <= lon_max)
         lon = jnp.where(equivalent_in_bounds, lon_equivalent, lon)
-
-        # Build coordinates: [t, lat, lon]
-        x = jnp.stack([ts_full, lat, lon], axis=-1)
-
-        # Normalise to grid indices
-        coords = (x - begin) / spacing  # shape (N, 3)
 
         # Interpolate
         if use_cubic:
-            a = map_coordinates_cubic(coeffs_a, coords.T, npad=npad)
-            b = map_coordinates_cubic(coeffs_b, coords.T, npad=npad)
+            spatial_coordinates = jnp.stack(
+                [
+                    (lat - begin[0, 1]) / spacing[0, 1],
+                    (lon - begin[0, 2]) / spacing[0, 2],
+                ]
+            )
+            a = interpolator_a(ts_full * 3600.0, spatial_coordinates)
+            b = interpolator_b(ts_full * 3600.0, spatial_coordinates)
         else:
+            x = jnp.stack([ts_full, lat, lon], axis=-1)
+            coords = (x - begin) / spacing
             a = jax.scipy.ndimage.map_coordinates(
                 coeffs_a, coords.T, order=order, mode=mode
             )
@@ -562,6 +578,7 @@ def load_era5_windfield(
         order=order,
         mode="nearest",
         add_time_variant_attr=True,
+        timestamps=grid["times_hours"],
     )
 
 
@@ -739,6 +756,7 @@ def load_era5_wavefield(
         order=order,
         mode="nearest",
         add_time_variant_attr=False,
+        timestamps=grid["times_hours"],
     )
 
 

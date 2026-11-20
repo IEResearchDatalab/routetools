@@ -254,6 +254,52 @@ class TestLoadERA5Windfield:
             # The sliced field starts at the original index 1, not index 0.
             np.testing.assert_allclose(float(u[0]), -4.9, atol=0.15)
 
+    def test_cubic_load_supports_piecewise_uniform_timestamps(self) -> None:
+        """Cubic ERA5 fields dispatch by physical timestamp cadence."""
+        from routetools.era5.loader import load_era5_windfield
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            nc_path = Path(tmpdir) / "variable_cadence_wind.nc"
+            hours = np.array(
+                [0.0, 1.0, 2.0, 3.0, 6.0, 9.0, 15.0, 21.0, 27.0, 29.0, 31.0]
+            )
+            times = np.datetime64("2024-01-15") + np.asarray(
+                hours, dtype="timedelta64[h]"
+            )
+            latitudes = np.array([30.0, 35.0])
+            longitudes = np.array([-70.0, -65.0])
+            u10 = np.empty((hours.size, 2, 2), dtype=np.float32)
+            v10 = np.empty_like(u10)
+            for index, hour in enumerate(hours):
+                u10[index] = hour + longitudes / 100.0 + latitudes[:, None] / 100.0
+                v10[index] = 2.0 * hour - u10[index]
+            dataset = xr.Dataset(
+                {
+                    "u10": (["time", "latitude", "longitude"], u10),
+                    "v10": (["time", "latitude", "longitude"], v10),
+                },
+                coords={
+                    "time": times,
+                    "latitude": latitudes,
+                    "longitude": longitudes,
+                },
+            )
+            dataset.to_netcdf(nc_path, engine="scipy")
+
+            wind = load_era5_windfield(nc_path, order=3)
+            query_hours = jnp.array([3.0, 4.5, 9.0, 12.0, 27.0, 30.0])
+            longitude = jnp.full(query_hours.shape, -65.0)
+            latitude = jnp.full(query_hours.shape, 35.0)
+            actual_u, actual_v = wind(longitude, latitude, query_hours)
+            sampled = np.array([0, 2, 4])
+
+            np.testing.assert_allclose(
+                actual_u[sampled], query_hours[sampled] - 0.3, atol=2e-4
+            )
+            np.testing.assert_allclose(
+                actual_v[sampled], query_hours[sampled] + 0.3, atol=2e-4
+            )
+
     def test_descending_latitude(self) -> None:
         """Loader handles ERA5 files with descending latitudes."""
         from routetools.era5.loader import load_era5_windfield
