@@ -1016,7 +1016,7 @@ def try_load_era5_scorer(ref_dir: Path):
         u10 = _interp_era5(wind_grid, "u10", lats, lons, wp_times_h)
         v10 = _interp_era5(wind_grid, "v10", lats, lons, wp_times_h)
         swh = _interp_era5(wave_grid, "swh", lats, lons, wp_times_h)
-        mwd = _interp_era5(wave_grid, "mwd", lats, lons, wp_times_h)
+        mwd = _interp_era5_angle(wave_grid, "mwd", lats, lons, wp_times_h)
 
         # Weather at all waypoints for constraint checking
         tws_all = np.sqrt(u10**2 + v10**2)
