@@ -17,12 +17,12 @@ Participants must find minimum-energy routes across **two ocean corridors**:
 
 For each route, there are **4 cases** combining route optimisation strategy and wingsail configuration:
 
-| Case        | Strategy                      | Wingsails (WPS) |
-| ----------- | ----------------------------- | --------------- |
-| `*O_WPS`    | **Optimised** route and speed | Yes             |
-| `*O_noWPS`  | **Optimised** route and speed | No              |
-| `*GC_WPS`   | **Great Circle**, fixed speed | Yes             |
-| `*GC_noWPS` | **Great Circle**, fixed speed | No              |
+| Case        | Strategy                              | Wingsails (WPS) |
+| ----------- | ------------------------------------- | --------------- |
+| `*O_WPS`    | **Optimised** route and speed         | Yes             |
+| `*O_noWPS`  | **Optimised** route and speed         | No              |
+| `*GC_WPS`   | **Great Circle** path, speed may vary | Yes             |
+| `*GC_noWPS` | **Great Circle** path, speed may vary | No              |
 
 This gives **8 cases total** × **366 daily departures** (every day of 2024, noon UTC) = **2,928 route evaluations per submission**.
 
