@@ -381,9 +381,7 @@ def _build_field_closure(
         lon_equivalent = lon + 360.0 * jnp.round(
             (0.5 * (lon_min + lon_max) - lon) / 360.0
         )
-        equivalent_in_bounds = (lon_equivalent >= lon_min) & (
-            lon_equivalent <= lon_max
-        )
+        equivalent_in_bounds = (lon_equivalent >= lon_min) & (lon_equivalent <= lon_max)
         lon = jnp.where(equivalent_in_bounds, lon_equivalent, lon)
 
         # Build coordinates: [t, lat, lon]

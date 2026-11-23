@@ -31,9 +31,7 @@ ARCHIVE = (
     / "synthetic_local_optimality_proof"
     / "bers_routes"
 )
-PROOF = (
-    ROOT / "scripts" / "paper" / "reproducibility" / "synthetic_local_optimality"
-)
+PROOF = ROOT / "scripts" / "paper" / "reproducibility" / "synthetic_local_optimality"
 EXPORT = OUT / "task4_certificate_routes"
 
 PROBLEMS = ("circular", "fourvortices", "doublegyre", "techy", "swirlys")
