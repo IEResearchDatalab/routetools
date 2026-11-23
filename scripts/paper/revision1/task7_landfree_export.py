@@ -64,9 +64,7 @@ def _local_segments_are_clear(
     """Check both segments adjacent to one proposed interior waypoint."""
     return not prepared_land.intersects(
         LineString([route[point_index - 1], candidate])
-    ) and not prepared_land.intersects(
-        LineString([candidate, route[point_index + 1]])
-    )
+    ) and not prepared_land.intersects(LineString([candidate, route[point_index + 1]]))
 
 
 def repair_route(

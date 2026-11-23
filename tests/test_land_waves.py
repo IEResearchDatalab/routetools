@@ -1,7 +1,10 @@
 import numpy as np
+import pytest
 import xarray as xr
 
-from routetools.wrr_bench.ocean import Ocean
+pytest.importorskip("h3", reason="optional 'h3' extra is not installed")
+
+from routetools.wrr_bench.ocean import Ocean  # noqa: E402
 
 
 def test_waves_create_land_when_geojson_missing():

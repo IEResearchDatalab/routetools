@@ -74,14 +74,14 @@ Cartopy when the land-mask or polygon checks first run.
 The paper-pinned land and no-land experiment matrices live beside their runner
 as `scripts/paper/synthetic/config_land.toml` and `config_noland.toml`.
 
-| Paper item                                        | Command                                                                                        |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Tables 3, 6; Figures 2–4 | Run `uv run scripts/paper/synthetic/results.py --experiment noland` and `uv run scripts/paper/synthetic/results.py --experiment land`, then `uv run scripts/paper/synthetic/figures.py` and `uv run scripts/paper/synthetic/tables.py`. |
-| Table 5 (seed dispersion)                         | `uv run python scripts/paper/revision1/task2_synthetic_dispersion.py`                                         |
-| Land experiments, Figures 5–6                     | `uv run scripts/paper/synthetic/results_land_avoidance.py`                                                     |
-| Table 8 (λ_land sensitivity)                      | `uv run python scripts/paper/revision1/task6_lambda_land_sensitivity.py`                                      |
-| Export BERS routes; numerical audit               | `uv run python scripts/paper/revision1/task10_synthetic_local_optimality.py`                                  |
-| Computer-assisted proof (Section 3.3, Appendix E) | see `scripts/paper/reproducibility/synthetic_local_optimality/certificate_report.md`                   |
+| Paper item                                        | Command                                                                                                                                                                                                                                 |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tables 3, 6; Figures 2–4                          | Run `uv run scripts/paper/synthetic/results.py --experiment noland` and `uv run scripts/paper/synthetic/results.py --experiment land`, then `uv run scripts/paper/synthetic/figures.py` and `uv run scripts/paper/synthetic/tables.py`. |
+| Table 5 (seed dispersion)                         | `uv run python scripts/paper/revision1/task2_synthetic_dispersion.py`                                                                                                                                                                   |
+| Land experiments, Figures 5–6                     | `uv run scripts/paper/synthetic/results_land_avoidance.py`                                                                                                                                                                              |
+| Table 8 (λ_land sensitivity)                      | `uv run python scripts/paper/revision1/task6_lambda_land_sensitivity.py`                                                                                                                                                                |
+| Export BERS routes; numerical audit               | `uv run python scripts/paper/revision1/task10_synthetic_local_optimality.py`                                                                                                                                                            |
+| Computer-assisted proof (Section 3.3, Appendix E) | see `scripts/paper/reproducibility/synthetic_local_optimality/certificate_report.md`                                                                                                                                                    |
 
 ### Real-ocean corridors (Section 4)
 
@@ -108,17 +108,17 @@ Post-processing (no route is re-optimized) is mapped below to the final
 manuscript numbering. Labels are included to make the mapping robust to later
 typesetting changes.
 
-| Final paper item | Reproduction or audit entry point |
-| --- | --- |
-| Table 10 (`tab:rw-speeds`), Figure 7 (`fig:rw-speeds`) | `uv run python scripts/paper/revision1/task1_speed_distribution.py` |
-| Tables 11–12 (`tab:rw-summary`, `tab:rw-paired`) and Appendix input-range audit | `uv run python scripts/paper/revision2/task1_out_of_domain_audit.py analyze` |
-| Table 13 (`tab:rw-common-functionals`) | `uv run python scripts/paper/revision2/task2_common_functionals.py` |
-| Figure 10 (`fig:rw-paired`) | `uv run python scripts/paper/revision1/task3_paired_improvements.py` |
-| Table 15 (`tab:rw-violations`), Figure 12 (`fig:rw-violation-curves`) | `uv run python scripts/paper/revision1/task4_weather_violations.py` |
-| Final seasonal table and figures, including Table 14 and Figures 1, 8, 9, and 11 | `uv run python scripts/paper/revision2/followup_verification.py` after the Task 1 and Task 2 evidence exists |
-| Raster-mask results and independent polygon audit | `uv run python scripts/paper/revision1/task7_landfree_export.py`, then `uv run python scripts/paper/revision1/task7_land_verification.py` |
-| Operating-envelope Hessian (Appendix E) | `uv run python scripts/paper/revision1/task9_envelope_hessian.py` |
-| Final manuscript-to-evidence check | `uv run python scripts/paper/revision2/c3_consistency_check.py --manuscript-root <manuscript-directory>` |
+| Final paper item                                                                 | Reproduction or audit entry point                                                                                                         |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Table 10 (`tab:rw-speeds`), Figure 7 (`fig:rw-speeds`)                           | `uv run python scripts/paper/revision1/task1_speed_distribution.py`                                                                       |
+| Tables 11–12 (`tab:rw-summary`, `tab:rw-paired`) and Appendix input-range audit  | `uv run python scripts/paper/revision2/task1_out_of_domain_audit.py analyze`                                                              |
+| Table 13 (`tab:rw-common-functionals`)                                           | `uv run python scripts/paper/revision2/task2_common_functionals.py`                                                                       |
+| Figure 10 (`fig:rw-paired`)                                                      | `uv run python scripts/paper/revision1/task3_paired_improvements.py`                                                                      |
+| Table 15 (`tab:rw-violations`), Figure 12 (`fig:rw-violation-curves`)            | `uv run python scripts/paper/revision1/task4_weather_violations.py`                                                                       |
+| Final seasonal table and figures, including Table 14 and Figures 1, 8, 9, and 11 | `uv run python scripts/paper/revision2/followup_verification.py` after the Task 1 and Task 2 evidence exists                              |
+| Raster-mask results and independent polygon audit                                | `uv run python scripts/paper/revision1/task7_landfree_export.py`, then `uv run python scripts/paper/revision1/task7_land_verification.py` |
+| Operating-envelope Hessian (Appendix E)                                          | `uv run python scripts/paper/revision1/task9_envelope_hessian.py`                                                                         |
+| Final manuscript-to-evidence check                                               | `uv run python scripts/paper/revision2/c3_consistency_check.py --manuscript-root <manuscript-directory>`                                  |
 
 `scripts/paper/revision1/run_revision_postprocessing.sh` and
 `scripts/paper/revision1/run_revision_local_optimality.sh` run these steps in order and

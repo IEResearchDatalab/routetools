@@ -110,9 +110,7 @@ def test_count_land_violations_uses_land_checker(tmp_path: Path) -> None:
 
 
 def test_normalise_route_longitudes_unwraps_into_pacific_grid() -> None:
-    curve = np.array(
-        [[140.0, 35.0], [179.0, 40.0], [-179.0, 41.0], [-121.0, 34.0]]
-    )
+    curve = np.array([[140.0, 35.0], [179.0, 40.0], [-179.0, 41.0], [-121.0, 34.0]])
 
     actual = np.asarray(normalise_route_longitudes(curve, (100.0, 250.0)))
 

@@ -110,6 +110,7 @@ def _analyse_tracks(
     mean_energy_mwh, mean_dist_nm
     """
     import jax.numpy as jnp
+
     from routetools.resample import resample_track
 
     pattern = re.compile(rf"IEUniversity-1-{re.escape(case_id)}-\d{{8}}\.csv$")

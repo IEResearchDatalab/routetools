@@ -5,10 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from routetools._ports import DICT_INSTANCES
-from routetools.benchmark import LandBenchmark, load_benchmark_instance
-from routetools.wrr_bench import load as load_mod
-from routetools.wrr_bench.ocean import data_zero
+pytest.importorskip("h3", reason="optional 'h3' extra is not installed")
+
+from routetools._ports import DICT_INSTANCES  # noqa: E402
+from routetools.benchmark import LandBenchmark, load_benchmark_instance  # noqa: E402
+from routetools.wrr_bench import load as load_mod  # noqa: E402
+from routetools.wrr_bench.ocean import data_zero  # noqa: E402
 
 
 def assert_basic_output(out):

@@ -46,9 +46,7 @@ def _mean_separation_km(a: np.ndarray, b: np.ndarray) -> float:
     lat2 = np.deg2rad(b[:, 1])
     dlon = np.deg2rad(_wrapped_lon_delta_deg(a[:, 0], b[:, 0]))
     dlat = lat2 - lat1
-    h = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(
-        dlon / 2.0
-    ) ** 2
+    h = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
     return float(np.mean(6371.0088 * 2.0 * np.arcsin(np.sqrt(np.clip(h, 0, 1)))))
 
 
