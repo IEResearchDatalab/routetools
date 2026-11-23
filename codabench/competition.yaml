@@ -83,53 +83,69 @@ leaderboards:
     key: "Results"
     submission_rule: "Force_Best"
     columns:
+      # GC cases are a fixed reference: excluded from the total and hidden.
       - title: "Total Energy (MWh)"
         key: "total_energy_mwh"
         index: 0
         sorting: asc
-        precision: 2
+        precision: 1
+        computation: sum
+        computation_indexes: [1, 2, 5, 6]
 
-      - title: "Atlantic Opt WPS (MWh)"
+      - title: "Atlantic WPS (MWh)"
         key: "AO_WPS_energy_mwh"
         index: 1
         sorting: asc
+        precision: 1
 
-      - title: "Atlantic Opt noWPS (MWh)"
+      - title: "Atlantic no WPS (MWh)"
         key: "AO_noWPS_energy_mwh"
         index: 2
         sorting: asc
+        precision: 1
 
       - title: "Atlantic GC WPS (MWh)"
         key: "AGC_WPS_energy_mwh"
         index: 3
         sorting: asc
+        precision: 1
+        hidden: true
 
-      - title: "Atlantic GC noWPS (MWh)"
+      - title: "Atlantic GC no WPS (MWh)"
         key: "AGC_noWPS_energy_mwh"
         index: 4
         sorting: asc
+        precision: 1
+        hidden: true
 
-      - title: "Pacific Opt WPS (MWh)"
+      - title: "Pacific WPS (MWh)"
         key: "PO_WPS_energy_mwh"
         index: 5
         sorting: asc
+        precision: 1
 
-      - title: "Pacific Opt noWPS (MWh)"
+      - title: "Pacific no WPS (MWh)"
         key: "PO_noWPS_energy_mwh"
         index: 6
         sorting: asc
+        precision: 1
 
       - title: "Pacific GC WPS (MWh)"
         key: "PGC_WPS_energy_mwh"
         index: 7
         sorting: asc
+        precision: 1
+        hidden: true
 
-      - title: "Pacific GC noWPS (MWh)"
+      - title: "Pacific GC no WPS (MWh)"
         key: "PGC_noWPS_energy_mwh"
         index: 8
         sorting: asc
+        precision: 1
+        hidden: true
 
       - title: "Validation Errors"
         key: "validation_errors"
         index: 9
         sorting: asc
+        precision: 1
