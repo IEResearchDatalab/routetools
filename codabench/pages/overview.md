@@ -17,12 +17,12 @@ Participants must find minimum-energy routes across **two ocean corridors**:
 
 For each route, there are **4 cases** combining route optimisation strategy and wingsail configuration:
 
-| Case        | Strategy                              | Wingsails (WPS) |
-| ----------- | ------------------------------------- | --------------- |
-| `*O_WPS`    | **Optimised** route and speed         | Yes             |
-| `*O_noWPS`  | **Optimised** route and speed         | No              |
-| `*GC_WPS`   | **Great Circle** path, speed may vary | Yes             |
-| `*GC_noWPS` | **Great Circle** path, speed may vary | No              |
+| Case        | Strategy                      | Wingsails (WPS) |
+| ----------- | ----------------------------- | --------------- |
+| `*O_WPS`    | **Optimised** route and speed | Yes             |
+| `*O_noWPS`  | **Optimised** route and speed | No              |
+| `*GC_WPS`   | **Great Circle**, fixed speed | Yes             |
+| `*GC_noWPS` | **Great Circle**, fixed speed | No              |
 
 This gives **8 cases total** × **366 daily departures** (every day of 2024, noon UTC) = **2,928 route evaluations per submission**.
 
@@ -51,7 +51,7 @@ coastal legs are excluded from the benchmark.
 | **True wind speed**         | TWS ≤ **20 m/s** | Maximum wind speed along the route  |
 | **Land avoidance**          | No crossings     | No part of the route may be on land |
 
-> **Note on Great Circle cases:** GC cases follow a fixed great-circle path that participants cannot modify; only the speed along it may vary. Because the path is fixed and may traverse severe weather, **operational and land-crossing checks are not enforced** for GC cases.
+> **Note on Great Circle cases:** GC cases follow a fixed great-circle path at constant speed (distance divided by passage time); participants cannot modify either. They serve as a reference and do not count toward the total. Because the path is fixed and may traverse severe weather, **operational and land-crossing checks are not enforced** for GC cases.
 
 ### What Makes This Different
 
@@ -59,7 +59,7 @@ coastal legs are excluded from the benchmark.
 
 ### Ranking
 
-Submissions are ranked by **total energy consumption (MWh)** summed across all 8 cases and 366 departures. Lower is better.
+Submissions are ranked by **total energy consumption (MWh)** summed across the 4 optimised cases and 366 departures. Lower is better.
 
 ### Getting Started
 

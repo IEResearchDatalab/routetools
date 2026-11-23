@@ -147,7 +147,7 @@ berths:
 
 ### Route Constraints
 
-- **Great Circle cases** (`*GC_*`): The route must follow the great circle path. Only the speed profile may vary.
+- **Great Circle cases** (`*GC_*`): The route must follow the great circle path at constant speed (within 5 nm of the scheduled position). Neither path nor speed may vary.
 - **Optimised cases** (`*O_*`): Both route and speed may be optimised freely.
 
 ### WPS Consistency

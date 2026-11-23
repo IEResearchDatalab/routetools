@@ -10,8 +10,8 @@ If ERA5 reference data is unavailable on the server, the scoring program falls b
 
 | Metric                 | Description                            | Ranking             |
 | ---------------------- | -------------------------------------- | ------------------- |
-| **Total Energy (MWh)** | Sum of energy across all 8 cases       | Primary (ascending) |
-| Per-case energy        | Breakdown for each of the 8 cases      | Secondary           |
+| **Total Energy (MWh)** | Sum of energy across the 4 optimised cases (`AO_*`, `PO_*`) | Primary (ascending) |
+| Per-case energy        | Breakdown for each of the 8 cases; GC cases are a reference and do not count toward the total | Secondary           |
 | Validation errors      | Number of format/constraint violations | Lower is better     |
 
 ### Validation Checks
@@ -42,10 +42,11 @@ The scoring program performs the following checks automatically:
 17. **Start time:** First waypoint timestamp matches the departure time from File A.
 18. **End time:** Last waypoint timestamp matches the arrival time from File A.
 19. **Land crossing:** Every point of the track, resampled every 30 minutes along the great-circle legs, is checked against the Natural Earth 1:10m land polygons (optimised cases only).
+20. **Great circle at constant speed (GC cases only):** Every waypoint lies within 5 nm of the position of a ship sailing the great circle from start to end point at constant speed over the official passage time.
 
 #### Cross-Case Checks
 
-20. **WPS consistency:** With-wingsail cases should have ≤ energy compared to without-wingsail cases (warning, not error).
+21. **WPS consistency:** With-wingsail cases should have ≤ energy compared to without-wingsail cases (warning, not error).
 
 #### Re-evaluated Weather (Warnings)
 
@@ -53,7 +54,7 @@ During re-evaluation the scorer also computes wind speed and wave height from ER
 
 Submissions with validation errors still receive a score, but the error count is displayed on the leaderboard.
 
-> **Note on Great Circle cases:** Checks 8, 9, and 19 (operational constraints and land crossing) are skipped for GC cases (`AGC_*`, `PGC_*`). The great circle path is fixed and participants cannot modify it, so these constraints are not enforceable.
+> **Note on Great Circle cases:** Checks 8, 9, and 19 (operational constraints and land crossing) are skipped for GC cases (`AGC_*`, `PGC_*`). The great circle path and speed are fixed and participants cannot modify them, so these constraints are not enforceable.
 
 ### Disqualification
 

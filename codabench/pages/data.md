@@ -206,6 +206,6 @@ is taken over ground: ocean currents are not modelled in Benchmark 001.
 Source and destination are fixed offshore points off the named ports, not the
 port berths; see **Submission Format** for the 0.5° endpoint tolerance.
 
-**Great Circle cases** (`*GC_*`): The route must follow the great circle path between source and destination. Only the speed profile along that path may vary.
+**Great Circle cases** (`*GC_*`): The route must follow the great circle path between source and destination at constant speed over the passage time. Neither path nor speed may vary.
 
 **Optimised cases** (`*O_*`): Both route geometry and speed profile may be freely optimised.
