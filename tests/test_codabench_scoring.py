@@ -83,3 +83,35 @@ def test_mean_wave_direction_is_interpolated_as_an_angle(scoring, tmp_path):
     energy_northerly = _southbound_energy(scoring, tmp_path / "northerly")
 
     assert energy_alternating == pytest.approx(energy_northerly, rel=1e-3)
+
+
+def _gc_track(scoring, case_id: str, fractions: list[float]):
+    """Great-circle waypoints at hourly steps, positioned at the given fractions."""
+    src, dst = scoring.CASE_DEFS[case_id]["src"], scoring.CASE_DEFS[case_id]["dst"]
+    n = len(fractions) - 1
+    hours = scoring.CASE_DEFS[case_id]["passage_h"]
+    return [
+        (_DEPARTURE + timedelta(hours=hours * i / n), *scoring._slerp(*src, *dst, f))
+        for i, f in enumerate(fractions)
+    ]
+
+
+@pytest.mark.parametrize("case_id", ["AGC_WPS", "PGC_noWPS"])
+def test_constant_speed_great_circle_passes(scoring, case_id):
+    fractions = [i / 50 for i in range(51)]
+    track = _gc_track(scoring, case_id, fractions)
+    cross, along = scoring.gc_deviation_nm(track, case_id)
+    assert cross < 0.1
+    assert along < 0.1
+
+
+def test_varying_speed_on_great_circle_is_flagged(scoring):
+    # Same path and passage time, but the first half is sailed at half speed.
+    fractions = [0.25 * i / 25 for i in range(26)] + [
+        0.25 + 0.75 * i / 25 for i in range(1, 26)
+    ]
+    cross, along = scoring.gc_deviation_nm(
+        _gc_track(scoring, "AGC_WPS", fractions), "AGC_WPS"
+    )
+    assert cross < 0.1
+    assert along > scoring.GC_TOLERANCE_NM

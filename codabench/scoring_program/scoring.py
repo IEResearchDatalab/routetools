@@ -69,6 +69,10 @@ ENDPOINT_TOLERANCE_DEG = 0.5
 # Passage time tolerance (hours)
 PASSAGE_TIME_TOLERANCE_H = 1.0
 
+# GC cases: max deviation (nm) from the constant-speed great-circle position
+GC_TOLERANCE_NM = 5.0
+EARTH_RADIUS_NM = 3440.065
+
 # Evaluation resampling interval (minutes)
 # Decouples waypoint density (Δt₁) from integration accuracy (Δt₂).
 EVAL_DT_MINUTES = 15.0
@@ -222,6 +226,54 @@ def _slerp(
     lat = math.degrees(math.atan2(p[2], math.sqrt(p[0] ** 2 + p[1] ** 2)))
     lon = math.degrees(math.atan2(p[1], p[0]))
     return lat, lon
+
+
+def _unit_vector(lat: float, lon: float) -> np.ndarray:
+    phi, lam = math.radians(lat), math.radians(lon)
+    return np.array(
+        [math.cos(phi) * math.cos(lam), math.cos(phi) * math.sin(lam), math.sin(phi)]
+    )
+
+
+def gc_deviation_nm(
+    waypoints: list[tuple[datetime, float, float]],
+    case_id: str,
+) -> tuple[float, float]:
+    """Measure how far a track departs from the constant-speed great circle.
+
+    Parameters
+    ----------
+    waypoints
+        List of ``(time, lat_deg, lon_deg)``.
+    case_id
+        Case identifier, used for the source, destination and passage time.
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(max_cross_track_nm, max_along_track_nm)``: the largest distance
+        off the great circle, and the largest along-track lead or lag behind
+        a ship sailing it at constant speed over the official passage time.
+    """
+    case_def = CASE_DEFS[case_id]
+    p_src = _unit_vector(*case_def["src"])
+    p_dst = _unit_vector(*case_def["dst"])
+    normal = np.cross(p_src, p_dst)
+    normal /= np.linalg.norm(normal)
+    tangent = np.cross(normal, p_src)
+    sigma = math.acos(float(np.clip(np.dot(p_src, p_dst), -1.0, 1.0)))
+    passage_s = case_def["passage_h"] * 3600.0
+    t_dep = waypoints[0][0]
+
+    max_cross = max_along = 0.0
+    for t, lat, lon in waypoints:
+        p = _unit_vector(lat, lon)
+        cross = math.asin(float(np.clip(np.dot(p, normal), -1.0, 1.0)))
+        along = math.atan2(float(np.dot(p, tangent)), float(np.dot(p, p_src)))
+        expected = sigma * (t - t_dep).total_seconds() / passage_s
+        max_cross = max(max_cross, abs(cross) * EARTH_RADIUS_NM)
+        max_along = max(max_along, abs(along - expected) * EARTH_RADIUS_NM)
+    return max_cross, max_along
 
 
 def resample_track(
@@ -1543,8 +1595,6 @@ def score_submission() -> dict:
             "ERA5 data not found in reference — using self-reported energy"
         )
 
-    total_energy = 0.0
-
     for case in CASE_NAMES:
         file_a_path = submission_dir / f"{team_prefix}-{case}.csv"
 
@@ -1554,7 +1604,6 @@ def score_submission() -> dict:
 
         if not file_a_path.exists():
             scores[f"{case}_energy_mwh"] = 1e12
-            total_energy += 1e12
             continue
 
         # Load reported energies
@@ -1564,7 +1613,6 @@ def score_submission() -> dict:
         except (KeyError, ValueError) as exc:
             all_errors.append(f"{case}: Cannot load energies: {exc}")
             scores[f"{case}_energy_mwh"] = 1e12
-            total_energy += 1e12
             continue
 
         # Validate File B (track files) and collect waypoints for re-eval
@@ -1577,6 +1625,7 @@ def score_submission() -> dict:
         case_wind_violations = 0
         case_wave_violations = 0
         case_land_crossings = 0
+        gc_off_tracks: list[tuple[str, float, float]] = []
         for row in fa_rows:
             fb_name = row.get("details_filename", "")
             if not fb_name:
@@ -1628,6 +1677,11 @@ def score_submission() -> dict:
                 if re_eval_ok:
                     re_eval_ok = False
                 continue
+
+            if case in GC_CASES:
+                cross_nm, along_nm = gc_deviation_nm(waypoints, case)
+                if max(cross_nm, along_nm) > GC_TOLERANCE_NM:
+                    gc_off_tracks.append((fb_path.name, cross_nm, along_nm))
 
             # Resample to uniform Δt₂ for fair evaluation
             waypoints_resampled = resample_track(waypoints, RESAMPLE_DT_MINUTES)
@@ -1699,6 +1753,15 @@ def score_submission() -> dict:
             elif re_eval_ok:
                 re_eval_ok = False
 
+        if gc_off_tracks:
+            name, cross_nm, along_nm = max(gc_off_tracks, key=lambda x: max(x[1:]))
+            all_errors.append(
+                f"{case}: {len(gc_off_tracks)} of {total_tracks} tracks are not "
+                f"the great circle sailed at constant speed (tolerance "
+                f"{GC_TOLERANCE_NM} nm). Worst: {name}, {cross_nm:.1f} nm off "
+                f"the path, {along_nm:.1f} nm ahead of or behind schedule"
+            )
+
         # Report missing track files for this case
         if missing_tracks > 0:
             all_errors.append(
@@ -1738,7 +1801,6 @@ def score_submission() -> dict:
 
         scores[f"{case}_energy_mwh"] = round(case_energy_final, 4)
         scores[f"{case}_reported_mwh"] = round(case_energy, 4)
-        total_energy += case_energy_final
 
         # ── Strong violations (land) — route physically impossible ──
         if case_land_crossings > 0:
@@ -1777,6 +1839,10 @@ def score_submission() -> dict:
                 f"({nowps_case}={nowps_e:.1f})"
             )
 
+    # GC cases are a fixed reference, so only the optimised cases rank entries.
+    total_energy = sum(
+        scores[f"{case}_energy_mwh"] for case in CASE_NAMES if case not in GC_CASES
+    )
     scores["total_energy_mwh"] = round(total_energy, 4)
     scores["validation_errors"] = len(all_errors)
 
