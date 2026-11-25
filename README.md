@@ -195,6 +195,24 @@ uv run scripts/benchmarks/era5_benchmark.py --departure 2023-01-08T00:00:00
 See `scripts/data/download_era5.py --help` and `scripts/benchmarks/era5_benchmark.py --help`
 for all available options.
 
+### ECMWF IFS forecast downloads
+
+IFS forecasts are a separate source from ERA5 reanalysis. The downloader
+stores raw GRIB files under `data/ifs_forecasts/`; these are not inputs to the
+ERA5 loader or the existing ERA5 routing workflows.
+
+Install the optional ECMWF Open Data client and download forecast runs:
+
+```bash
+uv sync --extra ifs
+uv run scripts/data/download_ifs_forecasts.py \
+  --start 2025-01-19 \
+  --end 2025-01-20
+```
+
+See [the IFS download guide](routetools/ifs/README.md) or run
+`uv run scripts/data/download_ifs_forecasts.py --help` for options.
+
 ### SWOPP3 ERA5 pipeline
 
 The default SWOPP3 competition pipeline is:

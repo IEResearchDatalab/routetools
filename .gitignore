@@ -163,6 +163,7 @@ Temporary Items
 /notebooks/
 /output/
 /output*
+/forecast_data/
 
 # User files
 nohup.out
