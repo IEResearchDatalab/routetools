@@ -19,7 +19,7 @@ a run.
 ## Categories
 
 - `benchmarks/` compares algorithms, datasets, or performance models.
-- `data/` downloads and cross-checks ERA5 inputs.
+- `data/` downloads and cross-checks ERA5 and IFS forecast inputs.
 - `demos/` creates small visual demonstrations of library behavior.
 - `environment/` configures an interactive execution environment.
 - `experiments/` runs parameter searches and diagnostic sweeps.
@@ -44,6 +44,7 @@ by a neighboring entry point and are not normally run directly.
 | `benchmarks/results_on_literature_vector_fields.py` | Runs the literature vector-field benchmark suite and writes its aggregate benchmark results under `output/`. |
 | `data/compare_era5_sources.py` | Compares GCS and CDS ERA5 subsets and prints variable-wise numerical differences, optionally caching GCS files under `data/era5_gcs/`. |
 | `data/download_era5.py` | Downloads Atlantic and/or Pacific wind and wave NetCDF inputs from GCS or CDS into `data/era5/`. |
+| `data/download_ifs_forecasts.py` | Downloads ECMWF IFS perturbed forecasts from the `enfo` and `waef` streams as resumable GRIB files under `data/ifs_forecasts/` (requires `uv sync --extra ifs`). |
 | `demos/demo_land_avoidance.py` | Compares great-circle and land-avoiding routes between configurable ports and writes `output/demo_land_avoidance.png`. |
 | `demos/draw_fms.py` | Animates unconstrained FMS route refinement and writes `output/fms.gif`. |
 | `demos/draw_fms_land.py` | Animates FMS refinement with land avoidance and writes `output/fms.gif`. |

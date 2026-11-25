@@ -44,6 +44,7 @@ cuda = ["jax[cuda12]==0.8.1"]
 h3 = ["h3==4.0.0b2"]
 era5-cds = ["cdsapi>=0.7.0"]
 era5-gcs = ["gcsfs>=2024.1.0", "zarr>=2.17.0"]
+ifs = ["ecmwf-opendata>=0.3.15"]
 # swopp3 = ["swopp3-performance-model==0.1.0"]
 
 [project.urls]
@@ -53,6 +54,7 @@ homepage = "https://github.com/IEResearchDatalab/routetools"
 packages = [
     "routetools",
     "routetools.era5",
+    "routetools.ifs",
     "routetools._cost",
     "routetools.wrr_bench",
 ]
