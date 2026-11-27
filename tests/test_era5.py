@@ -15,6 +15,32 @@ import numpy as np
 import pytest
 import xarray as xr
 
+
+@pytest.mark.parametrize(
+    ("target_h", "expected_stride"),
+    [(24, 8), (12, 4), (6, 2), (3, 1)],
+)
+def test_temporal_stride_for_resolution(target_h: int, expected_stride: int) -> None:
+    """Hourly resolution targets map to exact strides of 3-hour ERA5 data."""
+    from routetools.era5.loader import temporal_stride_for_resolution
+
+    assert temporal_stride_for_resolution(3, target_h) == expected_stride
+
+
+@pytest.mark.parametrize(
+    ("source_h", "target_h"),
+    [(0, 3), (3, 0), (-3, 6), (3, 2)],
+)
+def test_temporal_stride_for_resolution_rejects_invalid_targets(
+    source_h: float,
+    target_h: float,
+) -> None:
+    """Invalid or incompatible temporal resolutions raise clear errors."""
+    from routetools.era5.loader import temporal_stride_for_resolution
+
+    with pytest.raises(ValueError):
+        temporal_stride_for_resolution(source_h, target_h)
+
 # ---------------------------------------------------------------------------
 # Fixtures: small synthetic ERA5-like NetCDF files
 # ---------------------------------------------------------------------------
