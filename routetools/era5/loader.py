@@ -130,11 +130,6 @@ def _load_datasets(
         timesteps (default); ``3`` loads every 3rd timestep, etc.
         Useful for reducing JIT constant-capture size on GPU.
     """
-    if isinstance(temporal_stride, bool) or not isinstance(temporal_stride, int):
-        raise TypeError("temporal_stride must be a positive integer")
-    if temporal_stride < 1:
-        raise ValueError("temporal_stride must be at least 1")
-
     if isinstance(paths, str | Path):
         ds = _normalize_time_coord(_load_dataset(paths))
     else:
@@ -438,45 +433,6 @@ def _build_field_closure(
 
 
 # ── public API ────────────────────────────────────────────────────────────
-
-
-def temporal_stride_for_resolution(
-    source_resolution_h: float,
-    target_resolution_h: float,
-) -> int:
-    """Return the timestep stride for an hourly temporal resolution.
-
-    Parameters
-    ----------
-    source_resolution_h : float
-        Native forecast interval in hours.
-    target_resolution_h : float
-        Desired sampled interval in hours.
-
-    Returns
-    -------
-    int
-        Positive stride to pass to ERA5 loader ``temporal_stride``.
-
-    Raises
-    ------
-    ValueError
-        If the resolutions are not positive or the target interval is not an
-        exact multiple of the source interval.
-    """
-    if source_resolution_h <= 0 or target_resolution_h <= 0:
-        raise ValueError("Temporal resolutions must be positive")
-
-    ratio = target_resolution_h / source_resolution_h
-    if not np.isclose(ratio, round(ratio)):
-        raise ValueError(
-            "Target resolution must be an exact multiple of the source resolution"
-        )
-
-    stride = int(round(ratio))
-    if stride < 1:
-        raise ValueError("Temporal resolution must select at least one timestep")
-    return stride
 
 
 def load_era5_windfield(

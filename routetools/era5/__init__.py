@@ -28,14 +28,10 @@ from routetools.era5.loader import (
 from routetools.era5.loader import (
     load_natural_earth_land_mask as load_natural_earth_land_mask,
 )
-from routetools.era5.loader import (
-    temporal_stride_for_resolution as temporal_stride_for_resolution,
-)
 
 __all__ = [
     "load_era5_vectorfield",
     "load_era5_wavefield",
     "load_era5_windfield",
     "load_natural_earth_land_mask",
-    "temporal_stride_for_resolution",
 ]
