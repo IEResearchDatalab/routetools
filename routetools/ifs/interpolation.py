@@ -58,18 +58,70 @@ def load_ensemble_wind(
     By default, ensemble members are averaged. A single member can instead be
     selected with ``ensemble_member``.
     """
+    (
+        retained_hours,
+        lats,
+        lons,
+        u,
+        v,
+    ) = _load_ensemble_variables(
+        path,
+        ("10m_u_component_of_wind", "10m_v_component_of_wind"),
+        ensemble_member=ensemble_member,
+        lon_bounds=lon_bounds,
+        lat_bounds=lat_bounds,
+        max_hours=max_hours,
+    )
+    return retained_hours, lats, lons, u, v
+
+
+def load_ensemble_waves(
+    path: str | Path,
+    *,
+    ensemble_member: int | None = None,
+    lon_bounds: tuple[float, float] | None = None,
+    lat_bounds: tuple[float, float] | None = None,
+    max_hours: float = 144.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Load ensemble significant wave height and grid metadata from IFS data.
+
+    The ensemble members are averaged by default. A single member can instead
+    be selected with ``ensemble_member``.
+    """
+    (
+        retained_hours,
+        lats,
+        lons,
+        significant_wave_height,
+    ) = _load_ensemble_variables(
+        path,
+        ("significant_height_of_combined_wind_waves_and_swell",),
+        ensemble_member=ensemble_member,
+        lon_bounds=lon_bounds,
+        lat_bounds=lat_bounds,
+        max_hours=max_hours,
+    )
+    return retained_hours, lats, lons, significant_wave_height
+
+
+def _load_ensemble_variables(
+    path: str | Path,
+    variable_names: tuple[str, ...],
+    *,
+    ensemble_member: int | None,
+    lon_bounds: tuple[float, float] | None,
+    lat_bounds: tuple[float, float] | None,
+    max_hours: float,
+) -> tuple[np.ndarray, ...]:
     try:
         ds = xr.open_dataset(path, engine="scipy")
     except (OSError, TypeError, ValueError):
         ds = xr.open_dataset(path, engine="netcdf4")
     try:
-        if "10m_u_component_of_wind" not in ds.data_vars:
+        missing = set(variable_names) - set(ds.data_vars)
+        if missing:
             raise KeyError(
-                "IFS wind file must contain '10m_u_component_of_wind'"
-            )
-        if "10m_v_component_of_wind" not in ds.data_vars:
-            raise KeyError(
-                "IFS wind file must contain '10m_v_component_of_wind'"
+                f"IFS forecast file is missing variables: {sorted(missing)}"
             )
 
         hours = lead_time_hours(ds)
@@ -92,15 +144,17 @@ def load_ensemble_wind(
         else:
             ds = ds.mean("number")
 
-        u = np.asarray(ds["10m_u_component_of_wind"].load().values, dtype=np.float64)
-        v = np.asarray(ds["10m_v_component_of_wind"].load().values, dtype=np.float64)
         lats = np.asarray(ds["latitude"].values, dtype=np.float64)
         lons = np.asarray(ds["longitude"].values, dtype=np.float64)
         retained_hours = lead_time_hours(ds)
+        values = tuple(
+            np.asarray(ds[name].load().values, dtype=np.float64)
+            for name in variable_names
+        )
     finally:
         ds.close()
 
-    return retained_hours, lats, lons, u, v
+    return retained_hours, lats, lons, *values
 
 
 def interpolate_field_cubic(
@@ -127,26 +181,49 @@ def interpolate_field_cubic(
 
 def relative_rmse_percent(
     rmse: np.ndarray,
-    reference_mean_speed: np.ndarray,
+    reference_mean: np.ndarray,
 ) -> np.ndarray:
-    """Normalize spatial RMSE by the reference's mean speed, in percent.
+    """Normalize spatial RMSE by the reference's spatial mean, in percent.
 
     Parameters
     ----------
     rmse : np.ndarray
         Spatial RMSE at each forecast lead time.
-    reference_mean_speed : np.ndarray
-        Spatial mean of the reference wind speed at the same lead times.
+    reference_mean : np.ndarray
+        Spatial mean of the reference field at the same lead times.
     """
     rmse = np.asarray(rmse, dtype=np.float64)
-    reference_mean_speed = np.asarray(reference_mean_speed, dtype=np.float64)
-    if rmse.shape != reference_mean_speed.shape:
-        raise ValueError("RMSE and reference mean speed must have matching shapes")
-    if np.any(~np.isfinite(reference_mean_speed)) or np.any(
-        reference_mean_speed <= 0
-    ):
-        raise ValueError("Reference mean speed must be finite and greater than zero")
-    return rmse / reference_mean_speed * 100.0
+    reference_mean = np.asarray(reference_mean, dtype=np.float64)
+    if rmse.shape != reference_mean.shape:
+        raise ValueError("RMSE and reference mean must have matching shapes")
+    if np.any(~np.isfinite(reference_mean)) or np.any(reference_mean <= 0):
+        raise ValueError("Reference mean must be finite and greater than zero")
+    return np.asarray(rmse / reference_mean * 100.0, dtype=np.float64)
+
+
+def resample_field_at_resolutions(
+    hours: np.ndarray,
+    values: np.ndarray,
+    resolutions_h: tuple[float, ...] = SUPPORTED_INTERPOLATION_RESOLUTIONS_H,
+) -> dict[float, np.ndarray]:
+    """Resample a scalar forecast field at temporal resolutions."""
+    fields: dict[float, np.ndarray] = {}
+    for resolution_h in resolutions_h:
+        stride = temporal_stride_for_resolution(
+            NATIVE_FORECAST_RESOLUTION_H,
+            resolution_h,
+        )
+        if resolution_h == NATIVE_FORECAST_RESOLUTION_H:
+            fields[resolution_h] = values.copy()
+            continue
+
+        source_hours = hours[::stride]
+        fields[resolution_h] = interpolate_field_cubic(
+            values[::stride],
+            source_hours,
+            hours,
+        )
+    return fields
 
 
 def resample_wind_at_resolutions(
@@ -156,21 +233,9 @@ def resample_wind_at_resolutions(
     resolutions_h: tuple[float, ...] = SUPPORTED_INTERPOLATION_RESOLUTIONS_H,
 ) -> dict[float, tuple[np.ndarray, np.ndarray]]:
     """Build interpolated U/V fields for the requested temporal resolutions."""
-    fields: dict[float, tuple[np.ndarray, np.ndarray]] = {}
-
-    for resolution_h in resolutions_h:
-        stride = temporal_stride_for_resolution(
-            NATIVE_FORECAST_RESOLUTION_H,
-            resolution_h,
-        )
-        if resolution_h == NATIVE_FORECAST_RESOLUTION_H:
-            fields[resolution_h] = (u.copy(), v.copy())
-            continue
-
-        source_hours = hours[::stride]
-        fields[resolution_h] = (
-            interpolate_field_cubic(u[::stride], source_hours, hours),
-            interpolate_field_cubic(v[::stride], source_hours, hours),
-        )
-
-    return fields
+    u_fields = resample_field_at_resolutions(hours, u, resolutions_h)
+    v_fields = resample_field_at_resolutions(hours, v, resolutions_h)
+    return {
+        resolution_h: (u_fields[resolution_h], v_fields[resolution_h])
+        for resolution_h in resolutions_h
+    }

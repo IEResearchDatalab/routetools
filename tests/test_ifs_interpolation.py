@@ -10,6 +10,7 @@ import xarray as xr
 
 from routetools.ifs.interpolation import (
     interpolate_field_cubic,
+    load_ensemble_waves,
     load_ensemble_wind,
     relative_rmse_percent,
     resample_wind_at_resolutions,
@@ -127,3 +128,43 @@ def test_load_ensemble_wind_averages_members(tmp_path: Path) -> None:
     assert lons.tolist() == [-10.0, 0.0, 10.0]
     assert u.shape == (9, 3, 3)
     np.testing.assert_allclose(v, 1.0)
+
+
+def test_load_ensemble_waves_supports_mean_and_selected_member(
+    tmp_path: Path,
+) -> None:
+    """Wave loader averages members by default or selects the requested one."""
+    path = tmp_path / "waves.nc"
+    step = np.arange(0, 27, 3).astype("timedelta64[h]")
+    heights = np.stack(
+        [
+            np.full((len(step), 2, 2), 1.0, dtype=np.float32),
+            np.full((len(step), 2, 2), 3.0, dtype=np.float32),
+        ]
+    )
+    ds = xr.Dataset(
+        {
+            "significant_height_of_combined_wind_waves_and_swell": (
+                ("number", "step", "latitude", "longitude"),
+                heights,
+            ),
+        },
+        coords={
+            "number": [1, 2],
+            "step": step,
+            "latitude": [50.0, 40.0],
+            "longitude": [-10.0, 0.0],
+        },
+    )
+    ds.to_netcdf(path, engine="scipy")
+
+    hours, _lats, _lons, mean_height = load_ensemble_waves(path, max_hours=24.0)
+    _hours, _lats, _lons, member_height = load_ensemble_waves(
+        path,
+        ensemble_member=2,
+        max_hours=24.0,
+    )
+
+    assert hours.shape == (9,)
+    np.testing.assert_allclose(mean_height, 2.0)
+    np.testing.assert_allclose(member_height, 3.0)

@@ -1,10 +1,17 @@
 #!/usr/bin/env python
-"""Compare native and temporally interpolated IFS ensemble wind forecasts.
+"""Compare native and temporally interpolated IFS ensemble forecasts.
 
 Example
 -------
+Wind comparison::
+
 uv run scripts/demos/compare_ifs_interpolation.py \
     --wind-path data/pf/atlantic/enfo/20250119_00z.nc
+
+Significant wave height comparison::
+
+uv run scripts/demos/compare_ifs_interpolation.py \
+    --wave-path data/pf/atlantic/waef/20250119_00z.nc
 """
 
 from __future__ import annotations
@@ -16,19 +23,27 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.artist import Artist
 
 from routetools.ifs.interpolation import (
+    load_ensemble_waves,
     load_ensemble_wind,
     relative_rmse_percent,
+    resample_field_at_resolutions,
     resample_wind_at_resolutions,
 )
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Compare 24-, 12-, 6-, and 3-hour IFS ensemble wind forecasts."
+        description=(
+            "Compare IFS ensemble wind or significant wave height at "
+            "24-, 12-, 6-, and 3-hour temporal resolutions."
+        )
     )
-    parser.add_argument("--wind-path", type=Path, required=True)
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument("--wind-path", type=Path)
+    input_group.add_argument("--wave-path", type=Path)
     parser.add_argument("--ensemble-member", type=int)
     parser.add_argument("--lon-min", type=float, default=-80.0)
     parser.add_argument("--lon-max", type=float, default=10.0)
@@ -38,12 +53,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("output/ifs_interpolation.gif"),
+        default=None,
     )
     parser.add_argument(
         "--csv-output",
         type=Path,
-        default=Path("output/ifs_interpolation_rmse.csv"),
+        default=None,
     )
     parser.add_argument("--fps", type=int, default=4)
     return parser
@@ -52,47 +67,73 @@ def _parse_args() -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """Generate the IFS interpolation animation and RMSE table."""
     args = _parse_args().parse_args(argv)
-    if not args.wind_path.exists():
+    is_wave = args.wave_path is not None
+    input_path = args.wave_path if is_wave else args.wind_path
+    if input_path is None:
+        raise ValueError("Provide either --wind-path or --wave-path")
+    if not input_path.exists():
         raise FileNotFoundError(
-            f"Missing IFS ensemble wind file: {args.wind_path}"
+            f"Missing IFS ensemble forecast file: {input_path}"
         )
 
-    hours, lats, lons, u, v = load_ensemble_wind(
-        args.wind_path,
-        ensemble_member=args.ensemble_member,
-        lon_bounds=(args.lon_min, args.lon_max),
-        lat_bounds=(args.lat_min, args.lat_max),
-        max_hours=args.max_hours,
-    )
-    fields = resample_wind_at_resolutions(hours, u, v)
+    load_options = {
+        "ensemble_member": args.ensemble_member,
+        "lon_bounds": (args.lon_min, args.lon_max),
+        "lat_bounds": (args.lat_min, args.lat_max),
+        "max_hours": args.max_hours,
+    }
+    if is_wave:
+        hours, lats, lons, native_field = load_ensemble_waves(
+            input_path,
+            **load_options,
+        )
+        field_by_resolution = resample_field_at_resolutions(hours, native_field)
+        field_label = "Significant wave height"
+        unit = "m"
+        variable_label = "wave height"
+        rmse_column = "rmse_meters"
+        default_stem = "ifs_wave_interpolation"
+    else:
+        hours, lats, lons, u, v = load_ensemble_wind(
+            input_path,
+            **load_options,
+        )
+        wind_fields = resample_wind_at_resolutions(hours, u, v)
+        field_by_resolution = {
+            resolution_h: np.hypot(u_field, v_field) * 1.94384
+            for resolution_h, (u_field, v_field) in wind_fields.items()
+        }
+        field_label = "Wind speed"
+        unit = "kn"
+        variable_label = "wind"
+        rmse_column = "rmse_knots"
+        default_stem = "ifs_interpolation"
 
-    magnitudes = {}
-    for resolution_h, (u_field, v_field) in fields.items():
-        magnitudes[resolution_h] = np.sqrt(u_field**2 + v_field**2) * 1.94384
-
-    reference = magnitudes[3.0]
-    reference_mean_speed = np.mean(reference, axis=(1, 2))
+    reference = field_by_resolution[3.0]
+    reference_mean = np.nanmean(reference, axis=(1, 2))
     rmse = {}
     relative_rmse = {}
     for resolution_h in (24.0, 12.0, 6.0):
-        difference = magnitudes[resolution_h] - reference
+        difference = field_by_resolution[resolution_h] - reference
         rmse[resolution_h] = np.sqrt(
-            np.mean(difference**2, axis=(1, 2))
+            np.nanmean(difference**2, axis=(1, 2))
         )
         relative_rmse[resolution_h] = relative_rmse_percent(
             rmse[resolution_h],
-            reference_mean_speed,
+            reference_mean,
         )
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.csv_output.parent.mkdir(parents=True, exist_ok=True)
-    with args.csv_output.open("w", newline="", encoding="utf-8") as csv_file:
+    output_path = args.output or Path(f"output/{default_stem}.gif")
+    csv_output_path = args.csv_output or Path(f"output/{default_stem}_rmse.csv")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    csv_output_path.parent.mkdir(parents=True, exist_ok=True)
+    with csv_output_path.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow(
             [
                 "lead_time_h",
                 "resolution_h",
-                "rmse_knots",
+                rmse_column,
                 "relative_rmse_percent",
             ]
         )
@@ -141,7 +182,7 @@ def main(argv: list[str] | None = None) -> None:
         image = ax.pcolormesh(
             lon_grid,
             lat_grid,
-            magnitudes[resolution_h][0],
+            field_by_resolution[resolution_h][0],
             shading="auto",
             cmap="viridis",
             vmin=0,
@@ -154,7 +195,7 @@ def main(argv: list[str] | None = None) -> None:
     fig.colorbar(
         images[0],
         ax=map_axes[:3],
-        label="Wind speed (kn)",
+        label=f"{field_label} ({unit})",
         shrink=0.9,
     )
 
@@ -187,7 +228,7 @@ def main(argv: list[str] | None = None) -> None:
     rmse_max = max(float(np.max(values)) for values in rmse.values())
     rmse_ax.set_ylim(0, max(1.0, rmse_max * 1.1))
     rmse_ax.tick_params(labelbottom=False)
-    rmse_ax.set_ylabel("RMSE vs 3-hour forecast (kn)")
+    rmse_ax.set_ylabel(f"RMSE vs 3-hour forecast ({unit})")
     rmse_ax.set_title("Absolute interpolation error")
     rmse_ax.grid(alpha=0.3)
     rmse_ax.legend()
@@ -195,7 +236,7 @@ def main(argv: list[str] | None = None) -> None:
     relative_rmse_ax.set_ylim(0, max(1.0, relative_max * 1.1))
     relative_rmse_ax.set_xlabel("Forecast lead time (h)")
     relative_rmse_ax.set_ylabel("Relative RMSE (%)")
-    relative_rmse_ax.set_title("Error relative to mean reference wind speed")
+    relative_rmse_ax.set_title(f"Error relative to mean reference {variable_label}")
     relative_rmse_ax.grid(alpha=0.3)
 
     forecast_kind = (
@@ -204,16 +245,17 @@ def main(argv: list[str] | None = None) -> None:
         else "ensemble mean"
     )
 
-    def update(frame_index: int):
+    def update(frame_index: int) -> list[Artist]:
         lead_time_h = hours[frame_index]
         for image, resolution_h in zip(
             images,
             panel_resolutions,
             strict=True,
         ):
-            image.set_array(magnitudes[resolution_h][frame_index].ravel())
+            image.set_array(field_by_resolution[resolution_h][frame_index].ravel())
         fig.suptitle(
-            f"IFS {forecast_kind} wind | {lead_time_h:.0f} h lead time"
+            f"IFS {forecast_kind} {variable_label} | "
+            f"{lead_time_h:.0f} h lead time"
         )
         for resolution_h, line in rmse_lines.items():
             line.set_data(
@@ -238,10 +280,10 @@ def main(argv: list[str] | None = None) -> None:
         interval=1000 / args.fps,
         blit=False,
     )
-    animation.save(args.output, writer=PillowWriter(fps=args.fps))
+    animation.save(output_path, writer=PillowWriter(fps=args.fps))
     plt.close(fig)
-    print(f"Saved animation: {args.output}")
-    print(f"Saved RMSE table: {args.csv_output}")
+    print(f"Saved animation: {output_path}")
+    print(f"Saved RMSE table: {csv_output_path}")
 
 
 if __name__ == "__main__":
