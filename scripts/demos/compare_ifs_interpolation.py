@@ -18,7 +18,6 @@ import numpy as np
 from matplotlib.animation import FuncAnimation, PillowWriter
 
 from routetools.ifs.interpolation import (
-    SUPPORTED_INTERPOLATION_RESOLUTIONS_H,
     load_ensemble_wind,
     resample_wind_at_resolutions,
 )
@@ -87,37 +86,28 @@ def main(argv: list[str] | None = None) -> None:
             for lead_time_h, value in zip(hours, rmse[resolution_h], strict=True):
                 writer.writerow([lead_time_h, int(resolution_h), value])
 
-    vmax = max(
-        float(np.nanpercentile(reference, 99)),
-        *(
-            float(np.nanpercentile(magnitudes[resolution_h], 99))
-            for resolution_h in SUPPORTED_INTERPOLATION_RESOLUTIONS_H
-        ),
-    )
+    vmax = float(np.nanpercentile(reference, 99))
     lon_grid, lat_grid = np.meshgrid(lons, lats)
-    fig, axes = plt.subplots(
-        2,
-        3,
-        figsize=(15, 9),
-        constrained_layout=True,
-        subplot_kw={"aspect": "equal"},
-    )
-    axes = axes.ravel()
-    titles = [
-        "Real 3-hour forecast",
-        "24-hour sampling",
-        "12-hour sampling",
-        "6-hour sampling",
-        "3-hour sampling",
-        "RMSE",
+    fig = plt.figure(figsize=(16, 10), constrained_layout=True)
+    grid = fig.add_gridspec(2, 3, height_ratios=(1, 1.15))
+    map_axes = [
+        fig.add_subplot(grid[0, col], aspect="equal") for col in range(3)
     ]
-    panel_resolutions = (3.0, 24.0, 12.0, 6.0, 3.0)
+    map_axes.append(fig.add_subplot(grid[1, 0], aspect="equal"))
+    rmse_ax = fig.add_subplot(grid[1, 1:])
+    titles = [
+        "Real forecast (3-hour reference)",
+        "24-hour interpolation",
+        "12-hour interpolation",
+        "6-hour interpolation",
+    ]
+    panel_resolutions = (3.0, 24.0, 12.0, 6.0)
 
     images = []
     for ax, resolution_h, title in zip(
-        axes[:5],
+        map_axes,
         panel_resolutions,
-        titles[:5],
+        titles,
         strict=True,
     ):
         image = ax.pcolormesh(
@@ -133,9 +123,13 @@ def main(argv: list[str] | None = None) -> None:
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
         images.append(image)
-    fig.colorbar(images[0], ax=axes[:5], label="Wind speed (kn)", shrink=0.86)
+    fig.colorbar(
+        images[0],
+        ax=map_axes,
+        label="Wind speed (kn)",
+        shrink=0.9,
+    )
 
-    rmse_ax = axes[5]
     rmse_lines = []
     for resolution_h in rmse:
         line, = rmse_ax.plot([], [], marker="o", label=f"{int(resolution_h)} h")
