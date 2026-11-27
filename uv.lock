@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 resolution-markers = [
     "sys_platform == 'darwin'",
@@ -269,6 +269,21 @@ wheels = [
 ]
 
 [[package]]
+name = "cfgrib"
+version = "0.9.15.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "click" },
+    { name = "eccodes" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/51/cace2747a517667bbbe5fcab1f35958ad05c778251a452c461b8b3649dbe/cfgrib-0.9.15.1.tar.gz", hash = "sha256:d959d8b97e55a63646fa86686b297905ff7f2918a91e3a11d6292dab09598e4d", size = 9746591, upload-time = "2025-09-30T22:46:14.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/e8/16c58c57c9ce1474dd1e50090ebd78b008c70fc4f06793da65f9a0aba391/cfgrib-0.9.15.1-py3-none-any.whl", hash = "sha256:f1bee90e86917389be9f767051bf32d00f95f6f4e4312b344567511b3cfd62d2", size = 49123, upload-time = "2025-09-30T22:46:12.206Z" },
+]
+
+[[package]]
 name = "cfgv"
 version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -524,6 +539,47 @@ wheels = [
 ]
 
 [[package]]
+name = "eccodes"
+version = "2.50.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "cffi" },
+    { name = "findlibs" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a3/96/eb83541e85ff3943e9d55de17f952814192eccc8a3deb8c1daf25801cddf/eccodes-2.50.1.tar.gz", hash = "sha256:e8e2172e95b60f395adb92fa608db693d47938370d4c870a3eebc0a740237296", size = 2470584, upload-time = "2026-11-11T16:23:51.711Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/d9/2c30fd206ea0f63756eeb97dd3a41053b113fc2f6a574fe9f7a83b7cd4c5/eccodes-2.50.1-cp312-cp312-win_amd64.whl", hash = "sha256:7167c983e4c98cc1090d3f72efa12f4f3649a8ef11086fff64fe7da3e301234e", size = 7557393, upload-time = "2026-11-11T16:23:19.977Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/4f/c8779a841b87ef2aeb737ed557a34722e2df1bad5591083a7cd76a6f8b23/eccodes-2.50.1-py3-none-any.whl", hash = "sha256:2fd6c5f86183ca156778fd9a97425a5e6ff0449d0a11edbe70a96417c3a0cc35", size = 91619, upload-time = "2026-11-11T16:23:50.822Z" },
+]
+
+[[package]]
+name = "eccodeslib"
+version = "2.50.0.34"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "eckitlib" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/72/0e/3355455535ffcf8d86e82803a10eb72e2da5b2ab67b721d1e9b60fb7d2a3/eccodeslib-2.50.0.34-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:d8231224ce4113bc679796c660d9eded924d787f52c0d8ca94398bf5f8f07f97", size = 9058331, upload-time = "2026-11-06T07:27:55.104Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/33/e580d3176a570f0b6319c468407e397c75b86c4c67933c78b07f4e8046e2/eccodeslib-2.50.0.34-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:4cfd92427ff2f767a5ff134e773b969ae874243c5a37fd95452967be600db660", size = 8837464, upload-time = "2026-11-06T07:41:59.147Z" },
+    { url = "https://files.pythonhosted.org/packages/81/07/6c46a6a6a8f79a18779cd32d6b34df2842d96507f13f317c69a094c5ea03/eccodeslib-2.50.0.34-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:2b5ff86be33b23159b01e800378acc29c6389b34e1d9cc2a517af045d7466436", size = 9214117, upload-time = "2026-11-06T07:31:42.229Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/3b/1504128bbee24e483a866c294396452070ba5285c7a3722f701425f8191b/eccodeslib-2.50.0.34-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:e2da2e099f4b7a196cf9dcddeb1b651dd35d0f7fa693dc2ecc24800ad1ec9ba6", size = 8998185, upload-time = "2026-11-06T07:26:49.784Z" },
+]
+
+[[package]]
+name = "eckitlib"
+version = "2.5.0.34"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/59/83b2c70656353712955554804b7dd3f395353b8473971558450d9738a4b3/eckitlib-2.5.0.34-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:9b30af4079aecce77f5b1c83353a5b61586a7bbb506ede96ceb93a00b0500cbd", size = 6558631, upload-time = "2026-11-06T07:28:00.281Z" },
+    { url = "https://files.pythonhosted.org/packages/26/c7/ba5190b53f9bae58b0bef0fdd89a386989461b9ccfd602cd6494b31365e1/eckitlib-2.5.0.34-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:cd90e8b714027a635dc72bd456e011ced6c104807fe6ab6c57878a4465514462", size = 6612585, upload-time = "2026-11-06T07:42:07.243Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/9b/8be55f0e26b43876380915c11b0a88748878611f4b8dcd88acd1647e7cdf/eckitlib-2.5.0.34-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:e89ce6d92cd7c601e4bdbda87fbe52f27f6390631b85c6ea06b41c7ff6eb3c5b", size = 35218197, upload-time = "2026-11-06T07:31:47.758Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/c7/90e2867b35a2397b4c9bf4486c50a54adc6cfb0c0f8bfc631a1573e0d1aa/eckitlib-2.5.0.34-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:3a28e1a7e2ab1b341e1ffa5688d42a1cf2249eede379b3ec5b4dde044e0cebc4", size = 36168597, upload-time = "2026-11-06T07:27:00.27Z" },
+]
+
+[[package]]
 name = "ecmwf-datastores-client"
 version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -563,6 +619,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/58/46/0028a82567109b5ef6e4d2a1f04a583fb513e6cf9527fcdd09afd817deeb/filelock-3.20.0.tar.gz", hash = "sha256:711e943b4ec6be42e1d4e6690b48dc175c822967466bb31c0c293f34334c13f4", size = 18922, upload-time = "2025-10-08T18:03:50.056Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/76/91/7216b27286936c16f5b4d0c530087e4a54eead683e6b0b73dd0c64844af6/filelock-3.20.0-py3-none-any.whl", hash = "sha256:339b4732ffda5cd79b13f4e2711a31b0365ce445d95d243bb996273d072546a2", size = 16054, upload-time = "2025-10-08T18:03:48.35Z" },
+]
+
+[[package]]
+name = "findlibs"
+version = "0.1.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/60/3199cd48cd54a7cefd0a501654021ac8e8a82f2e6daebe990e8a1d9a8896/findlibs-0.1.5.tar.gz", hash = "sha256:68bc98d26cbd73ea2a20ee11920f60d8ad29c504e2ce82191aafd8ef734cb865", size = 11559, upload-time = "2026-11-04T16:30:22.886Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/de/2c0e2b1dfbcbf745f58652c4b67da9a7b57fe5d1b7ac684703c8a3848d4a/findlibs-0.1.5-py3-none-any.whl", hash = "sha256:48088b276ea3699422fb3921934db05f9eddfb3cd3fb689c39f5127a97350661", size = 10859, upload-time = "2026-11-04T16:30:21.303Z" },
 ]
 
 [[package]]
@@ -1351,7 +1416,7 @@ wheels = [
 
 [[package]]
 name = "multiurl"
-version = "0.3.7"
+version = "0.3.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "python-dateutil" },
@@ -1359,9 +1424,9 @@ dependencies = [
     { name = "requests" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6c/ce/a00c9b44f43c4620ca004e4acb4c1e266b1ab48d2f6ad9e402f6bdbe44d4/multiurl-0.3.7.tar.gz", hash = "sha256:4201563fc8989baca7b525fdc69d4cd5a6c0cef4f303559710b9890021aab6d9", size = 18945, upload-time = "2025-07-29T11:57:04.109Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/4e/f9d2e73ff31721e279600cd7a56c8e2c323c412769883a1f1115932aff5b/multiurl-0.3.10.tar.gz", hash = "sha256:139927318b0a92d7f254d49ca4ea8544a4e3224e615fd2ed79408fe6d2d10e61", size = 20957, upload-time = "2026-11-10T10:53:02.008Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/93/cf/be4e93afbfa0def2cd6fac9302071db0bd6d0617999ecbf53f92b9398de3/multiurl-0.3.7-py3-none-any.whl", hash = "sha256:054f42974064f103be0ed55b43f0c32fc435a47dc7353a9adaffa643b99fa380", size = 21524, upload-time = "2025-07-29T11:57:03.191Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/a2/e8163a02558002dbf337ffde70c8ac9ebfe1803c983da95fb656000619a3/multiurl-0.3.10-py3-none-any.whl", hash = "sha256:752f8eaeeead66443ff114069b06de2b659ac1533734c1b7f229fd3923e16c8c", size = 22606, upload-time = "2026-11-10T10:53:00.927Z" },
 ]
 
 [[package]]
@@ -1580,7 +1645,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.15.1.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "(platform_machine != 'ARM64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')" },
+    { name = "nvidia-cublas-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fe/d8/448f16a767828d3fa76ac2b16d150febde5c9c2f8baa962a35976dde29c8/nvidia_cudnn_cu12-9.15.1.9-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:2520692ef9d7804f4f02c8f3a127b24d568bb944ab1ccee0ab946a64699acf36", size = 646656709, upload-time = "2025-11-12T20:21:46.842Z" },
@@ -1592,7 +1657,7 @@ name = "nvidia-cufft-cu12"
 version = "11.4.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'ARM64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9b/2b/76445b0af890da61b501fde30650a1a4bd910607261b209cccb5235d3daa/nvidia_cufft_cu12-11.4.1.4-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1a28c9b12260a1aa7a8fd12f5ebd82d027963d635ba82ff39a1acfa7c4c0fbcf", size = 200822453, upload-time = "2025-06-05T20:05:27.889Z" },
@@ -1604,9 +1669,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.5.82"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "(platform_machine != 'ARM64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')" },
-    { name = "nvidia-cusparse-cu12", marker = "(platform_machine != 'ARM64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')" },
-    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'ARM64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')" },
+    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cusparse-cu12" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/03/99/686ff9bf3a82a531c62b1a5c614476e8dfa24a9d89067aeedf3592ee4538/nvidia_cusolver_cu12-11.7.5.82-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:62efa83e4ace59a4c734d052bb72158e888aa7b770e1a5f601682f16fe5b4fd2", size = 337869834, upload-time = "2025-06-05T20:06:53.125Z" },
@@ -1618,7 +1683,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.10.65"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'ARM64' and sys_platform == 'win32') or (sys_platform != 'darwin' and sys_platform != 'win32')" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5e/6f/8710fbd17cdd1d0fc3fea7d36d5b65ce1933611c31e1861da330206b253a/nvidia_cusparse_cu12-12.5.10.65-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:221c73e7482dd93eda44e65ce567c031c07e2f93f6fa0ecd3ba876a195023e83", size = 366359408, upload-time = "2025-06-05T20:07:42.501Z" },
@@ -1787,7 +1852,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -2291,6 +2356,10 @@ era5-gcs = [
 h3 = [
     { name = "h3" },
 ]
+ifs = [
+    { name = "cfgrib" },
+    { name = "eccodeslib" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -2306,8 +2375,10 @@ requires-dist = [
     { name = "borb", url = "https://files.pythonhosted.org/packages/7a/4e/b193d894ffb0fde0f773b0476d8b041528302fa86bccf2cc8006c79404e4/borb-3.0.1.tar.gz" },
     { name = "cartopy", specifier = ">=0.25.0" },
     { name = "cdsapi", marker = "extra == 'era5-cds'", specifier = ">=0.7.0" },
+    { name = "cfgrib", marker = "extra == 'ifs'", specifier = ">=0.9.14" },
     { name = "cma", specifier = ">=4.0.0" },
     { name = "dask", specifier = ">=2024.1.0" },
+    { name = "eccodeslib", marker = "extra == 'ifs'", specifier = ">=2.42" },
     { name = "gcsfs", specifier = ">=2026.2.0" },
     { name = "gcsfs", marker = "extra == 'era5-gcs'", specifier = ">=2024.1.0" },
     { name = "h3", marker = "extra == 'h3'", specifier = "==4.0.0b2" },
@@ -2333,7 +2404,7 @@ requires-dist = [
     { name = "zarr", specifier = ">=3.1.5" },
     { name = "zarr", marker = "extra == 'era5-gcs'", specifier = ">=2.17.0" },
 ]
-provides-extras = ["cuda", "h3", "era5-cds", "era5-gcs"]
+provides-extras = ["cuda", "h3", "era5-cds", "era5-gcs", "ifs"]
 
 [package.metadata.requires-dev]
 dev = [
