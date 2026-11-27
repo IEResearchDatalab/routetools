@@ -4,18 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 import xarray as xr
+from jax.scipy.ndimage import map_coordinates
 
 from routetools.ifs.interpolation import (
     interpolate_field_cubic,
-    load_ensemble_waves,
-    load_ensemble_wind,
+    interpolate_field_linear,
     relative_rmse_percent,
     resample_wind_at_resolutions,
     temporal_stride_for_resolution,
 )
+from routetools.ifs.loader import load_ensemble_waves, load_ensemble_wind
+from routetools.interpolate import map_coordinates_cubic, prefilter_cubic
 
 
 @pytest.mark.parametrize(
@@ -43,25 +46,55 @@ def test_temporal_stride_rejects_invalid_values(
         temporal_stride_for_resolution(source_h, target_h)
 
 
-def test_cubic_interpolation_reproduces_linear_field() -> None:
-    """Cubic interpolation preserves a linear field at every target lead time."""
+def test_cubic_interpolation_reproduces_source_samples() -> None:
+    """The routing B-spline reproduces values at its source time indices."""
     source_hours = np.array([0.0, 12.0, 24.0])
     values = np.arange(18, dtype=np.float64).reshape(3, 2, 3)
     target_hours = np.arange(0.0, 25.0, 3.0)
 
     result = interpolate_field_cubic(values, source_hours, target_hours)
 
-    expected = (
-        values[0][None, :, :]
-        + target_hours[:, None, None]
-        * (values[1] - values[0])[None, :, :]
-        / 12.0
+    for source_index, source_hour in enumerate(source_hours):
+        target_index = np.flatnonzero(target_hours == source_hour)[0]
+        np.testing.assert_allclose(
+            result[target_index],
+            values[source_index],
+            atol=1e-5,
+        )
+
+
+def test_linear_interpolation_matches_routing_default() -> None:
+    """Linear forecast interpolation matches routing's order-1 sampler."""
+    source_hours = np.array([0.0, 6.0, 12.0])
+    values = np.arange(12, dtype=np.float32).reshape(3, 2, 2)
+    target_hours = np.arange(0.0, 13.0, 3.0)
+
+    result = interpolate_field_linear(values, source_hours, target_hours)
+
+    coordinates = jnp.asarray(
+        np.array(
+            [
+                np.repeat(target_hours / 6.0, 4),
+                np.tile(np.repeat(np.arange(2), 2), len(target_hours)),
+                np.tile(np.tile(np.arange(2), 2), len(target_hours)),
+            ],
+            dtype=np.float32,
+        )
     )
-    np.testing.assert_allclose(result, expected, atol=1e-10)
+    expected = np.asarray(
+        map_coordinates(
+            jnp.asarray(values),
+            coordinates,
+            order=1,
+            mode="nearest",
+        )
+    ).reshape((len(target_hours), 2, 2))
+
+    np.testing.assert_allclose(result, expected, atol=1e-5)
 
 
-def test_cubic_interpolation_preserves_missing_spatial_cells() -> None:
-    """NaNs in land or incomplete cells do not break interpolation elsewhere."""
+def test_forecast_interpolation_matches_routing_b_spline_with_missing_values() -> None:
+    """Forecast resampling uses the routing spline and its zero fill for NaNs."""
     source_hours = np.array([0.0, 6.0, 12.0, 18.0, 24.0])
     values = np.array(
         [
@@ -76,17 +109,39 @@ def test_cubic_interpolation_preserves_missing_spatial_cells() -> None:
 
     result = interpolate_field_cubic(values, source_hours, target_hours)
 
-    np.testing.assert_allclose(
-        result[:, 0, 0],
-        target_hours,
-        atol=1e-10,
+    filled_values = np.nan_to_num(values, nan=0.0)
+    coefficients, npad = prefilter_cubic(filled_values)
+    time_indices, lat_indices, lon_indices = np.meshgrid(
+        target_hours / 6.0,
+        np.arange(values.shape[1]),
+        np.arange(values.shape[2]),
+        indexing="ij",
     )
-    assert np.isnan(result[:, 0, 1]).all()
-    np.testing.assert_allclose(
-        result[:, 0, 2],
-        target_hours,
-        atol=1e-10,
+    coordinates = jnp.asarray(
+        np.stack(
+            [
+                time_indices.ravel(),
+                lat_indices.ravel(),
+                lon_indices.ravel(),
+            ]
+        )
     )
+    expected = np.asarray(
+        map_coordinates_cubic(coefficients, coordinates, npad=npad)
+    ).reshape(result.shape)
+
+    np.testing.assert_allclose(result, expected, atol=1e-5)
+    assert np.all(np.isfinite(result))
+
+
+def test_cubic_interpolation_rejects_nonuniform_source_hours() -> None:
+    """Routing's spline requires a regular time axis."""
+    with pytest.raises(ValueError, match="uniform"):
+        interpolate_field_cubic(
+            np.ones((3, 2, 2)),
+            np.array([0.0, 6.0, 15.0]),
+            np.array([0.0, 3.0, 6.0]),
+        )
 
 
 def test_resample_contains_native_and_coarse_fields() -> None:
@@ -100,7 +155,13 @@ def test_resample_contains_native_and_coarse_fields() -> None:
     assert set(fields) == {24.0, 12.0, 6.0, 3.0}
     np.testing.assert_array_equal(fields[3.0][0], u)
     for resolution_h in (24.0, 12.0, 6.0):
-        np.testing.assert_allclose(fields[resolution_h][0], u, atol=1e-10)
+        stride = int(resolution_h / 3.0)
+        source_indices = np.arange(0, len(hours), stride)
+        np.testing.assert_allclose(
+            fields[resolution_h][0][source_indices],
+            u[source_indices],
+            atol=1e-5,
+        )
 
 
 def test_relative_rmse_is_normalized_by_reference_mean_speed() -> None:

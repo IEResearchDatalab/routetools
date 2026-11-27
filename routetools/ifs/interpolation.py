@@ -2,11 +2,32 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Literal
 
+import jax.numpy as jnp
 import numpy as np
-import xarray as xr
-from scipy.interpolate import CubicSpline
+from jax.scipy.ndimage import map_coordinates
+
+from routetools.ifs.loader import (
+    lead_time_hours,
+    load_ensemble_waves,
+    load_ensemble_wind,
+)
+from routetools.interpolate import map_coordinates_cubic, prefilter_cubic
+
+__all__ = [
+    "NATIVE_FORECAST_RESOLUTION_H",
+    "SUPPORTED_INTERPOLATION_RESOLUTIONS_H",
+    "interpolate_field_cubic",
+    "interpolate_field_linear",
+    "lead_time_hours",
+    "load_ensemble_waves",
+    "load_ensemble_wind",
+    "relative_rmse_percent",
+    "resample_field_at_resolutions",
+    "resample_wind_at_resolutions",
+    "temporal_stride_for_resolution",
+]
 
 NATIVE_FORECAST_RESOLUTION_H = 3.0
 SUPPORTED_INTERPOLATION_RESOLUTIONS_H = (24.0, 12.0, 6.0, 3.0)
@@ -37,183 +58,83 @@ def temporal_stride_for_resolution(
     return int(stride)
 
 
-def lead_time_hours(ds: xr.Dataset) -> np.ndarray:
-    """Return forecast lead times in hours from an IFS NetCDF dataset."""
-    if "step" not in ds.coords:
-        raise KeyError("IFS forecast dataset has no 'step' coordinate")
-    values = ds["step"].values / np.timedelta64(1, "h")
-    return np.asarray(values, dtype=np.float64)
-
-
-def load_ensemble_wind(
-    path: str | Path,
-    *,
-    ensemble_member: int | None = None,
-    lon_bounds: tuple[float, float] | None = None,
-    lat_bounds: tuple[float, float] | None = None,
-    max_hours: float = 144.0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Load U/V wind components and metadata from an IFS ensemble NetCDF.
-
-    By default, ensemble members are averaged. A single member can instead be
-    selected with ``ensemble_member``.
-    """
-    (
-        retained_hours,
-        lats,
-        lons,
-        u,
-        v,
-    ) = _load_ensemble_variables(
-        path,
-        ("10m_u_component_of_wind", "10m_v_component_of_wind"),
-        ensemble_member=ensemble_member,
-        lon_bounds=lon_bounds,
-        lat_bounds=lat_bounds,
-        max_hours=max_hours,
-    )
-    return retained_hours, lats, lons, u, v
-
-
-def load_ensemble_waves(
-    path: str | Path,
-    *,
-    ensemble_member: int | None = None,
-    lon_bounds: tuple[float, float] | None = None,
-    lat_bounds: tuple[float, float] | None = None,
-    max_hours: float = 144.0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Load ensemble significant wave height and grid metadata from IFS data.
-
-    The ensemble members are averaged by default. A single member can instead
-    be selected with ``ensemble_member``.
-    """
-    (
-        retained_hours,
-        lats,
-        lons,
-        significant_wave_height,
-    ) = _load_ensemble_variables(
-        path,
-        ("significant_height_of_combined_wind_waves_and_swell",),
-        ensemble_member=ensemble_member,
-        lon_bounds=lon_bounds,
-        lat_bounds=lat_bounds,
-        max_hours=max_hours,
-    )
-    return retained_hours, lats, lons, significant_wave_height
-
-
-def _load_ensemble_variables(
-    path: str | Path,
-    variable_names: tuple[str, ...],
-    *,
-    ensemble_member: int | None,
-    lon_bounds: tuple[float, float] | None,
-    lat_bounds: tuple[float, float] | None,
-    max_hours: float,
-) -> tuple[np.ndarray, ...]:
-    try:
-        ds = xr.open_dataset(path, engine="scipy")
-    except (OSError, TypeError, ValueError):
-        ds = xr.open_dataset(path, engine="netcdf4")
-    try:
-        missing = set(variable_names) - set(ds.data_vars)
-        if missing:
-            raise KeyError(
-                f"IFS forecast file is missing variables: {sorted(missing)}"
-            )
-
-        hours = lead_time_hours(ds)
-        time_mask = hours <= max_hours
-        ds = ds.isel(step=np.flatnonzero(time_mask))
-
-        if lon_bounds is not None:
-            ds = ds.sel(longitude=slice(lon_bounds[0], lon_bounds[1]))
-        if lat_bounds is not None:
-            latitudes = ds["latitude"].values
-            if latitudes[0] >= latitudes[-1]:
-                ds = ds.sel(latitude=slice(lat_bounds[1], lat_bounds[0]))
-            else:
-                ds = ds.sel(latitude=slice(lat_bounds[0], lat_bounds[1]))
-
-        if ensemble_member is not None:
-            if "number" not in ds.coords:
-                raise KeyError("IFS forecast dataset has no 'number' coordinate")
-            ds = ds.sel(number=ensemble_member)
-        else:
-            ds = ds.mean("number")
-
-        lats = np.asarray(ds["latitude"].values, dtype=np.float64)
-        lons = np.asarray(ds["longitude"].values, dtype=np.float64)
-        retained_hours = lead_time_hours(ds)
-        values = tuple(
-            np.asarray(ds[name].load().values, dtype=np.float64)
-            for name in variable_names
-        )
-    finally:
-        ds.close()
-
-    return retained_hours, lats, lons, *values
-
-
 def interpolate_field_cubic(
     values: np.ndarray,
     source_hours: np.ndarray,
     target_hours: np.ndarray,
 ) -> np.ndarray:
-    """Interpolate forecast fields along lead time, preserving missing cells.
+    """Interpolate fields with the routing's cubic B-spline implementation."""
+    return _interpolate_field(values, source_hours, target_hours, method="cubic")
 
-    Spatial cells with incomplete temporal data are interpolated from their
-    available samples only. Cells with fewer than two samples remain masked
-    except at target times that exactly match an available sample.
-    """
+
+def interpolate_field_linear(
+    values: np.ndarray,
+    source_hours: np.ndarray,
+    target_hours: np.ndarray,
+) -> np.ndarray:
+    """Interpolate fields with the routing's default linear map_coordinates."""
+    return _interpolate_field(values, source_hours, target_hours, method="linear")
+
+
+def _interpolate_field(
+    values: np.ndarray,
+    source_hours: np.ndarray,
+    target_hours: np.ndarray,
+    *,
+    method: Literal["linear", "cubic"],
+) -> np.ndarray:
     if values.shape[0] != len(source_hours):
         raise ValueError("First values axis must match the source lead times")
     if len(source_hours) < 2:
         raise ValueError("At least two forecast lead times are required")
-    if (
-        np.any(target_hours < source_hours[0])
-        or np.any(target_hours > source_hours[-1])
+    source_intervals = np.diff(source_hours)
+    if np.any(source_intervals <= 0) or not np.allclose(
+        source_intervals,
+        source_intervals[0],
     ):
-        raise ValueError(
-            "Target lead times must lie within the source lead-time range"
-        )
+        raise ValueError("Source lead times must be strictly increasing and uniform")
+    if np.any(target_hours < source_hours[0]) or np.any(
+        target_hours > source_hours[-1]
+    ):
+        raise ValueError("Target lead times must lie within the source lead-time range")
 
-    values = np.asarray(values, dtype=np.float64)
-    flat_values = values.reshape((len(source_hours), -1))
-    flat_result = np.full(
-        (len(target_hours), flat_values.shape[1]),
-        np.nan,
-        dtype=np.float64,
+    values = np.nan_to_num(np.asarray(values, dtype=np.float32), nan=0.0)
+
+    target_indices = ((target_hours - source_hours[0]) / source_intervals[0]).astype(
+        np.float32
     )
-    finite = np.isfinite(flat_values)
-    complete_columns = np.all(finite, axis=0)
-
-    if np.any(complete_columns):
-        spline = CubicSpline(
-            source_hours,
-            flat_values[:, complete_columns],
-            axis=0,
+    if values.ndim == 1:
+        coordinates = jnp.asarray(target_indices[None, :])
+    else:
+        spatial_indices = np.indices(values.shape[1:], dtype=np.float32).reshape(
+            values.ndim - 1,
+            -1,
         )
-        flat_result[:, complete_columns] = spline(target_hours)
-
-    for column in np.flatnonzero(~complete_columns & np.any(finite, axis=0)):
-        valid = finite[:, column]
-        column_hours = source_hours[valid]
-        column_values = flat_values[valid, column]
-        if len(column_hours) == 1:
-            exact = target_hours == column_hours[0]
-            flat_result[exact, column] = column_values[0]
-            continue
-
-        inside = (target_hours >= column_hours[0]) & (
-            target_hours <= column_hours[-1]
+        spatial_size = spatial_indices.shape[1]
+        coordinates_np = np.empty(
+            (values.ndim, len(target_hours) * spatial_size),
+            dtype=np.float32,
         )
-        spline = CubicSpline(column_hours, column_values)
-        flat_result[inside, column] = spline(target_hours[inside])
+        coordinates_np[0] = np.repeat(target_indices, spatial_size)
+        coordinates_np[1:] = np.tile(spatial_indices, (1, len(target_hours)))
+        coordinates = jnp.asarray(coordinates_np)
 
-    return flat_result.reshape((len(target_hours), *values.shape[1:]))
+    if method == "cubic":
+        coefficients, npad = prefilter_cubic(values)
+        interpolated = map_coordinates_cubic(
+            coefficients,
+            coordinates,
+            npad=npad,
+        )
+    else:
+        interpolated = map_coordinates(
+            jnp.asarray(values),
+            tuple(coordinates[axis] for axis in range(values.ndim)),
+            order=1,
+            mode="nearest",
+        )
+
+    return np.asarray(interpolated).reshape((len(target_hours), *values.shape[1:]))
 
 
 def relative_rmse_percent(
@@ -242,8 +163,14 @@ def resample_field_at_resolutions(
     hours: np.ndarray,
     values: np.ndarray,
     resolutions_h: tuple[float, ...] = SUPPORTED_INTERPOLATION_RESOLUTIONS_H,
+    *,
+    method: Literal["linear", "cubic"] = "cubic",
 ) -> dict[float, np.ndarray]:
-    """Resample a scalar forecast field at temporal resolutions."""
+    """Resample a scalar forecast field with routing interpolation."""
+    interpolation = {
+        "linear": interpolate_field_linear,
+        "cubic": interpolate_field_cubic,
+    }[method]
     fields: dict[float, np.ndarray] = {}
     for resolution_h in resolutions_h:
         stride = temporal_stride_for_resolution(
@@ -255,7 +182,7 @@ def resample_field_at_resolutions(
             continue
 
         source_hours = hours[::stride]
-        fields[resolution_h] = interpolate_field_cubic(
+        fields[resolution_h] = interpolation(
             values[::stride],
             source_hours,
             hours,
@@ -268,10 +195,22 @@ def resample_wind_at_resolutions(
     u: np.ndarray,
     v: np.ndarray,
     resolutions_h: tuple[float, ...] = SUPPORTED_INTERPOLATION_RESOLUTIONS_H,
+    *,
+    method: Literal["linear", "cubic"] = "cubic",
 ) -> dict[float, tuple[np.ndarray, np.ndarray]]:
-    """Build interpolated U/V fields for the requested temporal resolutions."""
-    u_fields = resample_field_at_resolutions(hours, u, resolutions_h)
-    v_fields = resample_field_at_resolutions(hours, v, resolutions_h)
+    """Build U/V fields with routing linear or cubic interpolation."""
+    u_fields = resample_field_at_resolutions(
+        hours,
+        u,
+        resolutions_h,
+        method=method,
+    )
+    v_fields = resample_field_at_resolutions(
+        hours,
+        v,
+        resolutions_h,
+        method=method,
+    )
     return {
         resolution_h: (u_fields[resolution_h], v_fields[resolution_h])
         for resolution_h in resolutions_h

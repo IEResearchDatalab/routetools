@@ -49,7 +49,7 @@ by a neighboring entry point and are not normally run directly.
 | `demos/draw_fms_land.py` | Animates FMS refinement with land avoidance and writes `output/fms.gif`. |
 | `demos/draw_fms_weather.py` | Animates weather-aware FMS refinement on a synthetic field and writes `output/fms_weather.gif` by default. |
 | `demos/swopp_demo.py` | Runs the compact SWOPP routing demonstration and renders its route comparison. |
-| `demos/compare_ifs_interpolation.py` | Animates IFS ensemble wind or significant wave height forecasts and temporal interpolation, with absolute and relative RMSE plots and CSV output. |
+| `demos/compare_ifs_interpolation.py` | Compares routing's linear and cubic temporal interpolation for IFS ensembles; animates cubic wind vectors or wave-height heat maps and plots both methods' absolute and relative RMSE, with configurable geographic cropping and CSV output. Requires `uv sync --extra ifs` for GRIB input. |
 | `environment/activate_gpu.sh` | Exports GPU-first JAX environment variables in the current shell and produces no files. |
 | `experiments/gradual_land_penalty.py` | Sweeps the synthetic land-penalty strength and writes per-step images plus `output/results_penalty.csv`. |
 | `experiments/parameter_search.py` | Evaluates CMA-ES parameter combinations and writes resumable JSON records and `output/results.csv`. |
