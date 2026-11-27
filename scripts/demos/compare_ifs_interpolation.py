@@ -19,6 +19,7 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 
 from routetools.ifs.interpolation import (
     load_ensemble_wind,
+    relative_rmse_percent,
     resample_wind_at_resolutions,
 )
 
@@ -70,21 +71,41 @@ def main(argv: list[str] | None = None) -> None:
         magnitudes[resolution_h] = np.sqrt(u_field**2 + v_field**2) * 1.94384
 
     reference = magnitudes[3.0]
+    reference_mean_speed = np.mean(reference, axis=(1, 2))
     rmse = {}
+    relative_rmse = {}
     for resolution_h in (24.0, 12.0, 6.0):
         difference = magnitudes[resolution_h] - reference
         rmse[resolution_h] = np.sqrt(
             np.mean(difference**2, axis=(1, 2))
+        )
+        relative_rmse[resolution_h] = relative_rmse_percent(
+            rmse[resolution_h],
+            reference_mean_speed,
         )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.csv_output.parent.mkdir(parents=True, exist_ok=True)
     with args.csv_output.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
-        writer.writerow(["lead_time_h", "resolution_h", "rmse_knots"])
+        writer.writerow(
+            [
+                "lead_time_h",
+                "resolution_h",
+                "rmse_knots",
+                "relative_rmse_percent",
+            ]
+        )
         for resolution_h in rmse:
-            for lead_time_h, value in zip(hours, rmse[resolution_h], strict=True):
-                writer.writerow([lead_time_h, int(resolution_h), value])
+            for lead_time_h, value, relative_value in zip(
+                hours,
+                rmse[resolution_h],
+                relative_rmse[resolution_h],
+                strict=True,
+            ):
+                writer.writerow(
+                    [lead_time_h, int(resolution_h), value, relative_value]
+                )
 
     vmax = float(np.nanpercentile(reference, 99))
     lon_grid, lat_grid = np.meshgrid(lons, lats)
@@ -94,7 +115,14 @@ def main(argv: list[str] | None = None) -> None:
         fig.add_subplot(grid[0, col], aspect="equal") for col in range(3)
     ]
     map_axes.append(fig.add_subplot(grid[1, 0], aspect="equal"))
-    rmse_ax = fig.add_subplot(grid[1, 1:])
+    chart_grid = grid[1, 1:].subgridspec(
+        2,
+        1,
+        height_ratios=(1, 0.85),
+        hspace=0.4,
+    )
+    rmse_ax = fig.add_subplot(chart_grid[0])
+    relative_rmse_ax = fig.add_subplot(chart_grid[1], sharex=rmse_ax)
     titles = [
         "Real forecast (3-hour reference)",
         "24-hour interpolation",
@@ -125,23 +153,50 @@ def main(argv: list[str] | None = None) -> None:
         images.append(image)
     fig.colorbar(
         images[0],
-        ax=map_axes,
+        ax=map_axes[:3],
         label="Wind speed (kn)",
         shrink=0.9,
     )
 
-    rmse_lines = []
+    resolution_colors = {
+        24.0: "tab:blue",
+        12.0: "tab:orange",
+        6.0: "tab:green",
+    }
+    rmse_lines = {}
+    relative_rmse_lines = {}
     for resolution_h in rmse:
-        line, = rmse_ax.plot([], [], marker="o", label=f"{int(resolution_h)} h")
-        rmse_lines.append(line)
+        line, = rmse_ax.plot(
+            [],
+            [],
+            marker="o",
+            color=resolution_colors[resolution_h],
+            label=f"{int(resolution_h)} h",
+        )
+        relative_line, = relative_rmse_ax.plot(
+            [],
+            [],
+            marker="o",
+            linestyle="--",
+            color=resolution_colors[resolution_h],
+            label=f"{int(resolution_h)} h",
+        )
+        rmse_lines[resolution_h] = line
+        relative_rmse_lines[resolution_h] = relative_line
     rmse_ax.set_xlim(hours[0], hours[-1])
     rmse_max = max(float(np.max(values)) for values in rmse.values())
     rmse_ax.set_ylim(0, max(1.0, rmse_max * 1.1))
-    rmse_ax.set_xlabel("Forecast lead time (h)")
+    rmse_ax.tick_params(labelbottom=False)
     rmse_ax.set_ylabel("RMSE vs 3-hour forecast (kn)")
-    rmse_ax.set_title("Interpolation difference")
+    rmse_ax.set_title("Absolute interpolation error")
     rmse_ax.grid(alpha=0.3)
     rmse_ax.legend()
+    relative_max = max(float(np.max(values)) for values in relative_rmse.values())
+    relative_rmse_ax.set_ylim(0, max(1.0, relative_max * 1.1))
+    relative_rmse_ax.set_xlabel("Forecast lead time (h)")
+    relative_rmse_ax.set_ylabel("Relative RMSE (%)")
+    relative_rmse_ax.set_title("Error relative to mean reference wind speed")
+    relative_rmse_ax.grid(alpha=0.3)
 
     forecast_kind = (
         f"member {args.ensemble_member}"
@@ -160,12 +215,21 @@ def main(argv: list[str] | None = None) -> None:
         fig.suptitle(
             f"IFS {forecast_kind} wind | {lead_time_h:.0f} h lead time"
         )
-        for line, resolution_h in zip(rmse_lines, rmse, strict=True):
+        for resolution_h, line in rmse_lines.items():
             line.set_data(
                 hours[: frame_index + 1],
                 rmse[resolution_h][: frame_index + 1],
             )
-        return [*images, *rmse_lines]
+        for resolution_h, line in relative_rmse_lines.items():
+            line.set_data(
+                hours[: frame_index + 1],
+                relative_rmse[resolution_h][: frame_index + 1],
+            )
+        return [
+            *images,
+            *rmse_lines.values(),
+            *relative_rmse_lines.values(),
+        ]
 
     animation = FuncAnimation(
         fig,

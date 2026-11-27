@@ -11,6 +11,7 @@ import xarray as xr
 from routetools.ifs.interpolation import (
     interpolate_field_cubic,
     load_ensemble_wind,
+    relative_rmse_percent,
     resample_wind_at_resolutions,
     temporal_stride_for_resolution,
 )
@@ -70,6 +71,22 @@ def test_resample_contains_native_and_coarse_fields() -> None:
     np.testing.assert_array_equal(fields[3.0][0], u)
     for resolution_h in (24.0, 12.0, 6.0):
         np.testing.assert_allclose(fields[resolution_h][0], u, atol=1e-10)
+
+
+def test_relative_rmse_is_normalized_by_reference_mean_speed() -> None:
+    """Relative RMSE reports error as a percentage of reference mean speed."""
+    result = relative_rmse_percent(
+        np.array([2.0, 4.0]),
+        np.array([10.0, 20.0]),
+    )
+
+    np.testing.assert_allclose(result, [20.0, 20.0])
+
+
+def test_relative_rmse_rejects_zero_reference_speed() -> None:
+    """Relative RMSE fails clearly when the normalization is undefined."""
+    with pytest.raises(ValueError, match="greater than zero"):
+        relative_rmse_percent(np.array([1.0]), np.array([0.0]))
 
 
 def test_load_ensemble_wind_averages_members(tmp_path: Path) -> None:

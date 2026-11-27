@@ -125,6 +125,30 @@ def interpolate_field_cubic(
     return np.asarray(spline(target_hours), dtype=np.float64)
 
 
+def relative_rmse_percent(
+    rmse: np.ndarray,
+    reference_mean_speed: np.ndarray,
+) -> np.ndarray:
+    """Normalize spatial RMSE by the reference's mean speed, in percent.
+
+    Parameters
+    ----------
+    rmse : np.ndarray
+        Spatial RMSE at each forecast lead time.
+    reference_mean_speed : np.ndarray
+        Spatial mean of the reference wind speed at the same lead times.
+    """
+    rmse = np.asarray(rmse, dtype=np.float64)
+    reference_mean_speed = np.asarray(reference_mean_speed, dtype=np.float64)
+    if rmse.shape != reference_mean_speed.shape:
+        raise ValueError("RMSE and reference mean speed must have matching shapes")
+    if np.any(~np.isfinite(reference_mean_speed)) or np.any(
+        reference_mean_speed <= 0
+    ):
+        raise ValueError("Reference mean speed must be finite and greater than zero")
+    return rmse / reference_mean_speed * 100.0
+
+
 def resample_wind_at_resolutions(
     hours: np.ndarray,
     u: np.ndarray,
