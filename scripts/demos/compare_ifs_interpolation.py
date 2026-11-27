@@ -110,13 +110,30 @@ def main(argv: list[str] | None = None) -> None:
         default_stem = "ifs_interpolation"
 
     reference = field_by_resolution[3.0]
-    reference_mean = np.nanmean(reference, axis=(1, 2))
+    comparison_resolutions = (24.0, 12.0, 6.0)
+    common_valid = np.isfinite(reference)
+    for resolution_h in comparison_resolutions:
+        common_valid &= np.isfinite(field_by_resolution[resolution_h])
+    valid_grid_cells = np.count_nonzero(common_valid, axis=(1, 2))
+    if np.any(valid_grid_cells == 0):
+        raise ValueError(
+            "No grid cells have valid data across all temporal resolutions"
+        )
+
+    reference_mean = np.sum(
+        np.where(common_valid, reference, 0.0),
+        axis=(1, 2),
+    ) / valid_grid_cells
     rmse = {}
     relative_rmse = {}
-    for resolution_h in (24.0, 12.0, 6.0):
-        difference = field_by_resolution[resolution_h] - reference
+    for resolution_h in comparison_resolutions:
+        difference = np.where(
+            common_valid,
+            field_by_resolution[resolution_h] - reference,
+            0.0,
+        )
         rmse[resolution_h] = np.sqrt(
-            np.nanmean(difference**2, axis=(1, 2))
+            np.sum(difference**2, axis=(1, 2)) / valid_grid_cells
         )
         relative_rmse[resolution_h] = relative_rmse_percent(
             rmse[resolution_h],
@@ -135,17 +152,25 @@ def main(argv: list[str] | None = None) -> None:
                 "resolution_h",
                 rmse_column,
                 "relative_rmse_percent",
+                "valid_grid_cells",
             ]
         )
         for resolution_h in rmse:
-            for lead_time_h, value, relative_value in zip(
+            for lead_time_h, value, relative_value, valid_grid_cell_count in zip(
                 hours,
                 rmse[resolution_h],
                 relative_rmse[resolution_h],
+                valid_grid_cells,
                 strict=True,
             ):
                 writer.writerow(
-                    [lead_time_h, int(resolution_h), value, relative_value]
+                    [
+                        lead_time_h,
+                        int(resolution_h),
+                        value,
+                        relative_value,
+                        valid_grid_cell_count,
+                    ]
                 )
 
     vmax = float(np.nanpercentile(reference, 99))

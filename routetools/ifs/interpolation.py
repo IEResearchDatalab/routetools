@@ -162,7 +162,12 @@ def interpolate_field_cubic(
     source_hours: np.ndarray,
     target_hours: np.ndarray,
 ) -> np.ndarray:
-    """Interpolate forecast fields along the lead-time axis with cubic splines."""
+    """Interpolate forecast fields along lead time, preserving missing cells.
+
+    Spatial cells with incomplete temporal data are interpolated from their
+    available samples only. Cells with fewer than two samples remain masked
+    except at target times that exactly match an available sample.
+    """
     if values.shape[0] != len(source_hours):
         raise ValueError("First values axis must match the source lead times")
     if len(source_hours) < 2:
@@ -175,8 +180,40 @@ def interpolate_field_cubic(
             "Target lead times must lie within the source lead-time range"
         )
 
-    spline = CubicSpline(source_hours, values, axis=0)
-    return np.asarray(spline(target_hours), dtype=np.float64)
+    values = np.asarray(values, dtype=np.float64)
+    flat_values = values.reshape((len(source_hours), -1))
+    flat_result = np.full(
+        (len(target_hours), flat_values.shape[1]),
+        np.nan,
+        dtype=np.float64,
+    )
+    finite = np.isfinite(flat_values)
+    complete_columns = np.all(finite, axis=0)
+
+    if np.any(complete_columns):
+        spline = CubicSpline(
+            source_hours,
+            flat_values[:, complete_columns],
+            axis=0,
+        )
+        flat_result[:, complete_columns] = spline(target_hours)
+
+    for column in np.flatnonzero(~complete_columns & np.any(finite, axis=0)):
+        valid = finite[:, column]
+        column_hours = source_hours[valid]
+        column_values = flat_values[valid, column]
+        if len(column_hours) == 1:
+            exact = target_hours == column_hours[0]
+            flat_result[exact, column] = column_values[0]
+            continue
+
+        inside = (target_hours >= column_hours[0]) & (
+            target_hours <= column_hours[-1]
+        )
+        spline = CubicSpline(column_hours, column_values)
+        flat_result[inside, column] = spline(target_hours[inside])
+
+    return flat_result.reshape((len(target_hours), *values.shape[1:]))
 
 
 def relative_rmse_percent(

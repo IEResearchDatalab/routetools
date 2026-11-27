@@ -60,6 +60,35 @@ def test_cubic_interpolation_reproduces_linear_field() -> None:
     np.testing.assert_allclose(result, expected, atol=1e-10)
 
 
+def test_cubic_interpolation_preserves_missing_spatial_cells() -> None:
+    """NaNs in land or incomplete cells do not break interpolation elsewhere."""
+    source_hours = np.array([0.0, 6.0, 12.0, 18.0, 24.0])
+    values = np.array(
+        [
+            [[0.0, np.nan, 0.0]],
+            [[6.0, np.nan, np.nan]],
+            [[12.0, np.nan, 12.0]],
+            [[18.0, np.nan, 18.0]],
+            [[24.0, np.nan, 24.0]],
+        ]
+    )
+    target_hours = np.arange(0.0, 25.0, 3.0)
+
+    result = interpolate_field_cubic(values, source_hours, target_hours)
+
+    np.testing.assert_allclose(
+        result[:, 0, 0],
+        target_hours,
+        atol=1e-10,
+    )
+    assert np.isnan(result[:, 0, 1]).all()
+    np.testing.assert_allclose(
+        result[:, 0, 2],
+        target_hours,
+        atol=1e-10,
+    )
+
+
 def test_resample_contains_native_and_coarse_fields() -> None:
     """The resampler includes native 3-hour and three coarser resolutions."""
     hours = np.arange(0.0, 27.0, 3.0)
